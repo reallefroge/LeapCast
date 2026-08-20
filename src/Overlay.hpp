@@ -125,6 +125,7 @@ private:
     QLabel* event_{};
     QLabel* viewers_{};
     QLabel* clipStatus_{};
+    QLabel* toolbarTitle_{};
     QPushButton* clipButton_{};
     QHash<QString, int> counts_;
     // Messages currently rendered in chat_, keyed by an ever-increasing id

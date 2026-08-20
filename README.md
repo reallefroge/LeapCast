@@ -9,7 +9,7 @@
 
   Follow Twitch, YouTube, YouTube Shorts, and TikTok LIVE communities, moderate faster, show chat in OBS, and surface Streamlabs events without juggling a wall of browser windows.
 
-  [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
+  [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
 </div>
 
 > [!IMPORTANT]

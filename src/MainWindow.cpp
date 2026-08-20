@@ -11,10 +11,13 @@
 #include <QButtonGroup>
 #include <QClipboard>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QDesktopServices>
 #include <QDateTime>
 #include <QEvent>
 #include <QFrame>
+#include <QFontComboBox>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QInputDialog>
@@ -114,8 +117,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     resize(1280, 760);
     setMinimumSize(1000, 620);
     setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
-    applyTheme();
     controller_ = new AppController(this);
+    applyTheme();
     overlay_ = new OverlayServer(this);
     overlay_->start(static_cast<quint16>(controller_->settings()->preference(QStringLiteral("port"),8080).toInt()));
     overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"), 0).toInt());
@@ -333,7 +336,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
     });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
-    QTimer::singleShot(7500, this, [this] { updater_->check(false); });
 }
 
 bool MainWindow::event(QEvent* e) {
@@ -341,6 +343,11 @@ bool MainWindow::event(QEvent* e) {
         popout_->setGhostMode(false);
     }
     return QMainWindow::event(e);
+}
+
+void MainWindow::closeEvent(QCloseEvent* e){
+    controller_->settings()->save();
+    QMainWindow::closeEvent(e);
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -356,7 +363,7 @@ QWidget* MainWindow::buildDashboard() {
     // Wide enough for the longest label ("Moderation") at the nav button's
     // reduced padding/font without truncating.
     rail->setFixedWidth(140);
-    auto* railLayout = new QVBoxLayout(rail);
+    auto* railLayout = new QVBoxLayout(rail);navigationLayout_=railLayout;
     auto* brand = new QLabel;
     brand->setPixmap(QPixmap(QStringLiteral(":/brand/lefroge_chat_icon.png"))
                          .scaled(62, 62, Qt::KeepAspectRatio, Qt::SmoothTransformation));
@@ -365,29 +372,22 @@ QWidget* MainWindow::buildDashboard() {
     railLayout->addWidget(label(QStringLiteral("LEAPCAST\nSTUDIO"), "brand"));
 
     pages_ = new QStackedWidget;
-    const QStringList names{QStringLiteral("Sources"), QStringLiteral("Events"),
-                            QStringLiteral("Moderation"), QStringLiteral("Bans"),
-                            QStringLiteral("OBS")};
+    const QStringList keys{QStringLiteral("sources"),QStringLiteral("events"),QStringLiteral("moderation"),QStringLiteral("bans"),QStringLiteral("obs"),QStringLiteral("settings")};
+    const QHash<QString,QString> names{{"sources","Sources"},{"events","Events"},{"moderation","Moderation"},{"bans","Bans"},{"obs","OBS"},{"settings","Settings"}};
+    const QStringList saved=controller_->settings()->preference(QStringLiteral("navigation_order"),keys).toStringList();
+    navigationOrder_=saved;for(const auto&key:keys)if(!navigationOrder_.contains(key))navigationOrder_<<key;
+    for(int i=navigationOrder_.size()-1;i>=0;--i)if(!keys.contains(navigationOrder_[i]))navigationOrder_.removeAt(i);
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
-    for (qsizetype i = 0; i < names.size(); ++i) {
-        auto* button = new QPushButton(names.at(i));
+    pages_->addWidget(buildSourcesPage());pages_->addWidget(buildEventsPage());pages_->addWidget(buildModerationPage());pages_->addWidget(buildBansPage());pages_->addWidget(buildObsPage());pages_->addWidget(buildSettingsPage());
+    for (const auto&key:navigationOrder_) {
+        const int i=keys.indexOf(key);
+        auto* button = new QPushButton(names.value(key));
         button->setCheckable(true);
         button->setProperty("nav", true);
-        group->addButton(button, static_cast<int>(i));
+        button->setProperty("navKey",key);navigationButtons_[key]=button;
+        group->addButton(button, i);
         railLayout->addWidget(button);
-        if (i == 0) pages_->addWidget(buildSourcesPage());
-        else if (i == 1) pages_->addWidget(buildEventsPage());
-        else if (i == 2) pages_->addWidget(buildModerationPage());
-        else if (i == 3) pages_->addWidget(buildBansPage());
-        else if (i == 4) pages_->addWidget(buildObsPage());
-        else {
-            auto* page = new QWidget;
-            auto* layout = new QVBoxLayout(page);
-            layout->addWidget(label(names.at(i).toUpper(), "pageTitle"));
-            layout->addStretch();
-            pages_->addWidget(page);
-        }
     }
     railLayout->addStretch();
     auto* version = label(QStringLiteral("v%1").arg(QString::fromLatin1(leapcast::Version)), "version");
@@ -460,7 +460,7 @@ QWidget* MainWindow::buildSourcesPage() {
         layout->addWidget(welcome);
     }
     for(const auto& source:sources){
-        auto* card=new QFrame;card->setProperty("card",true);auto* cardLayout=new QVBoxLayout(card);
+        auto* card=new QFrame;card->setProperty("card",true);card->setProperty("platform",source.first);sourceCards_[source.first]=card;auto* cardLayout=new QVBoxLayout(card);
         auto* head=new QHBoxLayout;head->addWidget(label(source.second,"cardTitle"));head->addStretch();
         auto* state=label(QStringLiteral("Offline"),"status");sourceStates_[source.first]=state;head->addWidget(state);cardLayout->addLayout(head);
         auto* row=new QHBoxLayout;auto* entry=new QLineEdit(controller_->settings()->link(source.first));entry->setPlaceholderText(source.first=="twitch"?"twitch.tv/yourname":source.first=="tiktok"?"tiktok.com/@yourname":"youtube.com/@yourname");row->addWidget(entry,1);
@@ -584,6 +584,41 @@ QWidget* MainWindow::buildObsPage() {
     });
     layout->addWidget(fadeCard);
 
+    layout->addStretch();
+    return page;
+}
+
+QWidget* MainWindow::buildSettingsPage(){
+    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(12);
+    layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
+    layout->addWidget(label(QStringLiteral("Personalize Leapcast Studio. Changes stay inside their existing areas and are saved automatically."),"muted"));
+
+    auto* appearance=new QFrame;appearance->setProperty("card",true);auto* appearanceLayout=new QVBoxLayout(appearance);
+    appearanceLayout->addWidget(label(QStringLiteral("APPEARANCE"),"cardTitle"));
+    auto* fontRow=new QHBoxLayout;fontRow->addWidget(label(QStringLiteral("Program font")));
+    auto* fonts=new QFontComboBox;fonts->setCurrentFont(QFont(controller_->settings()->preference("ui_font_family","Segoe UI").toString()));fontRow->addWidget(fonts,1);
+    auto* fontSize=new QSpinBox;fontSize->setRange(8,20);fontSize->setSuffix(QStringLiteral(" pt"));fontSize->setValue(controller_->settings()->preference("ui_font_size",10).toInt());fontRow->addWidget(fontSize);appearanceLayout->addLayout(fontRow);
+    auto* scaleRow=new QHBoxLayout;scaleRow->addWidget(label(QStringLiteral("Button and control size")));
+    auto* controlScale=new QSlider(Qt::Horizontal);controlScale->setRange(80,160);controlScale->setValue(controller_->settings()->preference("ui_control_scale",100).toInt());scaleRow->addWidget(controlScale,1);
+    auto* scaleValue=label(QString::number(controlScale->value())+QStringLiteral("%"));scaleRow->addWidget(scaleValue);appearanceLayout->addLayout(scaleRow);
+    connect(fonts,&QFontComboBox::currentFontChanged,this,[this](const QFont&font){controller_->settings()->setPreference("ui_font_family",font.family());applyTheme();});
+    connect(fontSize,qOverload<int>(&QSpinBox::valueChanged),this,[this](int value){controller_->settings()->setPreference("ui_font_size",value);applyTheme();});
+    connect(controlScale,&QSlider::valueChanged,this,[this,scaleValue](int value){scaleValue->setText(QString::number(value)+"%");controller_->settings()->setPreference("ui_control_scale",value);applyTheme();});
+    layout->addWidget(appearance);
+
+    auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
+    auto* navText=new QVBoxLayout;navText->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navText->addWidget(label(QStringLiteral("Move a tab within the sidebar. Tabs cannot be moved into unrelated areas."),"muted"));navSettings->addLayout(navText,1);
+    auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key=="yt_shorts"?"Shorts":key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
+    auto* up=new QPushButton(QStringLiteral("Move up"));auto* down=new QPushButton(QStringLiteral("Move down"));navSettings->addWidget(up);navSettings->addWidget(down);
+    connect(up,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),-1);});
+    connect(down,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),1);});layout->addWidget(navigation);
+
+    auto* platforms=new QFrame;platforms->setProperty("card",true);auto* platformLayout=new QVBoxLayout(platforms);platformLayout->addWidget(label(QStringLiteral("VISIBLE PLATFORMS"),"cardTitle"));
+    platformLayout->addWidget(label(QStringLiteral("Disable platforms you do not use. Saved links and authorization are retained."),"muted"));
+    const QList<QPair<QString,QString>> options{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"}};
+    for(const auto&option:options){auto*box=new QCheckBox(option.second);box->setChecked(controller_->settings()->enabled(option.first));platformLayout->addWidget(box);connect(box,&QCheckBox::toggled,this,[this,key=option.first](bool enabled){controller_->settings()->setEnabled(key,enabled);if(enabled){const QString link=controller_->settings()->link(key);if(!link.isEmpty())controller_->connectSource(key,link);}else controller_->disconnectSource(key);applyPlatformVisibility();});}
+    layout->addWidget(platforms);
+
     auto* updateCard = new QFrame; updateCard->setProperty("card", true);
     auto* updateLayout = new QHBoxLayout(updateCard);
     auto* updateText = new QVBoxLayout;
@@ -602,6 +637,28 @@ QWidget* MainWindow::buildObsPage() {
     return page;
 }
 
+void MainWindow::moveNavigationButton(const QString&key,int direction){
+    const int from=navigationOrder_.indexOf(key),to=from+direction;if(from<0||to<0||to>=navigationOrder_.size())return;
+    navigationOrder_.move(from,to);controller_->settings()->setPreference("navigation_order",navigationOrder_);
+    for(const auto&ordered:navigationOrder_)if(navigationButtons_.contains(ordered))navigationLayout_->removeWidget(navigationButtons_[ordered]);
+    int position=2;for(const auto&ordered:navigationOrder_)if(navigationButtons_.contains(ordered))navigationLayout_->insertWidget(position++,navigationButtons_[ordered]);
+}
+
+void MainWindow::applyPlatformVisibility(){
+    for(const auto&key:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok")}){
+        const bool enabled=controller_->settings()->enabled(key);if(sourceCards_.contains(key))sourceCards_[key]->setVisible(enabled);if(chatTabs_&&platformChatWidgets_.contains(key)){const int index=chatTabs_->indexOf(platformChatWidgets_[key]);if(index>=0)chatTabs_->setTabVisible(index,enabled);}
+    }
+    for(auto*widget:findChildren<QWidget*>()){
+        const QString key=widget->property("platform").toString();
+        if(!key.isEmpty())widget->setVisible(controller_->settings()->enabled(key));
+    }
+    if(moderationTabs_){
+        moderationTabs_->setTabVisible(0,controller_->settings()->enabled("twitch"));
+        moderationTabs_->setTabVisible(1,controller_->settings()->enabled("youtube"));
+        moderationTabs_->setTabVisible(2,controller_->settings()->enabled("twitch"));
+    }
+}
+
 QWidget* MainWindow::buildBansPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
@@ -616,7 +673,7 @@ QWidget* MainWindow::buildBansPage() {
     help->setWordWrap(true);
     heroLayout->addWidget(help);
     layout->addWidget(hero);
-    auto* tabs = new QTabWidget;
+    auto* tabs = new QTabWidget;moderationTabs_=tabs;
     tabs->setObjectName(QStringLiteral("moderationTabs"));
     const auto makePage = [this](const QString& platform, QListWidget** output) {
         auto* host = new QWidget; auto* hostLayout = new QVBoxLayout(host);
@@ -701,6 +758,7 @@ QWidget* MainWindow::buildModerationPage() {
     auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"),
                                         twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),
                                         QColor("#9146ff"), twitchAuthorized?QStringLiteral("Reconnect Twitch"):QStringLiteral("Connect Twitch"));
+    twitchCard->setProperty("platform",QStringLiteral("twitch"));
     twitchModerationStatus_=twitchCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
     twitchConnectButton_=twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction"));
     left->addWidget(twitchCard);
@@ -711,6 +769,7 @@ QWidget* MainWindow::buildModerationPage() {
                                          QColor("#ff334f"), youtubeAuthorized?QStringLiteral("Reconnect YouTube"):QStringLiteral("Connect YouTube"),
                                          QStringLiteral("Get YouTube keys ↗"),
                                          QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
+    youtubeCard->setProperty("platform",QStringLiteral("youtube"));
     youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
     youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));
     left->addWidget(youtubeCard);
@@ -720,6 +779,7 @@ QWidget* MainWindow::buildModerationPage() {
     auto* tiktokCard = makePlatformCard(QStringLiteral("TikTok"),
                                         QStringLiteral("Moderate directly on TikTok"),
                                         QColor("#18e0d5"), QStringLiteral("Open TikTok LIVE in browser"));
+    tiktokCard->setProperty("platform",QStringLiteral("tiktok"));
     right->addWidget(tiktokCard);
     connect(tiktokCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::openTikTokModeration);
@@ -844,6 +904,7 @@ QWidget* MainWindow::buildChatDock() {
         else chatTabs_->addTab(chat, tab.first);
         chatTabs_->setTabToolTip(static_cast<int>(index), tab.first);
         chatViews_.insert(keys.at(index),chat);
+        if(keys.at(index)!=QStringLiteral("combined"))platformChatWidgets_[keys.at(index)]=chat;
         connect(chat, &ChatBrowser::chatContextMenuRequested, this,
                 [this, chat](const QPoint& globalPos) { showDashboardChatMenu(chat, globalPos); });
     }
@@ -860,6 +921,7 @@ QWidget* MainWindow::buildChatDock() {
     chatTabs_->setTabToolTip(kickTabIndex, QStringLiteral("Kick — Coming Soon"));
 
     layout->addWidget(chatTabs_, 1);
+    applyPlatformVisibility();
 
     const auto ensurePopout = [this] {
         if (popout_) return popout_;
@@ -887,7 +949,7 @@ QWidget* MainWindow::buildChatDock() {
     auto* opacityRow = new QHBoxLayout;
     opacityRow->addWidget(label(QStringLiteral("Pop-out opacity")));
     popoutOpacity_ = new QSlider(Qt::Horizontal);
-    popoutOpacity_->setRange(10, 100);
+    popoutOpacity_->setRange(0, 100);
     popoutOpacity_->setValue(savedOpacity);
     opacityRow->addWidget(popoutOpacity_, 1);
     auto* opacityValue = label(QString::number(savedOpacity) + QStringLiteral("%"));
@@ -922,8 +984,11 @@ QWidget* MainWindow::buildChatDock() {
 }
 
 void MainWindow::applyTheme() {
-    qApp->setStyleSheet(QStringLiteral(R"(
-        * { font-family:'Segoe UI'; font-size:10pt; color:#eef2ff; }
+    const QString family=controller_?controller_->settings()->preference("ui_font_family","Segoe UI").toString():QStringLiteral("Segoe UI");
+    const int fontSize=controller_?controller_->settings()->preference("ui_font_size",10).toInt():10;
+    const int scale=controller_?controller_->settings()->preference("ui_control_scale",100).toInt():100;
+    QString sheet=QStringLiteral(R"(
+        * { font-family:'__FONT__'; font-size:__SIZE__pt; color:#eef2ff; }
         QMainWindow, QWidget { background:#0b0d15; }
         QFrame#navigationRail, QFrame#chatDock { background:#111522; border:1px solid #242b3d; border-radius:14px; }
         QLabel[role='brand'] { font-size:11pt; font-weight:800; color:#f8fbff; qproperty-alignment:AlignCenter; }
@@ -937,7 +1002,7 @@ void MainWindow::applyTheme() {
         QFrame#welcomeCard { background:#171d2d; border:1px solid #283149; border-left:5px solid #63e6be; border-radius:12px; padding:4px; }
         QFrame#bansHero { background:#141a29; border:1px solid #28334a; border-left:5px solid #7667ef; border-radius:12px; }
         QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
-        QPushButton { background:#20283a; border:0; border-radius:8px; padding:10px 12px; font-weight:700; }
+        QPushButton { background:#20283a; border:0; border-radius:8px; padding:__VPAD__px __HPAD__px; font-weight:700; }
         QPushButton:hover { background:#2b3650; }
         QPushButton[nav='true'] { text-align:left; margin:2px 4px; padding:9px 8px; font-size:9pt; }
         QPushButton[nav='true']:checked { background:#7667ef; color:white; }
@@ -958,5 +1023,10 @@ void MainWindow::applyTheme() {
         QLabel[role='restrictionReason'] { color:#c7cede; }
         QLabel[role='restrictionTime'] { color:#7f8ba5; font-size:9pt; }
         QSplitter::handle { background:#242b3d; width:2px; }
-    )"));
+    )");
+    family.contains(QLatin1Char('\''))?sheet.replace("__FONT__",QStringLiteral("Segoe UI")):sheet.replace("__FONT__",family);
+    sheet.replace("__SIZE__",QString::number(qBound(8,fontSize,20)));
+    sheet.replace("__VPAD__",QString::number(qMax(5,10*scale/100)));
+    sheet.replace("__HPAD__",QString::number(qMax(6,12*scale/100)));
+    qApp->setStyleSheet(sheet);
 }

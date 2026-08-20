@@ -16,6 +16,8 @@ class QPushButton;
 class QCheckBox;
 class QSlider;
 class QFrame;
+class QCloseEvent;
+class QVBoxLayout;
 class AppController;
 class OverlayServer;
 class PopoutChat;
@@ -29,6 +31,7 @@ public:
 
 protected:
     bool event(QEvent* e) override;
+    void closeEvent(QCloseEvent* e) override;
 
 private:
     QWidget* buildSidebar();
@@ -36,6 +39,7 @@ private:
     QWidget* buildSourcesPage();
     QWidget* buildEventsPage();
     QWidget* buildObsPage();
+    QWidget* buildSettingsPage();
     QWidget* buildBansPage();
     QWidget* buildChatDock();
     QWidget* buildModerationPage();
@@ -44,6 +48,8 @@ private:
                               const QString& credentialAction = {},
                               const QUrl& credentialUrl = {});
     void applyTheme();
+    void applyPlatformVisibility();
+    void moveNavigationButton(const QString& key, int direction);
     void authorizeTwitch();
     void configureYouTubeModeration();
     void openTikTokModeration();
@@ -55,7 +61,13 @@ private:
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
+    QTabWidget* moderationTabs_{};
     QHash<QString,QTextBrowser*> chatViews_;
+    QHash<QString,QWidget*> sourceCards_;
+    QHash<QString,QWidget*> platformChatWidgets_;
+    QHash<QString,QPushButton*> navigationButtons_;
+    QStringList navigationOrder_;
+    QVBoxLayout* navigationLayout_{};
     // Messages currently rendered in the dashboard chat views, keyed by an
     // ever-increasing id stamped onto each message's paragraph as a block
     // property (see appendChatMessage in MainWindow.cpp), so a right-click

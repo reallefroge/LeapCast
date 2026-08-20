@@ -68,6 +68,8 @@ void OverlayServer::ingest(const ChatMessage&m){messages_.append({++cursor_,m});
 void OverlayServer::accept(){while(auto*s=server_.nextPendingConnection()){connect(s,&QTcpSocket::readyRead,this,[this,s]{const QByteArray first=s->readAll().split('\n').value(0);s->write(responseFor(first.split(' ').value(1)));s->disconnectFromHost();});connect(s,&QTcpSocket::disconnected,s,&QObject::deleteLater);}}
 QByteArray OverlayServer::responseFor(const QByteArray&t){if(t=="/"||t.startsWith("/?"))return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith("/api/messages")){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"fade_seconds",fadeSeconds_}}).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/viewers")){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}return reply(404,"text/plain","Not found");}
 PopoutChat::PopoutChat(QWidget*p):QWidget(p){
+    setObjectName(QStringLiteral("popoutWindow"));
+    setStyleSheet(QStringLiteral("QWidget#popoutWindow{background:transparent;border:0;}"));
     setWindowTitle("Leapcast Studio Pop-out");
     setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));
     resize(460,720);
@@ -80,9 +82,9 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
 
     auto*toolbar=new QHBoxLayout;
     toolbar->setSpacing(6);
-    auto*title=new QLabel("LEAPCAST STUDIO");
-    title->setStyleSheet("color:#8f9bb5;font-size:8pt;font-weight:800;letter-spacing:1px;");
-    toolbar->addWidget(title);
+    toolbarTitle_=new QLabel("LEAPCAST STUDIO");
+    toolbarTitle_->setStyleSheet("color:#8f9bb5;font-size:8pt;font-weight:800;letter-spacing:1px;");
+    toolbar->addWidget(toolbarTitle_);
     toolbar->addStretch();
     clipButton_=new QPushButton("Clip");
     clipButton_->setToolTip("Create a Twitch clip of this stream, just like the Clip button on twitch.tv");
@@ -208,7 +210,7 @@ void PopoutChat::showChatContextMenu(const QPoint&globalPos){
     connect(menu.addAction(QStringLiteral("Select All")),&QAction::triggered,chat_,&QTextBrowser::selectAll);
     menu.exec(globalPos);
 }
-void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
+void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));if(opacityPercent_>0)event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
 void PopoutChat::setViewers(const QString&p,int n){
     counts_[p]=n;
     int total=0;
@@ -242,11 +244,17 @@ void PopoutChat::setGhostMode(bool on){
     emit ghostModeChanged(ghostMode_);
 }
 void PopoutChat::setClearBackground(bool on){clearBackground_=on;applyOpacity();}
-void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(10,n,100);applyOpacity();}
+void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(0,n,100);applyOpacity();}
 void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
     chat_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);border:0;border-radius:12px;font-size:12pt;").arg(alpha));
     viewers_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(alpha));
+    const bool chromeVisible=opacityPercent_>0;
+    if(toolbarTitle_)toolbarTitle_->setVisible(chromeVisible);
+    if(clipButton_)clipButton_->setVisible(chromeVisible);
+    if(viewers_)viewers_->setVisible(chromeVisible);
+    if(event_)event_->setVisible(chromeVisible&&event_->isVisible());
+    if(clipStatus_)clipStatus_->setVisible(chromeVisible&&clipStatus_->isVisible());
 }
 void PopoutChat::registerRestoreHotkeys(){
 #ifdef Q_OS_WIN

@@ -1,13 +1,16 @@
 #include "MainWindow.hpp"
 #include "BuildInfo.hpp"
+#include "UpdateService.hpp"
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QIcon>
 #include <QPainter>
 #include <QScreen>
 #include <QSplashScreen>
 #include <QThread>
+#include <QTimer>
 
 class BrandSplash final : public QSplashScreen {
 public:
@@ -30,25 +33,33 @@ public:
         p.setFont(QFont(QStringLiteral("Segoe UI"), 9, QFont::DemiBold));
         p.drawText(QRect(0, 222, 560, 25), Qt::AlignCenter,
                    QStringLiteral("MULTI-CHAT & MODERATION"));
+        p.setPen(QColor("#15e0d2"));
+        p.drawText(QRect(0, 248, 560, 22),Qt::AlignCenter,QStringLiteral("V%1").arg(QString::fromLatin1(leapcast::Version)));
         p.setPen(QPen(QColor("#293044"), 5, Qt::SolidLine, Qt::RoundCap));
         p.drawLine(54, 285, 506, 285);
-        p.setPen(QColor("#a8b0c7"));
-        p.drawText(QRect(0, 302, 560, 20), Qt::AlignCenter,
-                   QStringLiteral("OPENING YOUR CREATOR CONSOLE..."));
+        status_=QStringLiteral("CHECKING FOR UPDATES...");
         setProgress(0.0);
     }
 
+    void setStatus(const QString&status){status_=status;setProgress(progress_);}
+
     void setProgress(double progress) {
+        progress_=qBound(0.0,progress,1.0);
         QPixmap frame=base_;
         QPainter p(&frame);
         p.setRenderHint(QPainter::Antialiasing);
         p.setPen(QPen(QColor("#15e0d2"),5,Qt::SolidLine,Qt::RoundCap));
-        p.drawLine(54,285,54+qRound(452*qBound(0.0,progress,1.0)),285);
+        p.drawLine(54,285,54+qRound(452*progress_),285);
+        p.setPen(QColor("#a8b0c7"));
+        p.setFont(QFont(QStringLiteral("Segoe UI"),9,QFont::DemiBold));
+        p.drawText(QRect(0,302,560,20),Qt::AlignCenter,status_);
         setPixmap(frame);
     }
 
 private:
     QPixmap base_;
+    QString status_;
+    double progress_{};
 };
 
 int main(int argc, char* argv[]) {
@@ -64,6 +75,20 @@ int main(int argc, char* argv[]) {
 
     QElapsedTimer minimumBrandTime;
     minimumBrandTime.start();
+
+    UpdateService startupUpdater;
+    QEventLoop updateLoop;
+    QTimer checkTimeout;checkTimeout.setSingleShot(true);
+    bool installingUpdate=false;
+    bool updateFailed=false;
+    QObject::connect(&checkTimeout,&QTimer::timeout,&updateLoop,[&]{splash.setStatus(QStringLiteral("UPDATE CHECK TIMED OUT — OPENING..."));updateLoop.quit();});
+    QObject::connect(&startupUpdater,&UpdateService::upToDate,&updateLoop,[&]{checkTimeout.stop();splash.setStatus(QStringLiteral("UP TO DATE — OPENING..."));splash.setProgress(1.0);updateLoop.quit();});
+    QObject::connect(&startupUpdater,&UpdateService::failed,&updateLoop,[&](const QString&){updateFailed=true;checkTimeout.stop();splash.setStatus(QStringLiteral("UPDATE CHECK UNAVAILABLE — OPENING..."));updateLoop.quit();});
+    QObject::connect(&startupUpdater,&UpdateService::updateAvailable,&updateLoop,[&](const QString&version,const QString&,const QUrl&asset,const QString&name,const QString&digest){installingUpdate=true;updateFailed=false;checkTimeout.stop();splash.setStatus(QStringLiteral("UPDATE V%1 FOUND — DOWNLOADING...").arg(version));startupUpdater.downloadAndInstall(asset,name,digest);});
+    QObject::connect(&startupUpdater,&UpdateService::progress,&splash,[&](qint64 received,qint64 total){if(total>0)splash.setProgress(double(received)/double(total));});
+    QObject::connect(&app,&QCoreApplication::aboutToQuit,&updateLoop,&QEventLoop::quit);
+    checkTimeout.start(10000);startupUpdater.check(true);updateLoop.exec();
+    if(installingUpdate&&!updateFailed)return 0;
 
     MainWindow window;
     while (minimumBrandTime.elapsed() < 5000) {
