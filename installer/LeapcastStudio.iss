@@ -53,36 +53,3 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Run]
 Filename: "{app}\LeapcastStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\LeapcastStudio.exe"; Flags: nowait skipifnotsilent; Check: IsUpdateMode
-
-[Code]
-function IsUpdateMode: Boolean;
-var
-  Index: Integer;
-begin
-  Result := False;
-  for Index := 1 to ParamCount do
-    if CompareText(ParamStr(Index), '/UPDATE') = 0 then
-    begin
-      Result := True;
-      Exit;
-    end;
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  PreviousUninstaller: String;
-  ResultCode: Integer;
-begin
-  Result := '';
-  PreviousUninstaller := ExpandConstant('{app}\unins000.exe');
-  if FileExists(PreviousUninstaller) then
-  begin
-    if not Exec(PreviousUninstaller,
-      '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE,
-      ewWaitUntilTerminated, ResultCode) then
-      Result := 'Leapcast Studio could not remove the previous installation.'
-    else if ResultCode <> 0 then
-      Result := 'The previous Leapcast Studio installation could not be removed cleanly.';
-  end;
-end;

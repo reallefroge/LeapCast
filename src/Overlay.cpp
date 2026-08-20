@@ -17,6 +17,7 @@
 #include <QTcpSocket>
 #include <QTextBlock>
 #include <QTextBlockFormat>
+#include <QTextCharFormat>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -140,6 +141,9 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     format.setProperty(kMessageIdProperty,id);
     if(!chat_->document()->isEmpty())cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
+    QTextCharFormat messageFormat=cursor.charFormat();
+    messageFormat.setProperty(kMessageIdProperty,id);
+    cursor.setCharFormat(messageFormat);
     const QString badges=badgeGlyphs(m.badges);
     cursor.insertHtml(QString("%1<b style='color:%2'>%3</b> %4")
         .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
@@ -163,7 +167,20 @@ void PopoutChat::appendModerationNote(const QString&user,const QString&reason){
 }
 void PopoutChat::showChatContextMenu(const QPoint&globalPos){
     const QPoint pos=chat_->viewport()->mapFromGlobal(globalPos);
-    const qint64 id=chat_->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
+    QTextCursor clicked=chat_->cursorForPosition(pos);
+    qint64 id=clicked.blockFormat().property(kMessageIdProperty).toLongLong();
+    if(!historyById_.contains(id))id=clicked.charFormat().property(kMessageIdProperty).toLongLong();
+    // Rich-text layout can land a right-click on the spacer block immediately
+    // beside a message. Resolve only the directly adjacent blocks—never jump
+    // to an unrelated, older user.
+    if(!historyById_.contains(id)){
+        const QTextBlock original=clicked.block();
+        for(const auto&candidate:{original.previous(),original.next()}){
+            if(!candidate.isValid())continue;
+            const qint64 candidateId=candidate.blockFormat().property(kMessageIdProperty).toLongLong();
+            if(historyById_.contains(candidateId)){id=candidateId;break;}
+        }
+    }
     QMenu menu(this);
     auto*copyAction=menu.addAction(QStringLiteral("Copy"));
     copyAction->setEnabled(chat_->textCursor().hasSelection());

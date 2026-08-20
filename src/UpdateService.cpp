@@ -112,8 +112,40 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
             QStringLiteral("/UPDATE"),
             QStringLiteral("/LOG=%1").arg(QDir::toNativeSeparators(logPath))
         };
-        if (!QProcess::startDetached(path, arguments)) {
-            emit failed(QStringLiteral("Could not launch the downloaded installer."));
+        // Do not let the installer race the still-running application. A tiny
+        // detached handoff waits for this exact process to exit, installs in
+        // place, then explicitly relaunches the installed executable. The
+        // fallback relaunch also runs when Setup returns a non-zero code, so a
+        // failed update does not leave the streamer wondering where the app went.
+        const qint64 pid=QCoreApplication::applicationPid();
+        const QString installedExe=QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+        const QString helperPath=tempDirectory.filePath(QStringLiteral("LeapcastStudio-Update.cmd"));
+        // Keep a recovery copy of account settings outside the install folder.
+        // Normal upgrades never touch AppData, but this also protects against a
+        // damaged installer or an over-aggressive older uninstaller.
+        const QString settingsPath=QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("settings.json"));
+        const QString settingsBackup=settingsPath+QStringLiteral(".update-backup");
+        if(QFile::exists(settingsPath)){QFile::remove(settingsBackup);QFile::copy(settingsPath,settingsBackup);}
+        QFile helper(helperPath);
+        if(!helper.open(QIODevice::WriteOnly|QIODevice::Truncate|QIODevice::Text)){
+            emit failed(QStringLiteral("Could not create the update handoff."));reply->deleteLater();return;
+        }
+        auto quote=[](QString value){value.replace(QLatin1Char('"'),QStringLiteral("\"\""));return QStringLiteral("\"")+value+QStringLiteral("\"");};
+        QStringList quotedArgs;for(const auto&argument:arguments)quotedArgs<<quote(argument);
+        const QString script=QStringLiteral(
+            "@echo off\r\n"
+            "setlocal\r\n"
+            ":wait_for_app\r\n"
+            "tasklist /FI \"PID eq %1\" /NH 2>NUL | find \"%1\" >NUL\r\n"
+            "if not errorlevel 1 (ping 127.0.0.1 -n 2 >NUL & goto wait_for_app)\r\n"
+            "start \"\" /wait %2 %3\r\n"
+            "if exist %4 start \"\" %4\r\n"
+            "del \"%%~f0\"\r\n")
+            .arg(pid).arg(quote(QDir::toNativeSeparators(path)),quotedArgs.join(QLatin1Char(' ')),quote(installedExe));
+        helper.write(script.toLocal8Bit());helper.close();
+        if (!QProcess::startDetached(QStringLiteral("cmd.exe"),
+                {QStringLiteral("/D"),QStringLiteral("/S"),QStringLiteral("/C"),QDir::toNativeSeparators(helperPath)})) {
+            emit failed(QStringLiteral("Could not launch the update handoff."));
             reply->deleteLater(); return;
         }
         reply->deleteLater();

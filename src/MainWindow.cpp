@@ -35,6 +35,7 @@
 #include <QTabWidget>
 #include <QTextBlock>
 #include <QTextBlockFormat>
+#include <QTextCharFormat>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -79,6 +80,9 @@ void appendChatMessage(QTextBrowser* view, const QString& html, qint64 id) {
     format.setProperty(kMessageIdProperty, id);
     if (!doc->isEmpty()) cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
+    QTextCharFormat messageFormat=cursor.charFormat();
+    messageFormat.setProperty(kMessageIdProperty,id);
+    cursor.setCharFormat(messageFormat);
     cursor.insertHtml(html);
     view->moveCursor(QTextCursor::End);
     trimBlocks(doc);
@@ -780,7 +784,17 @@ void MainWindow::editBlockedWords() {
 
 void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos) {
     const QPoint pos = view->viewport()->mapFromGlobal(globalPos);
-    const qint64 id = view->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
+    QTextCursor clicked=view->cursorForPosition(pos);
+    qint64 id=clicked.blockFormat().property(kMessageIdProperty).toLongLong();
+    if(!chatHistoryById_.contains(id))id=clicked.charFormat().property(kMessageIdProperty).toLongLong();
+    if(!chatHistoryById_.contains(id)){
+        const QTextBlock original=clicked.block();
+        for(const auto&candidate:{original.previous(),original.next()}){
+            if(!candidate.isValid())continue;
+            const qint64 candidateId=candidate.blockFormat().property(kMessageIdProperty).toLongLong();
+            if(chatHistoryById_.contains(candidateId)){id=candidateId;break;}
+        }
+    }
     QMenu menu(this);
     auto* copyAction = menu.addAction(QStringLiteral("Copy"));
     copyAction->setEnabled(view->textCursor().hasSelection());

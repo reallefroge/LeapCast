@@ -73,6 +73,14 @@ SettingsStore::SettingsStore(QObject* parent) : QObject(parent) {
 void SettingsStore::load() {
     QFile f(path_);
     if (f.open(QIODevice::ReadOnly)) root_=QJsonDocument::fromJson(f.readAll()).object();
+    // Updates preserve AppData. If a previous installer nevertheless damaged
+    // settings.json, recover the pre-update copy before deciding the user is
+    // disconnected from Twitch, YouTube, or Streamlabs.
+    if(root_.isEmpty()){
+        QFile backup(path_+QStringLiteral(".update-backup"));
+        if(backup.open(QIODevice::ReadOnly))root_=QJsonDocument::fromJson(backup.readAll()).object();
+        if(!root_.isEmpty())save();
+    }
     if (!root_.contains("links")) root_["links"]=QJsonObject{{"twitch",""},{"youtube",""},{"yt_shorts",""},{"tiktok",""}};
     if (!root_.contains("enabled")) root_["enabled"]=QJsonObject{{"twitch",true},{"youtube",true},{"yt_shorts",true},{"tiktok",true}};
     if (!root_.contains("prefs")) root_["prefs"]=QJsonObject{};
