@@ -11,10 +11,9 @@
 
 class BrandSplash final : public QSplashScreen {
 public:
-    BrandSplash() : QSplashScreen(QPixmap(560, 340)) {
-        QPixmap art(560, 340);
-        art.fill(QColor("#0b0d15"));
-        QPainter p(&art);
+    BrandSplash() : QSplashScreen(QPixmap(560, 340)), base_(560, 340) {
+        base_.fill(QColor("#0b0d15"));
+        QPainter p(&base_);
         p.setRenderHint(QPainter::Antialiasing);
         p.setBrush(QColor("#16213a")); p.setPen(Qt::NoPen);
         p.drawEllipse(QRect(-150, -220, 510, 510));
@@ -31,13 +30,25 @@ public:
         p.setFont(QFont(QStringLiteral("Segoe UI"), 9, QFont::DemiBold));
         p.drawText(QRect(0, 222, 560, 25), Qt::AlignCenter,
                    QStringLiteral("MULTI-CHAT & MODERATION"));
-        p.setPen(QColor("#293044")); p.drawLine(54, 285, 506, 285);
-        p.setPen(QPen(QColor("#15e0d2"), 3)); p.drawLine(54, 285, 190, 285);
+        p.setPen(QPen(QColor("#293044"), 5, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(54, 285, 506, 285);
         p.setPen(QColor("#a8b0c7"));
         p.drawText(QRect(0, 302, 560, 20), Qt::AlignCenter,
                    QStringLiteral("OPENING YOUR CREATOR CONSOLE..."));
-        setPixmap(art);
+        setProgress(0.0);
     }
+
+    void setProgress(double progress) {
+        QPixmap frame=base_;
+        QPainter p(&frame);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(QColor("#15e0d2"),5,Qt::SolidLine,Qt::RoundCap));
+        p.drawLine(54,285,54+qRound(452*qBound(0.0,progress,1.0)),285);
+        setPixmap(frame);
+    }
+
+private:
+    QPixmap base_;
 };
 
 int main(int argc, char* argv[]) {
@@ -56,9 +67,12 @@ int main(int argc, char* argv[]) {
 
     MainWindow window;
     while (minimumBrandTime.elapsed() < 5000) {
+        splash.setProgress(minimumBrandTime.elapsed()/5000.0);
         app.processEvents();
         QThread::msleep(10);
     }
+    splash.setProgress(1.0);
+    app.processEvents();
     window.show();
     splash.finish(&window);
     return app.exec();
