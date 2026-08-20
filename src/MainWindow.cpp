@@ -1,5 +1,6 @@
 #include "MainWindow.hpp"
 #include "AppController.hpp"
+#include "BuildInfo.hpp"
 #include "Overlay.hpp"
 #include "UpdateService.hpp"
 
@@ -372,6 +373,9 @@ QWidget* MainWindow::buildDashboard() {
         }
     }
     railLayout->addStretch();
+    auto* version = label(QStringLiteral("v%1").arg(QString::fromLatin1(leapcast::Version)), "version");
+    version->setAlignment(Qt::AlignCenter);
+    railLayout->addWidget(version);
     group->button(2)->setChecked(true);
     pages_->setCurrentIndex(2);
     connect(group, &QButtonGroup::idClicked, pages_, &QStackedWidget::setCurrentIndex);
@@ -879,6 +883,7 @@ void MainWindow::applyTheme() {
         QMainWindow, QWidget { background:#0b0d15; }
         QFrame#navigationRail, QFrame#chatDock { background:#111522; border:1px solid #242b3d; border-radius:14px; }
         QLabel[role='brand'] { font-size:11pt; font-weight:800; color:#f8fbff; qproperty-alignment:AlignCenter; }
+        QLabel[role='version'] { font-size:7pt; color:#565f78; }
         QLabel[role='pageTitle'] { font-size:11pt; font-weight:800; color:#f8fbff; }
         QLabel[role='heroTitle'] { font-size:17pt; font-weight:800; }
         QLabel[role='muted'], QLabel[role='status'] { color:#9ca7bf; }

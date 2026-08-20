@@ -103,8 +103,46 @@ QString AutoMod::latinize(const QString& input){
 QString AutoMod::normalize(const QString&t){QString s=latinize(t);s.replace(QRegularExpression("[^a-z0-9\\s]")," ");s.replace(QRegularExpression("(.)\\1+"),"\\1");return s.simplified();}
 QString AutoMod::compact(const QString&t){QString s=latinize(t);s.remove(QRegularExpression("[^a-z0-9]"));return s;}
 bool AutoMod::distanceAtMostOne(const QString&a0,const QString&b0){if(a0==b0)return true;if(qAbs(a0.size()-b0.size())>1)return false;QString a=a0,b=b0;if(a.size()>b.size())qSwap(a,b);int i=0,j=0,e=0;while(i<a.size()&&j<b.size()){if(a[i]==b[j]){++i;++j;}else{if(++e>1)return false;if(a.size()==b.size())++i;++j;}}return true;}
-bool AutoMod::reload(){terms_.clear();QFile f(path_);if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return false;while(!f.atEnd()){QString line=QString::fromUtf8(f.readLine()).trimmed();if(line.isEmpty()||line.startsWith('#'))continue;QString c=compact(line);if(c.isEmpty())continue;QStringList chars;for(const auto ch:c)chars<<QRegularExpression::escape(QString(ch))+"+";terms_.append({normalize(line),c,QRegularExpression("(?<![a-z0-9])"+chars.join("[^a-z0-9]*")+"(?![a-z0-9])",QRegularExpression::CaseInsensitiveOption)});}return true;}
-bool AutoMod::blockedMatch(const QString&t)const{const QString canonical=latinize(t),norm=normalize(t);const auto tokens=norm.split(' ',Qt::SkipEmptyParts);for(const auto&term:terms_){if(QRegularExpression("(?<![a-z0-9])"+QRegularExpression::escape(term.normalized)+"(?![a-z0-9])").match(norm).hasMatch()||term.bypass.match(canonical).hasMatch())return true;if(term.compact.size()>=5)for(const auto&tok:tokens)if(qAbs(tok.size()-term.compact.size())<=1&&distanceAtMostOne(tok,term.compact))return true;}return false;}
+bool AutoMod::reload(){
+    terms_.clear();
+    QFile f(path_);
+    if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return false;
+    while(!f.atEnd()){
+        QString line=QString::fromUtf8(f.readLine()).trimmed();
+        if(line.isEmpty()||line.startsWith('#'))continue;
+        QString c=compact(line);
+        if(c.isEmpty())continue;
+        QStringList chars;
+        for(const auto ch:c)chars<<QRegularExpression::escape(QString(ch))+"+";
+        // No word-boundary anchors: a blocked word buried inside a longer
+        // string ("xfuckx", "fuckdkciros") is a common evasion tactic, not
+        // something to guard against as a false positive.
+        terms_.append({normalize(line),c,QRegularExpression(chars.join("[^a-z0-9]*"),QRegularExpression::CaseInsensitiveOption)});
+    }
+    return true;
+}
+bool AutoMod::blockedMatch(const QString&t)const{
+    const QString canonical=latinize(t),norm=normalize(t);
+    const auto tokens=norm.split(' ',Qt::SkipEmptyParts);
+    // Compact tokens strip symbols entirely, unlike normalize()'s
+    // space-replacement — so a single embedded symbol ("f#ck") still forms
+    // one token ("fck") for the fuzzy check below, instead of fragmenting
+    // into "f"/"ck", each too short to compare against the blocked word.
+    QStringList compactTokens;
+    for(const auto&word:t.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts))
+        compactTokens<<compact(word);
+    for(const auto&term:terms_){
+        // No word-boundary requirement, matching reload()'s bypass regex.
+        if(norm.contains(term.normalized)||term.bypass.match(canonical).hasMatch())return true;
+        if(term.compact.size()>=4){
+            for(const auto&tok:tokens)
+                if(qAbs(tok.size()-term.compact.size())<=1&&distanceAtMostOne(tok,term.compact))return true;
+            for(const auto&tok:compactTokens)
+                if(qAbs(tok.size()-term.compact.size())<=1&&distanceAtMostOne(tok,term.compact))return true;
+        }
+    }
+    return false;
+}
 bool AutoMod::promotionSpam(const QString&t){const QString n=normalize(t);const bool target=QRegularExpression("\\b(followers?|views?|viewers?|subs?|subscribers?|likes?|viewbot|followbot)\\b").match(n).hasMatch();const bool pitch=QRegularExpression("\\b(free|cheap|instant|buy|boost|grow|promote|service|provider|selling|offer|dm|contact|click|discord|telegram)\\b").match(n).hasMatch();return target&&pitch;}
 bool AutoMod::check(const ChatMessage&m,QString*reason){auto cfg=settings_->moderation();if(!cfg.value("enabled").toBool(true))return false;if(cfg.value("ignore_mods").toBool(true)&&(m.badges.contains("MOD")||m.badges.contains("HOST")))return false;auto fail=[&](const QString&r){if(reason)*reason=r;return true;};if(cfg.value("blocked_words_enabled").toBool(true)&&blockedMatch(m.text))return fail("blocked word / bypass");if(cfg.value("spam_enabled").toBool(true)&&promotionSpam(m.text))return fail("follower/viewer promotion spam");const qint64 now=QDateTime::currentMSecsSinceEpoch();QMutexLocker lock(&mutex_);auto&bucket=recentByUser_[m.user.toLower()];const QString n=normalize(m.text);bucket.enqueue({now,n});while(!bucket.isEmpty()&&now-bucket.head().first>10000)bucket.dequeue();if(cfg.value("spam_enabled").toBool(true)){if(bucket.size()>cfg.value("max_messages_10s").toInt(6))return fail("message flood");int same=0;for(const auto&item:bucket)if(item.second==n&&now-item.first<=cfg.value("duplicate_window_s").toDouble(12)*1000)++same;if(!n.isEmpty()&&same>=cfg.value("duplicate_count").toInt(3))return fail("repeated message");}int letters=0,caps=0;for(const auto c:m.text)if(c.isLetter()){++letters;if(c.isUpper())++caps;}if(cfg.value("spam_enabled").toBool(true)&&letters>=cfg.value("min_caps_chars").toInt(8)&&double(caps)/qMax(letters,1)>=cfg.value("max_caps_ratio").toDouble(.82))return fail("excessive caps");if(cfg.value("block_links").toBool(false)&&QRegularExpression("https?://|www\\.|discord\\.gg/|t\\.me/",QRegularExpression::CaseInsensitiveOption).match(m.text).hasMatch())return fail("link");return false;}
 
