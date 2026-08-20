@@ -9,6 +9,35 @@
 
 class QNetworkReply;
 
+class TwitchAuthService final : public QObject {
+    Q_OBJECT
+public:
+    explicit TwitchAuthService(QObject* parent = nullptr);
+    void authorize(const QString& clientId);
+    void restore(const QString& clientId, const QString& accessToken,
+                 const QString& refreshToken);
+signals:
+    void browserAuthorizationReady(const QUrl& url);
+    void authorizationPending();
+    void authorized(const QString& accessToken, const QString& refreshToken,
+                    const QString& userId, const QString& login, int expiresIn);
+    void authorizationFailed(const QString& detail);
+private:
+    void requestDeviceCode();
+    void pollForToken();
+    void validateToken(const QString& accessToken, const QString& refreshToken);
+    void refreshToken();
+    void finishWithError(const QString& detail);
+    QNetworkAccessManager network_;
+    QTimer pollTimer_;
+    QTimer refreshTimer_;
+    QString clientId_;
+    QString deviceCode_;
+    QString accessToken_;
+    QString refreshToken_;
+    QString scopes_;
+};
+
 class TwitchChatService final : public QObject {
     Q_OBJECT
 public:

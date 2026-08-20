@@ -11,6 +11,9 @@ endif()
 
 project(LeapcastStudio VERSION ${LEAPCAST_VERSION} LANGUAGES CXX)
 
+set(LEAPCAST_TWITCH_CLIENT_ID "" CACHE STRING
+    "Public Twitch application Client ID used by the built-in device authorization flow")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)

@@ -4,12 +4,126 @@
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QRandomGenerator>
+#include <QTimer>
 #include <QUrlQuery>
 
 namespace {
 constexpr auto TwitchGqlClient = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 QString ircUnescape(QString s){return s.replace("\\s"," ").replace("\\:",";").replace("\\r","\r").replace("\\n","\n").replace("\\\\","\\");}
+QByteArray formBody(const QList<QPair<QString,QString>>& fields){
+    QUrlQuery form;
+    for(const auto& field:fields)form.addQueryItem(field.first,field.second);
+    return form.query(QUrl::FullyEncoded).toUtf8();
 }
+QString twitchError(const QByteArray& payload,const QString& fallback){
+    const auto object=QJsonDocument::fromJson(payload).object();
+    return object.value("message").toString(object.value("error").toString(fallback));
+}
+}
+
+TwitchAuthService::TwitchAuthService(QObject*p):QObject(p){
+    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages user:write:chat");
+    pollTimer_.setSingleShot(true);
+    connect(&pollTimer_,&QTimer::timeout,this,&TwitchAuthService::pollForToken);
+    refreshTimer_.setSingleShot(true);
+    connect(&refreshTimer_,&QTimer::timeout,this,&TwitchAuthService::refreshToken);
+}
+
+void TwitchAuthService::authorize(const QString&clientId){
+    clientId_=clientId.trimmed();deviceCode_.clear();accessToken_.clear();refreshToken_.clear();
+    pollTimer_.stop();refreshTimer_.stop();
+    if(clientId_.isEmpty()){finishWithError(QStringLiteral("This build is missing Leapcast Studio's Twitch application ID."));return;}
+    requestDeviceCode();
+}
+
+void TwitchAuthService::restore(const QString&clientId,const QString&accessToken,const QString&refreshTokenValue){
+    clientId_=clientId.trimmed();accessToken_=accessToken.trimmed();refreshToken_=refreshTokenValue.trimmed();
+    if(clientId_.isEmpty()||accessToken_.isEmpty())return;
+    validateToken(accessToken_,refreshToken_);
+}
+
+void TwitchAuthService::requestDeviceCode(){
+    QNetworkRequest request(QUrl(QStringLiteral("https://id.twitch.tv/oauth2/device")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/x-www-form-urlencoded"));
+    auto* reply=network_.post(request,formBody({{"client_id",clientId_},{"scopes",scopes_}}));
+    connect(reply,&QNetworkReply::finished,this,[this,reply]{
+        const QByteArray payload=reply->readAll();
+        if(reply->error()!=QNetworkReply::NoError){finishWithError(twitchError(payload,reply->errorString()));reply->deleteLater();return;}
+        const auto object=QJsonDocument::fromJson(payload).object();
+        deviceCode_=object.value("device_code").toString();
+        const QUrl verificationUrl(object.value("verification_uri").toString());
+        const int interval=qMax(5,object.value("interval").toInt(5));
+        if(deviceCode_.isEmpty()||!verificationUrl.isValid()){finishWithError(QStringLiteral("Twitch returned an incomplete authorization response."));reply->deleteLater();return;}
+        pollTimer_.setInterval(interval*1000);
+        emit browserAuthorizationReady(verificationUrl);
+        emit authorizationPending();
+        pollTimer_.start();
+        reply->deleteLater();
+    });
+}
+
+void TwitchAuthService::pollForToken(){
+    if(deviceCode_.isEmpty())return;
+    QNetworkRequest request(QUrl(QStringLiteral("https://id.twitch.tv/oauth2/token")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/x-www-form-urlencoded"));
+    auto* reply=network_.post(request,formBody({{"client_id",clientId_},{"scopes",scopes_},{"device_code",deviceCode_},{"grant_type",QStringLiteral("urn:ietf:params:oauth:grant-type:device_code")}}));
+    connect(reply,&QNetworkReply::finished,this,[this,reply]{
+        const QByteArray payload=reply->readAll();
+        const auto object=QJsonDocument::fromJson(payload).object();
+        const QString message=object.value("message").toString();
+        if(message==QStringLiteral("authorization_pending")){pollTimer_.start();reply->deleteLater();return;}
+        if(message==QStringLiteral("slow_down")){pollTimer_.setInterval(pollTimer_.interval()+5000);pollTimer_.start();reply->deleteLater();return;}
+        if(reply->error()!=QNetworkReply::NoError){finishWithError(twitchError(payload,reply->errorString()));reply->deleteLater();return;}
+        accessToken_=object.value("access_token").toString();
+        refreshToken_=object.value("refresh_token").toString();
+        deviceCode_.clear();
+        if(accessToken_.isEmpty()){finishWithError(QStringLiteral("Twitch did not return an access token."));reply->deleteLater();return;}
+        validateToken(accessToken_,refreshToken_);
+        reply->deleteLater();
+    });
+}
+
+void TwitchAuthService::validateToken(const QString&accessToken,const QString&refreshTokenValue){
+    QNetworkRequest request(QUrl(QStringLiteral("https://id.twitch.tv/oauth2/validate")));
+    request.setRawHeader("Authorization",("OAuth "+accessToken).toUtf8());
+    auto* reply=network_.get(request);
+    connect(reply,&QNetworkReply::finished,this,[this,reply,accessToken,refreshTokenValue]{
+        const QByteArray payload=reply->readAll();
+        if(reply->error()!=QNetworkReply::NoError){
+            reply->deleteLater();
+            if(!refreshTokenValue.isEmpty()){accessToken_=accessToken;refreshToken_=refreshTokenValue;refreshToken();}
+            else finishWithError(QStringLiteral("Twitch authorization expired. Select Authorize Twitch to reconnect."));
+            return;
+        }
+        const auto object=QJsonDocument::fromJson(payload).object();
+        const QString userId=object.value("user_id").toString();
+        if(userId.isEmpty()){finishWithError(QStringLiteral("Twitch did not identify the authorized account."));reply->deleteLater();return;}
+        accessToken_=accessToken;refreshToken_=refreshTokenValue;
+        const int expiresIn=object.value("expires_in").toInt();
+        if(!refreshToken_.isEmpty()&&expiresIn>0)
+            refreshTimer_.start(qMax(60,expiresIn-300)*1000);
+        emit authorized(accessToken_,refreshToken_,userId,object.value("login").toString(),expiresIn);
+        reply->deleteLater();
+    });
+}
+
+void TwitchAuthService::refreshToken(){
+    QNetworkRequest request(QUrl(QStringLiteral("https://id.twitch.tv/oauth2/token")));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/x-www-form-urlencoded"));
+    auto* reply=network_.post(request,formBody({{"client_id",clientId_},{"grant_type",QStringLiteral("refresh_token")},{"refresh_token",refreshToken_}}));
+    connect(reply,&QNetworkReply::finished,this,[this,reply]{
+        const QByteArray payload=reply->readAll();
+        if(reply->error()!=QNetworkReply::NoError){finishWithError(QStringLiteral("Twitch authorization expired. Select Authorize Twitch to reconnect."));reply->deleteLater();return;}
+        const auto object=QJsonDocument::fromJson(payload).object();
+        const QString token=object.value("access_token").toString();
+        const QString refresh=object.value("refresh_token").toString(refreshToken_);
+        if(token.isEmpty()){finishWithError(twitchError(payload,QStringLiteral("Twitch token refresh failed.")));reply->deleteLater();return;}
+        validateToken(token,refresh);
+        reply->deleteLater();
+    });
+}
+
+void TwitchAuthService::finishWithError(const QString&detail){pollTimer_.stop();refreshTimer_.stop();deviceCode_.clear();emit authorizationFailed(detail);}
 
 TwitchChatService::TwitchChatService(QObject*p):QObject(p){
     connect(&socket_,&QWebSocket::connected,this,[this]{

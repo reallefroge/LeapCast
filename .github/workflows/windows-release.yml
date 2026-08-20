@@ -60,6 +60,8 @@ jobs:
       - name: Build application and installer
         shell: pwsh
         run: .\build-installer.ps1
+        env:
+          LEAPCAST_TWITCH_CLIENT_ID: ${{ vars.TWITCH_CLIENT_ID }}
 
       - name: Upload testable installer
         uses: actions/upload-artifact@v4

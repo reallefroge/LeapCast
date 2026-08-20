@@ -3,7 +3,8 @@ param(
     [string]$QtRoot = "",
     [ValidateSet("Release", "Debug")]
     [string]$Configuration = "Release",
-    [string]$OutputDirectory = ""
+    [string]$OutputDirectory = "",
+    [string]$TwitchClientId = $env:LEAPCAST_TWITCH_CLIENT_ID
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,7 +49,8 @@ if (Test-Path $DeployDir) {
 New-Item -ItemType Directory -Force $DeployDir, $OutputDirectory | Out-Null
 
 Write-Host "Building Leapcast Studio v$Version..."
-& $Cmake.Source -S $ProjectRoot -B $BuildDir -G "Visual Studio 17 2022" -A x64 "-DCMAKE_PREFIX_PATH=$QtRoot"
+& $Cmake.Source -S $ProjectRoot -B $BuildDir -G "Visual Studio 17 2022" -A x64 `
+    "-DCMAKE_PREFIX_PATH=$QtRoot" "-DLEAPCAST_TWITCH_CLIENT_ID=$TwitchClientId"
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
 
 & $Cmake.Source --build $BuildDir --config $Configuration --parallel
