@@ -69,15 +69,16 @@ The interface is organized into five focused areas:
 ### One chat view, four communities
 
 - Reads Twitch, YouTube Live, YouTube Shorts Live, and TikTok LIVE chat.
-- Provides one **All** feed plus a separate tab for every platform.
+- Provides one **All** feed plus a separate tab for every platform, plus a **Kick** tab reserved for when that integration ships — shown disabled and marked **Coming Soon** so it's clear no Kick data is read yet.
 - Uses clear Twitch, YouTube, Shorts, and TikTok icons to identify each source.
 - Retries supported Twitch, YouTube, and Streamlabs connections after temporary failures.
-- Tracks platform viewer counts for the pop-out and local OBS endpoints.
+- Tracks platform viewer counts for the pop-out and local OBS endpoints, and shows a live per-platform breakdown (Twitch/YouTube/Shorts/TikTok) in the pop-out whenever two or more sources are concurrently connected.
 
 ### Moderation built for a live workflow
 
 - Integrated Twitch and YouTube moderation access, plus a direct shortcut to the configured TikTok LIVE room.
 - Five-minute automated timeouts or mutes when AutoMod detects a configured violation.
+- AutoMod recognizes when it isn't a moderator on a connected channel (for example, a channel added just to watch or test chat) and stops retrying and re-warning after the first attempt, instead of repeating a warning dialog for every flagged message.
 - Editable blocked-word list with checks for common leetspeak, separators, repeated letters, Unicode lookalikes, and one-character misspellings.
 - Spam checks for repeated messages, floods, excessive capitals, follower/viewer promotion, and optionally links.
 - Twitch ban and timeout retrieval and removal.
@@ -91,6 +92,8 @@ Platform APIs decide which actions are available, and the signed-in account must
 - Serves a local browser-source overlay at `http://127.0.0.1:8080/` by default.
 - Includes copy, open, test, clear, and message-fade controls.
 - Offers an always-on-top pop-out chat with combined viewer totals.
+- Lets you set the pop-out's background opacity independently of chat text and Streamlabs alerts, which always stay fully readable.
+- Creates a Twitch clip of the live broadcast directly from the pop-out's Clip button — the same action as twitch.tv's own Clip button — and copies the editor link to your clipboard.
 - Shows Streamlabs alert cards in Leapcast Studio's streamer-facing chat preview while keeping them out of the OBS overlay feed.
 - Layers the streamer's native Streamlabs Alert Box animation over the pop-out chat, with its selected sound and visuals kept in sync.
 
@@ -139,13 +142,15 @@ TikTok does not require a token or developer account in Leapcast Studio:
 
 Leapcast Studio is intentionally a focused Windows chat and moderation companion. It does not try to replace a complete browser studio or support every social network.
 
-| Product | Where it is strongest | Trade-offs compared with Leapcast Studio |
-|---|---|---|
-| **Leapcast Studio** | Native Windows multi-chat and moderation device for Twitch, YouTube, Shorts, and TikTok; built-in AutoMod for supported moderation APIs; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources; TikTok moderation opens TikTok's own LIVE controls; no video encoding, hosted studio, guest system, or cloud multistream relay |
-| [**Restream Chat**](https://support.restream.io/en/articles/2379624-what-is-restream-chat) | Established unified chat with desktop and Studio access, on-stream overlays, replies, and cross-platform relay | Best suited to the wider Restream account and broadcasting workflow; Leapcast Studio is more narrowly focused on local OBS use and its own AutoMod/moderation workspace |
-| [**Social Stream Ninja**](https://socialstream.ninja/docs/features) | Free and open-source browser tooling, very broad platform support, two-way chat, templates, CSS/JavaScript customization, and automation hooks | The extension, pop-out chat, dashboard, and advanced customization can mean more setup; Leapcast Studio offers a smaller, opinionated native Windows interface |
-| [**Streamlabs**](https://streamlabs.com/multistream) | Full streaming suite with multistreaming, widgets, alerts, themes, and creator tools in one ecosystem | Much broader and heavier than a dedicated chat companion; some multistream functionality is part of Streamlabs Ultra, while Leapcast Studio is designed to sit beside OBS and reuse Streamlabs alerts |
-| [**StreamYard**](https://streamyard.com/) | Browser-based hosted production, guest management, multistreaming, recordings, and on-screen comments | Designed to produce and send the whole show; Leapcast Studio does not provide a hosted studio, but keeps chat and moderation local alongside an existing OBS setup |
+Leapcast Studio is completely free and always will be — no subscription, no paid tier, no feature paywall, and no trial period that expires. Several of the closest alternatives below charge a recurring subscription to unlock their multistream chat, on-stream overlays, or higher usage limits; paying more doesn't automatically mean a better fit for a focused Windows chat and moderation workflow, and for that specific job, Leapcast Studio aims to match or beat what those paid tiers offer at zero cost.
+
+| Product | Cost | Where it is strongest | Trade-offs compared with Leapcast Studio |
+|---|---|---|---|
+| **Leapcast Studio** | Free, no paid tier | Native Windows multi-chat and moderation device for Twitch, YouTube, Shorts, and TikTok; built-in AutoMod for supported moderation APIs; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources (Kick is a placeholder tab, not yet live); TikTok moderation opens TikTok's own LIVE controls; no video encoding, hosted studio, guest system, or cloud multistream relay |
+| [**Restream Chat**](https://support.restream.io/en/articles/2379624-what-is-restream-chat) | Free tier, with Restream's broader multistreaming/production features gated behind paid plans | Established unified chat with desktop and Studio access, on-stream overlays, replies, and cross-platform relay | Best suited to the wider Restream account and broadcasting workflow; Leapcast Studio is more narrowly focused on local OBS use and its own AutoMod/moderation workspace, at no cost |
+| [**Social Stream Ninja**](https://socialstream.ninja/docs/features) | Free and open-source | Free and open-source browser tooling, very broad platform support, two-way chat, templates, CSS/JavaScript customization, and automation hooks | The extension, pop-out chat, dashboard, and advanced customization can mean more setup; Leapcast Studio offers a smaller, opinionated native Windows interface |
+| [**Streamlabs**](https://streamlabs.com/multistream) | Free with a paid Streamlabs Ultra subscription for its fuller multistream/creator-tool set | Full streaming suite with multistreaming, widgets, alerts, themes, and creator tools in one ecosystem | Much broader and heavier than a dedicated chat companion; some multistream functionality sits behind the paid Ultra tier, while Leapcast Studio is free and designed to sit beside OBS and reuse Streamlabs alerts |
+| [**StreamYard**](https://streamyard.com/) | Free tier with limited destinations; paid subscription for more destinations and features | Browser-based hosted production, guest management, multistreaming, recordings, and on-screen comments | Designed to produce and send the whole show, with its strongest features paid; Leapcast Studio does not provide a hosted studio, but keeps chat and moderation local, free, alongside an existing OBS setup |
 
 ### Why choose Leapcast Studio?
 
@@ -156,7 +161,7 @@ Leapcast Studio is intentionally a focused Windows chat and moderation companion
 - AutoMod can apply the same five-minute response across supported communities.
 - Local OBS and pop-out views do not require a hosted overlay service.
 - Standalone Windows installer; no development environment required.
-- No subscription gate in the application source.
+- Completely free and will never require a subscription, paid tier, or trial — including AutoMod, the pop-out chat, and the OBS overlay, all features paid competitors often gate behind a paid plan.
 
 **Current limitations**
 

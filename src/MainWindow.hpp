@@ -48,6 +48,10 @@ private:
     QTabWidget* chatTabs_{};
     QHash<QString,QTextBrowser*> chatViews_;
     QHash<QString,QLabel*> sourceStates_;
+    // Last moderation-failure detail shown per platform, so an unmoderated
+    // channel that keeps tripping AutoMod doesn't reopen the same warning
+    // dialog for every chat message.
+    QHash<QString,QString> lastModerationWarning_;
     QListWidget* twitchBans_{};
     QListWidget* youtubeBans_{};
     QLabel* twitchModerationStatus_{};

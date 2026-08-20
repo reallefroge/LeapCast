@@ -4,6 +4,7 @@
 
 #include <QNetworkAccessManager>
 #include <QJsonArray>
+#include <QSet>
 #include <QTimer>
 #include <QWebSocket>
 
@@ -73,15 +74,24 @@ public:
     void unban(const QString& broadcasterId, const QString& userId);
     void deleteMessage(const QString& broadcasterId, const QString& messageId);
     void sendMessage(const QString& broadcasterId, const QString& text);
+    // Creates a Twitch clip of the broadcaster's current stream, mirroring the
+    // "Clip" button on twitch.tv. Only requires the clips:edit scope, not
+    // moderator status, so it works while watching any live channel.
+    void createClip(const QString& broadcasterId);
 signals:
     void broadcasterResolved(const QString& login, const QString& id);
     void actionFinished(const QString& action, bool success, const QString& detail);
     void bansReceived(const QJsonArray& bans);
+    void clipCreated(const QString& id, const QUrl& editUrl);
 private:
     QNetworkRequest request(const QUrl& url) const;
     void watch(QNetworkReply* reply, const QString& action);
     QNetworkAccessManager network_;
     QString clientId_, token_, moderatorId_;
+    // Broadcasters we've already been told (via HTTP 401/403) we can't moderate.
+    // Prevents autoModerate() from retrying — and re-warning the user about —
+    // the same permission failure on every subsequent chat message.
+    QSet<QString> autoModDenied_;
 };
 
 class StreamlabsService final : public QObject {

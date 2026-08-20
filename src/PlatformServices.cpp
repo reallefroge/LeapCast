@@ -22,7 +22,20 @@ YouTubeModerationService::YouTubeModerationService(QObject*p):QObject(p){}
 QNetworkRequest YouTubeModerationService::request(const QUrl&u)const{QNetworkRequest r(u);r.setRawHeader("Authorization",("Bearer "+token_).toUtf8());r.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");return r;}
 void YouTubeModerationService::watch(QNetworkReply*r,const QString&a){connect(r,&QNetworkReply::finished,this,[this,r,a]{bool ok=r->error()==QNetworkReply::NoError;emit actionFinished(a,ok,ok?QString():QString::fromUtf8(r->readAll()));r->deleteLater();});}
 void YouTubeModerationService::deleteMessage(const QString&id){QUrl u("https://www.googleapis.com/youtube/v3/liveChat/messages");QUrlQuery q;q.addQueryItem("id",id);u.setQuery(q);watch(network_.deleteResource(request(u)),"delete");}
-void YouTubeModerationService::ban(const QString&chat,const QString&channel,int seconds,const QString&user){QUrl u("https://www.googleapis.com/youtube/v3/liveChat/bans");QUrlQuery q;q.addQueryItem("part","snippet");u.setQuery(q);QJsonObject sn{{"liveChatId",chat},{"type",seconds>0?"temporary":"permanent"},{"bannedUserDetails",QJsonObject{{"channelId",channel}}}};if(seconds>0)sn["banDurationSeconds"]=seconds;auto*r=network_.post(request(u),QJsonDocument(QJsonObject{{"snippet",sn}}).toJson(QJsonDocument::Compact));connect(r,&QNetworkReply::finished,this,[this,r,user]{bool ok=r->error()==QNetworkReply::NoError;auto data=QJsonDocument::fromJson(r->readAll()).object();if(ok)emit banCreated(data["id"].toString(),user);emit actionFinished("ban",ok,ok?QString():r->errorString());r->deleteLater();});}
+void YouTubeModerationService::ban(const QString&chat,const QString&channel,int seconds,const QString&user){
+    if(autoModDenied_.contains(chat))return;
+    QUrl u("https://www.googleapis.com/youtube/v3/liveChat/bans");QUrlQuery q;q.addQueryItem("part","snippet");u.setQuery(q);QJsonObject sn{{"liveChatId",chat},{"type",seconds>0?"temporary":"permanent"},{"bannedUserDetails",QJsonObject{{"channelId",channel}}}};if(seconds>0)sn["banDurationSeconds"]=seconds;
+    auto*r=network_.post(request(u),QJsonDocument(QJsonObject{{"snippet",sn}}).toJson(QJsonDocument::Compact));
+    connect(r,&QNetworkReply::finished,this,[this,r,user,chat]{
+        bool ok=r->error()==QNetworkReply::NoError;
+        const int status=r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        auto data=QJsonDocument::fromJson(r->readAll()).object();
+        if(ok)emit banCreated(data["id"].toString(),user);
+        else if(status==401||status==403)autoModDenied_.insert(chat);
+        emit actionFinished("ban",ok,ok?QString():r->errorString());
+        r->deleteLater();
+    });
+}
 void YouTubeModerationService::removeBan(const QString&id){QUrl u("https://www.googleapis.com/youtube/v3/liveChat/bans");QUrlQuery q;q.addQueryItem("id",id);u.setQuery(q);watch(network_.deleteResource(request(u)),"unban");}
 
 void TikTokPage::javaScriptConsoleMessage(JavaScriptConsoleMessageLevel l,const QString&m,int line,const QString&s){Q_UNUSED(l);Q_UNUSED(line);Q_UNUSED(s);if(!m.startsWith("LEFROGE_CHAT:"))return;auto d=QJsonDocument::fromJson(m.mid(13).toUtf8());if(d.isObject())emit bridgeMessage(d.object());}

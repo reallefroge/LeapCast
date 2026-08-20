@@ -159,8 +159,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
     connect(controller_, &AppController::moderationResult, this,
-            [this](const QString&, bool success, const QString& detail) {
-        if (!success) QMessageBox::warning(this, QStringLiteral("Moderation"), detail);
+            [this](const QString& platform, bool success, const QString& detail) {
+        if (success) { lastModerationWarning_.remove(platform); return; }
+        // AutoMod retries a moderation action on every matching chat message;
+        // once we've told the user about a given failure (e.g. "not a moderator
+        // on that channel"), don't reopen the same dialog for every repeat.
+        if (lastModerationWarning_.value(platform) == detail) return;
+        lastModerationWarning_[platform] = detail;
+        QMessageBox::warning(this, QStringLiteral("Moderation"), detail);
+    });
+    connect(controller_, &AppController::twitchClipCreated, this, [this](const QUrl& url) {
+        if (popout_) popout_->showClipResult(true, QStringLiteral("Clip created — link copied to clipboard."), url);
+    });
+    connect(controller_, &AppController::twitchClipFailed, this, [this](const QString& detail) {
+        if (popout_) popout_->showClipResult(false, detail);
     });
     connect(controller_,&AppController::twitchAuthorizationUrl,this,[this](const QUrl&url){
         if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Finish signing in on Twitch, then return here."));
@@ -170,6 +182,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(controller_,&AppController::twitchAuthorized,this,[this](const QString&login){
         if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Connected as %1").arg(login));
         if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Reconnect Twitch"));twitchConnectButton_->setEnabled(true);}
+        if(popout_)popout_->setClipAvailable(true);
         QMessageBox::information(this,QStringLiteral("Twitch connected"),QStringLiteral("You're all set. Leapcast Studio is connected to Twitch as %1.").arg(login));
     });
     connect(controller_,&AppController::twitchAuthorizationFailed,this,[this](const QString&detail){
@@ -642,17 +655,31 @@ QWidget* MainWindow::buildChatDock() {
         chatTabs_->setTabToolTip(static_cast<int>(index), tab.first);
         chatViews_.insert(keys.at(index),chat);
     }
+
+    auto* kickPreview = new QTextBrowser;
+    kickPreview->setReadOnly(true);
+    kickPreview->setHtml(QStringLiteral(
+        "<div style='text-align:center;margin-top:44px;color:#7f8ba5'>"
+        "<div style='font-size:13pt;font-weight:800;color:#53cdf3'>KICK</div>"
+        "<div style='margin-top:6px;font-weight:700'>Coming Soon</div>"
+        "<div style='margin-top:2px;font-size:9pt'>Kick chat support is on the way.</div></div>"));
+    const int kickTabIndex = chatTabs_->addTab(kickPreview, QStringLiteral("Kick"));
+    chatTabs_->setTabEnabled(kickTabIndex, false);
+    chatTabs_->setTabToolTip(kickTabIndex, QStringLiteral("Kick — Coming Soon"));
+
     layout->addWidget(chatTabs_, 1);
 
     const auto ensurePopout = [this] {
         if (popout_) return popout_;
         popout_ = new PopoutChat;
         popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 80).toInt());
+        popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;
             QSignalBlocker blocker(popoutClickThrough_);
             popoutClickThrough_->setChecked(enabled);
         });
+        connect(popout_, &PopoutChat::clipRequested, this, [this] { controller_->createTwitchClip(); });
         return popout_;
     };
 
@@ -718,6 +745,7 @@ void MainWindow::applyTheme() {
         QTabWidget::pane { border:1px solid #242b3d; border-radius:9px; }
         QTabBar::tab { background:#171d2d; min-width:62px; min-height:38px; padding:5px 10px; margin-right:2px; }
         QTabBar::tab:selected { background:#7667ef; }
+        QTabBar::tab:disabled { color:#565f78; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }
         QTabWidget#moderationTabs::pane { background:#101522; border:1px solid #283149; border-radius:10px; }
         QListWidget#restrictionList { background:transparent; border:0; outline:0; padding:2px; }

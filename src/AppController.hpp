@@ -18,6 +18,7 @@ public:
     void refreshBans(const QString& platform);
     void unbanTwitch(const QString& userId);
     void unbanYouTube(const QString& banId);
+    void createTwitchClip();
     QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
     bool reloadAutoMod() { return automod_.reload(); }
 signals:
@@ -27,6 +28,8 @@ signals:
     void viewerCount(const QString& platform,int count);
     void moderationResult(const QString& platform,bool success,const QString& detail);
     void bansUpdated(const QString& platform, const QJsonArray& bans);
+    void twitchClipCreated(const QUrl& editUrl);
+    void twitchClipFailed(const QString& detail);
     void twitchAuthorizationUrl(const QUrl& url);
     void twitchAuthorized(const QString& login);
     void twitchAuthorizationFailed(const QString& detail);

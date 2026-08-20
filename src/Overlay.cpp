@@ -1,9 +1,13 @@
 #include "Overlay.hpp"
+#include <QApplication>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QHBoxLayout>
 #include <QHostAddress>
 #include <QLabel>
+#include <QPushButton>
 #include <QStackedLayout>
 #include <QTcpSocket>
 #include <QTextBrowser>
@@ -47,6 +51,26 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     qApp->installNativeEventFilter(this);
     auto*l=new QVBoxLayout(this);
     l->setContentsMargins(8,8,8,8);
+    l->setSpacing(6);
+
+    auto*toolbar=new QHBoxLayout;
+    toolbar->setSpacing(6);
+    auto*title=new QLabel("LEAPCAST STUDIO");
+    title->setStyleSheet("color:#8f9bb5;font-size:8pt;font-weight:800;letter-spacing:1px;");
+    toolbar->addWidget(title);
+    toolbar->addStretch();
+    clipButton_=new QPushButton("Clip");
+    clipButton_->setToolTip("Create a Twitch clip of this stream, just like the Clip button on twitch.tv");
+    clipButton_->setCursor(Qt::PointingHandCursor);
+    clipButton_->setStyleSheet(
+        "QPushButton{background:#9146ff;color:white;border:0;border-radius:8px;padding:5px 12px;font-weight:700;font-size:9pt;}"
+        "QPushButton:disabled{background:#2a2f42;color:#66708c;}"
+        "QPushButton:hover:!disabled{background:#a366ff;}");
+    clipButton_->setEnabled(false);
+    connect(clipButton_,&QPushButton::clicked,this,&PopoutChat::clipRequested);
+    toolbar->addWidget(clipButton_);
+    l->addLayout(toolbar);
+
     event_=new QLabel;
     event_->setAlignment(Qt::AlignCenter);
     event_->setWordWrap(true);
@@ -62,6 +86,12 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     chatStack_->addWidget(chat_);
     l->addWidget(chatHost,1);
 
+    clipStatus_=new QLabel;
+    clipStatus_->setWordWrap(true);
+    clipStatus_->setAlignment(Qt::AlignCenter);
+    clipStatus_->hide();
+    l->addWidget(clipStatus_);
+
     viewers_=new QLabel("0 watching");
     l->addWidget(viewers_);
     applyOpacity();
@@ -72,7 +102,29 @@ PopoutChat::~PopoutChat(){
 }
 void PopoutChat::appendMessage(const ChatMessage&m){chat_->append(QString("<p><b style='color:%1'>%2</b> %3</p>").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));}
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
-void PopoutChat::setViewers(const QString&p,int n){counts_[p]=n;int total=0;for(int v:counts_)total+=v;viewers_->setText(QString::number(total)+" WATCHING");}
+void PopoutChat::setViewers(const QString&p,int n){
+    counts_[p]=n;
+    int total=0;
+    for(int v:counts_)total+=v;
+    // Fixed display order so the breakdown doesn't reshuffle as counts update.
+    // Kick has no live source wired up yet, so it never appears here even
+    // though the pop-out's tab already exists as a "Coming Soon" placeholder.
+    static const QList<QPair<QString,QString>> platforms{
+        {QStringLiteral("twitch"),QStringLiteral("Twitch")},
+        {QStringLiteral("youtube"),QStringLiteral("YouTube")},
+        {QStringLiteral("yt_shorts"),QStringLiteral("Shorts")},
+        {QStringLiteral("tiktok"),QStringLiteral("TikTok")}};
+    QStringList parts;
+    for(const auto&platform:platforms){
+        const int count=counts_.value(platform.first,0);
+        if(count>0)parts<<QStringLiteral("%1 %2").arg(platform.second,QString::number(count));
+    }
+    QString text=QString::number(total)+QStringLiteral(" WATCHING");
+    // Only worth breaking down once two or more sources are actually live —
+    // otherwise it's just repeating the total.
+    if(parts.size()>1)text+=QStringLiteral("  ·  ")+parts.join(QStringLiteral("  ·  "));
+    viewers_->setText(text);
+}
 void PopoutChat::clearMessages(){chat_->clear();}
 void PopoutChat::setGhostMode(bool on){
     if(ghostMode_==on)return;
@@ -119,6 +171,23 @@ bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintp
     Q_UNUSED(eventType) Q_UNUSED(message)
 #endif
     return false;
+}
+void PopoutChat::setClipAvailable(bool available){if(clipButton_)clipButton_->setEnabled(available);}
+void PopoutChat::showClipResult(bool success,const QString&text,const QUrl&editUrl){
+    if(!clipStatus_)return;
+    QString body=text.toHtmlEscaped();
+    if(success&&editUrl.isValid()){
+        QApplication::clipboard()->setText(editUrl.toString());
+        body+=QStringLiteral(" <a href='%1' style='color:inherit;text-decoration:underline'>Open editor &#8599;</a>").arg(editUrl.toString());
+    }
+    clipStatus_->setTextFormat(Qt::RichText);
+    clipStatus_->setOpenExternalLinks(true);
+    clipStatus_->setText(body);
+    clipStatus_->setStyleSheet(success
+        ?QStringLiteral("background:#12301fee;border:1px solid #63e6be;border-radius:10px;padding:8px;color:#9ff5d4;font-weight:700;")
+        :QStringLiteral("background:#301217ee;border:1px solid #ff5573;border-radius:10px;padding:8px;color:#ffb3c0;font-weight:700;"));
+    clipStatus_->show();
+    QTimer::singleShot(8000,clipStatus_,&QWidget::hide);
 }
 void PopoutChat::setStreamlabsAlertAudio(bool enabled,const QUrl&url){
     if(!enabled||!url.isValid()||url.host().isEmpty()){

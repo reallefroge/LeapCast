@@ -4,7 +4,7 @@
 #include <QHash>
 #include <QTcpServer>
 #include <QWidget>
-class QTextBrowser; class QLabel;
+class QTextBrowser; class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
 class QUrl;
@@ -51,9 +51,14 @@ public:
     int opacityPercent() const { return opacityPercent_; }
     void clearMessages();
     void setStreamlabsAlertAudio(bool enabled, const QUrl& alertBoxUrl);
+    // Enables the "Clip" button (Twitch clip creation, mirroring twitch.tv's own
+    // Clip button) once a Twitch channel with clip access is available.
+    void setClipAvailable(bool available);
+    void showClipResult(bool success, const QString& text, const QUrl& editUrl = {});
 
 signals:
     void ghostModeChanged(bool enabled);
+    void clipRequested();
 
 protected:
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;
@@ -66,6 +71,8 @@ private:
     QTextBrowser* chat_{};
     QLabel* event_{};
     QLabel* viewers_{};
+    QLabel* clipStatus_{};
+    QPushButton* clipButton_{};
     QHash<QString, int> counts_;
     QStackedLayout* chatStack_{};
     QWebEngineView* alertView_{};
