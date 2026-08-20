@@ -26,24 +26,24 @@ public:
         QFont title(QStringLiteral("Segoe UI"), 21, QFont::Bold);
         p.setFont(title);
         p.drawText(QRect(0, 181, 560, 38), Qt::AlignCenter,
-                   QStringLiteral("MULTI-CHAT STUDIO"));
+                   QStringLiteral("LEAPCAST STUDIO"));
         p.setPen(QColor("#a8b0c7"));
         p.setFont(QFont(QStringLiteral("Segoe UI"), 9, QFont::DemiBold));
         p.drawText(QRect(0, 222, 560, 25), Qt::AlignCenter,
-                   QStringLiteral("A LEFROGE CREATOR TOOL"));
+                   QStringLiteral("MULTI-CHAT & MODERATION"));
         p.setPen(QColor("#293044")); p.drawLine(54, 285, 506, 285);
         p.setPen(QPen(QColor("#15e0d2"), 3)); p.drawLine(54, 285, 190, 285);
         p.setPen(QColor("#a8b0c7"));
         p.drawText(QRect(0, 302, 560, 20), Qt::AlignCenter,
-                   QStringLiteral("OPENING YOUR CREATOR CONSOLEâ¦"));
+                   QStringLiteral("OPENING YOUR CREATOR CONSOLE..."));
         setPixmap(art);
     }
 };
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("Multi-Chat Studio"));
-    QApplication::setApplicationVersion(QString::fromLatin1(multichat::Version));
+    QApplication::setApplicationName(QStringLiteral("Leapcast Studio"));
+    QApplication::setApplicationVersion(QString::fromLatin1(leapcast::Version));
     QApplication::setOrganizationName(QStringLiteral("Lefroge"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
 

@@ -44,7 +44,7 @@ try {
     git commit -m "Release $Tag"
     if ($LASTEXITCODE -ne 0) { throw "Could not create the release commit." }
 
-    git tag -a $Tag -m "Multi-Chat Studio $Version"
+    git tag -a $Tag -m "Leapcast Studio $Version"
     if ($LASTEXITCODE -ne 0) { throw "Could not create tag $Tag." }
 
     if ($Push) {

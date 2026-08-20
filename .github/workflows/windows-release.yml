@@ -64,10 +64,10 @@ jobs:
       - name: Upload testable installer
         uses: actions/upload-artifact@v4
         with:
-          name: MultiChatSudio-${{ steps.version.outputs.version }}-Windows
+          name: LeapcastStudio-${{ steps.version.outputs.version }}-Windows
           path: |
-            artifacts/MultiChatStudio-Setup-*.exe
-            artifacts/MultiChatSudio-Setup-*.exe.sha256
+            artifacts/LeapcastStudio-Setup-*.exe
+            artifacts/LeapcastStudio-Setup-*.exe.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -82,7 +82,7 @@ jobs:
       - name: Download verified installer
         uses: actions/download-artifact@v4
         with:
-          name: MultiChatStudio-${{ needs.windows-installer.outputs.version }}-Windows
+          name: LeapcastStudio-${{ needs.windows-installer.outputs.version }}-Windows
           path: release-assets
 
       - name: Publish tagged release

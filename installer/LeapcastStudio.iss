@@ -1,4 +1,4 @@
-#define AppName "Multi-Chat Studio"
+#define AppName "Leapcast Studio"
 #define AppPublisher "Lefroge"
 
 #ifndef AppVersion
@@ -14,9 +14,9 @@ AppId={{A80DBFB8-59F3-45A6-A9F0-F9576C59C3D0}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\Multi-Chat Studio
+DefaultDirName={autopf}\Leapcast Studio
 DefaultGroupName={#AppName}
-OutputBaseFilename=MultiChatStudio-Setup-{#AppVersion}
+OutputBaseFilename=LeapcastStudio-Setup-{#AppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
@@ -24,17 +24,22 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 WizardStyle=modern
 SetupIconFile=..\resources\lefroge_chat_icon.ico
-UninstallDisplayIcon={app}\MultiChatStudio.exe
+UninstallDisplayIcon={app}\LeapcastStudio.exe
 
 [Files]
 Source: "{#BuildRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+Type: files; Name: "{app}\MultiChatStudio.exe"
+Type: files; Name: "{autoprograms}\Multi-Chat Studio.lnk"
+Type: files; Name: "{autodesktop}\Multi-Chat Studio.lnk"
+
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\MultiChatStudio.exe"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\MultiChatStudio.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Run]
-Filename: "{app}\MultiChatStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\LeapcastStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

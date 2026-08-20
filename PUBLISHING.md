@@ -1,4 +1,4 @@
-# Publishing Multi-Chat Studio
+# Publishing Leapcast Studio
 
 The release process is designed so maintainers never edit version numbers in
 C++, CMake, Inno Setup, or GitHub Actions by hand. The root `VERSION` file is
@@ -26,7 +26,7 @@ The pushed tag starts the **Windows build and release** workflow. GitHub:
 1. verifies that the tag matches `VERSION`;
 2. builds the native C++/Qt application on Windows;
 3. gathers the Qt and compiler runtime files;
-4. creates `MultiChatStudio-Setup-<version>.exe`;
+4. creates `LeapcastStudio-Setup-<version>.exe`;
 5. creates a matching SHA-256 checksum file; and
 6. publishes both files in a GitHub Release with generated release notes.
 

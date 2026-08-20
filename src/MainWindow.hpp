@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <QUrl>
 
 class QStackedWidget;
 class QTabWidget;
@@ -28,7 +29,9 @@ private:
     QWidget* buildChatDock();
     QWidget* buildModerationPage();
     QWidget* makePlatformCard(const QString& name, const QString& status,
-                              const QColor& accent, const QString& action);
+                              const QColor& accent, const QString& action,
+                              const QString& credentialAction = {},
+                              const QUrl& credentialUrl = {});
     void applyTheme();
     void configureTwitchModeration();
     void configureYouTubeModeration();

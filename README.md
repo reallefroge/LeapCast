@@ -1,26 +1,26 @@
 <div align="center">
-  <img src="resources/lefroge_chat_icon.png" alt="Multi-Chat Studio frog logo" width="112">
+  <img src="resources/lefroge_chat_icon.png" alt="Leapcast Studio frog logo" width="112">
 
-  # Multi-Chat Studio
+  # Leapcast Studio
 
-  **One Windows workspace for Twitch, YouTube, YouTube Shorts, and TikTok LIVE chat.**
+  **A Windows multi-chat system that also functions as a focused moderation device.**
 
-  Follow every community, moderate faster, show chat in OBS, and surface Streamlabs events without juggling a wall of browser windows.
+  Follow Twitch, YouTube, YouTube Shorts, and TikTok LIVE communities, moderate faster, show chat in OBS, and surface Streamlabs events without juggling a wall of browser windows.
 
   [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
 </div>
 
 > [!IMPORTANT]
-> Multi-Chat Studio is a **stream companion**, not broadcasting software. Keep using OBS Studio or your preferred encoder to send video. Multi-Chat Studio handles chat, moderation, alerts, viewer information, and the browser-source overlay beside it.
+> Leapcast Studio is a **multi-chat and moderation system**, not broadcasting software. Keep using OBS Studio or your preferred encoder to send video. Leapcast Studio works beside it as a moderation device for chat, alerts, viewer information, restrictions, AutoMod, and the browser-source overlay.
 
 ## Download
 
-Multi-Chat Studio is made for **64-bit Windows 10 and Windows 11**.
+Leapcast Studio is made for **64-bit Windows 10 and Windows 11**.
 
 1. Open the [Releases page](https://github.com/reallefroge/MultiStreamChat/releases).
 2. Open the newest release marked **Latest**.
-3. Download `MultiChatStudio-Setup-<version>.exe`.
-4. Run the installer and launch **Multi-Chat Studio** from the Start menu or optional desktop shortcut.
+3. Download `LeapcastStudio-Setup-<version>.exe`.
+4. Run the installer and launch **Leapcast Studio** from the Start menu or optional desktop shortcut.
 
 The installer includes the required Qt runtime. Streamers and moderators do **not** need Python, CMake, Visual Studio, the Qt SDK, Tesseract, or loose image files.
 
@@ -36,20 +36,20 @@ The installer includes the required Qt runtime. Streamers and moderators do **no
 
 The main window keeps source connections on the left and a live, platform-filtered chat preview on the right. Sensitive channel and message information in these images has been blurred for privacy.
 
-![Multi-Chat Studio Sources page with Twitch, YouTube, YouTube Shorts, TikTok, and the combined chat preview](docs/images/first-look-sources.svg)
+![Leapcast Studio Sources page with Twitch, YouTube, YouTube Shorts, TikTok, and the combined chat preview](docs/images/first-look-sources.svg)
 
 ### Moderate from one safety center
 
 Configure access for Twitch, YouTube, and TikTok, then manage the shared blocked-word list from the AutoMod card.
 
-![Multi-Chat Studio Creator Safety Center with Twitch, YouTube, TikTok, and AutoMod cards](docs/images/first-look-moderation.svg)
+![Leapcast Studio Creator Safety Center with Twitch, YouTube, TikTok, and AutoMod cards](docs/images/first-look-moderation.svg)
 
 ### Keep chat visible while you work
 
 The compact, always-on-top pop-out keeps the combined conversation and total viewer count within view without taking over the desktop.
 
 <p align="center">
-  <img src="docs/images/first-look-popout.svg" alt="Multi-Chat Studio compact pop-out chat with combined viewer count" width="290">
+  <img src="docs/images/first-look-popout.svg" alt="Leapcast Studio compact pop-out chat with combined viewer count" width="290">
 </p>
 
 The interface is organized into five focused areas:
@@ -77,7 +77,7 @@ The interface is organized into five focused areas:
 - Editable blocked-word list with checks for common leetspeak, separators, repeated letters, Unicode lookalikes, and one-character misspellings.
 - Spam checks for repeated messages, floods, excessive capitals, follower/viewer promotion, and optionally links.
 - Twitch ban and timeout retrieval and removal.
-- YouTube restriction history for moderation actions created by Multi-Chat Studio.
+- YouTube restriction history for moderation actions created by Leapcast Studio.
 - Local JSON audit history for chat messages and Streamlabs events.
 
 Platform APIs decide which actions are available, and the signed-in account must have the required channel permissions.
@@ -114,19 +114,31 @@ Platform APIs decide which actions are available, and the signed-in account must
 
 Saved source links, preferences, audit files, and authentication values stay in the app's local Windows application-data folder. Authentication values are currently stored locally rather than in Windows Credential Manager, so protect your Windows account and never share your settings file.
 
+When upgrading from Multi-Chat Studio, Leapcast Studio copies the existing settings, blocked-word list, and audit files into the new application-data folder the first time it starts.
+
+### Credential shortcuts
+
+Each platform card in **Moderation** now includes a browser shortcut beside its authorization action:
+
+- **Twitch:** [Twitch Developer Console — Applications](https://dev.twitch.tv/console/apps) for the application Client ID and OAuth setup.
+- **YouTube:** [Google Cloud API Credentials](https://console.cloud.google.com/apis/credentials) for a project, YouTube Data API access, and OAuth credentials.
+- **TikTok moderation:** [Euler Stream OAuth token documentation](https://www.eulerstream.com/docs/api/tiktok-general/oauth-tokens), because the current moderation integration sends its requests through Euler Stream and expects an Euler-compatible TikTok OAuth token.
+
+The official [TikTok for Developers portal](https://developers.tiktok.com/) creates credentials for TikTok's official developer products, but those credentials are not interchangeable with the Euler Stream moderation token currently requested by Leapcast Studio.
+
 ## How it compares
 
-Multi-Chat Studio is intentionally a focused Windows chat and moderation companion. It does not try to replace a complete browser studio or support every social network.
+Leapcast Studio is intentionally a focused Windows chat and moderation companion. It does not try to replace a complete browser studio or support every social network.
 
-| Product | Where it is strongest | Trade-offs compared with Multi-Chat Studio |
+| Product | Where it is strongest | Trade-offs compared with Leapcast Studio |
 |---|---|---|
-| **Multi-Chat Studio** | Native Windows workflow for Twitch, YouTube, Shorts, and TikTok; built-in cross-platform AutoMod; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources; manual moderation credential setup; no video encoding, hosted studio, guest system, or cloud multistream relay |
-| [**Restream Chat**](https://support.restream.io/en/articles/2379624-what-is-restream-chat) | Established unified chat with desktop and Studio access, on-stream overlays, replies, and cross-platform relay | Best suited to the wider Restream account and broadcasting workflow; Multi-Chat Studio is more narrowly focused on local OBS use and its own AutoMod/moderation workspace |
-| [**Social Stream Ninja**](https://socialstream.ninja/docs/features) | Free and open-source browser tooling, very broad platform support, two-way chat, templates, CSS/JavaScript customization, and automation hooks | The extension, pop-out chat, dashboard, and advanced customization can mean more setup; Multi-Chat Studio offers a smaller, opinionated native Windows interface |
-| [**Streamlabs**](https://streamlabs.com/multistream) | Full streaming suite with multistreaming, widgets, alerts, themes, and creator tools in one ecosystem | Much broader and heavier than a dedicated chat companion; some multistream functionality is part of Streamlabs Ultra, while Multi-Chat Studio is designed to sit beside OBS and reuse Streamlabs alerts |
-| [**StreamYard**](https://streamyard.com/) | Browser-based hosted production, guest management, multistreaming, recordings, and on-screen comments | Designed to produce and send the whole show; Multi-Chat Studio does not provide a hosted studio, but keeps chat and moderation local alongside an existing OBS setup |
+| **Leapcast Studio** | Native Windows multi-chat and moderation device for Twitch, YouTube, Shorts, and TikTok; built-in cross-platform AutoMod; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources; users still create and paste their own platform credentials; no video encoding, hosted studio, guest system, or cloud multistream relay |
+| [**Restream Chat**](https://support.restream.io/en/articles/2379624-what-is-restream-chat) | Established unified chat with desktop and Studio access, on-stream overlays, replies, and cross-platform relay | Best suited to the wider Restream account and broadcasting workflow; Leapcast Studio is more narrowly focused on local OBS use and its own AutoMod/moderation workspace |
+| [**Social Stream Ninja**](https://socialstream.ninja/docs/features) | Free and open-source browser tooling, very broad platform support, two-way chat, templates, CSS/JavaScript customization, and automation hooks | The extension, pop-out chat, dashboard, and advanced customization can mean more setup; Leapcast Studio offers a smaller, opinionated native Windows interface |
+| [**Streamlabs**](https://streamlabs.com/multistream) | Full streaming suite with multistreaming, widgets, alerts, themes, and creator tools in one ecosystem | Much broader and heavier than a dedicated chat companion; some multistream functionality is part of Streamlabs Ultra, while Leapcast Studio is designed to sit beside OBS and reuse Streamlabs alerts |
+| [**StreamYard**](https://streamyard.com/) | Browser-based hosted production, guest management, multistreaming, recordings, and on-screen comments | Designed to produce and send the whole show; Leapcast Studio does not provide a hosted studio, but keeps chat and moderation local alongside an existing OBS setup |
 
-### Why choose Multi-Chat Studio?
+### Why choose Leapcast Studio?
 
 **Pros**
 
@@ -143,7 +155,7 @@ Multi-Chat Studio is intentionally a focused Windows chat and moderation compani
 - Supports fewer destinations than broad browser-extension and cloud-studio competitors.
 - The app does not send video or multistream the broadcast itself.
 - Moderation setup requires user-provided platform credentials or tokens and the correct account permissions.
-- YouTube's Bans page tracks restrictions created through Multi-Chat Studio; it is not a complete server-side history of every YouTube moderation action.
+- YouTube's Bans page tracks restrictions created through Leapcast Studio; it is not a complete server-side history of every YouTube moderation action.
 - TikTok and YouTube web integrations can require maintenance when those platforms change their pages or endpoints.
 - New unsigned installers may show a Windows SmartScreen warning.
 
@@ -187,4 +199,4 @@ For a complete one-command release workflow, see
 
 ---
 
-Multi-Chat Studio · Built by Lefroge with C++20 and Qt 6 · [MIT License](LICENSE)
+Leapcast Studio · Built by Lefroge with C++20 and Qt 6 · [MIT License](LICENSE)

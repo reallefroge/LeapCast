@@ -24,7 +24,7 @@ void UpdateService::check(bool userInitiated) {
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "application/vnd.github+json");
     request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
-    request.setRawHeader("User-Agent", "MultiChatStudio-Updater");
+    request.setRawHeader("User-Agent", "LeapcastStudio-Updater");
     auto* reply = network_.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         const QByteArray bytes = reply->readAll();
@@ -63,7 +63,7 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
     QNetworkRequest request(url);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
-    request.setRawHeader("User-Agent", "MultiChatStudio-Updater");
+    request.setRawHeader("User-Agent", "LeapcastStudio-Updater");
     auto* reply = network_.get(request);
     connect(reply, &QNetworkReply::downloadProgress, this, &UpdateService::progress);
     connect(reply, &QNetworkReply::finished, this, [this, reply, name, expectedDigest] {
@@ -79,7 +79,7 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
                 reply->deleteLater(); return;
             }
         }
-        const QString safeName = name.isEmpty() ? QStringLiteral("MultiChatStudio-Update.exe") : name;
+        const QString safeName = name.isEmpty() ? QStringLiteral("LeapcastStudio-Update.exe") : name;
         const QString path = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
                            + QLatin1Char('/') + safeName;
         QFile file(path);

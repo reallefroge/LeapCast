@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
 
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MULTICHAT_VERSION)
-string(STRIP "${MULTICHAT_VERSION}" MULTICHAT_VERSION)
-if(DEFINED MULTICHAT_VERSION_OVERRIDE)
-    set(MULTICHAT_VERSION "${MULTICHAT_VERSION_OVERRIDE}")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" LEAPCAST_VERSION)
+string(STRIP "${LEAPCAST_VERSION}" LEAPCAST_VERSION)
+if(DEFINED LEAPCAST_VERSION_OVERRIDE)
+    set(LEAPCAST_VERSION "${LEAPCAST_VERSION_OVERRIDE}")
 endif()
-if(NOT MULTICHAT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+if(NOT LEAPCAST_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "VERSION must contain a semantic version such as 19.0.3")
 endif()
 
-project(MultiChatStudio VERSION ${MULTICHAT_VERSION} LANGUAGES CXX)
+project(LeapcastStudio VERSION ${LEAPCAST_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,7 +25,7 @@ configure_file(
     @ONLY
 )
 
-qt_add_executable(MultiChatStudio WIN32
+qt_add_executable(LeapcastStudio WIN32
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.hpp
@@ -44,14 +44,14 @@ qt_add_executable(MultiChatStudio WIN32
     resources/resources.qrc
 )
 
-target_include_directories(MultiChatStudio PRIVATE
+target_include_directories(LeapcastStudio PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 
-target_link_libraries(MultiChatStudio PRIVATE
+target_link_libraries(LeapcastStudio PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::WebSockets Qt6::WebEngineWidgets
 )
 
-target_compile_definitions(MultiChatStudio PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_definitions(LeapcastStudio PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
-install(TARGETS MultiChatStudio RUNTIME DESTINATION .)
+install(TARGETS LeapcastStudio RUNTIME DESTINATION .)

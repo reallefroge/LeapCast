@@ -38,7 +38,19 @@ StreamEvent StreamEvent::fromJson(const QJsonObject& o) {
 
 SettingsStore::SettingsStore(QObject* parent) : QObject(parent) {
     directory_=QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(directory_); path_=directory_+QStringLiteral("/settings.json"); load();
+    QDir().mkpath(directory_);
+    const QString legacyDirectory =
+        QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+        + QStringLiteral("/Lefroge/Multi-Chat Studio");
+    for (const auto& fileName : {QStringLiteral("settings.json"),
+                                 QStringLiteral("blocked_words.txt"),
+                                 QStringLiteral("chat_history.jsonl"),
+                                 QStringLiteral("stream_events.json")}) {
+        const QString destination = directory_ + QLatin1Char('/') + fileName;
+        const QString legacy = legacyDirectory + QLatin1Char('/') + fileName;
+        if (!QFile::exists(destination) && QFile::exists(legacy)) QFile::copy(legacy, destination);
+    }
+    path_=directory_+QStringLiteral("/settings.json"); load();
 }
 
 void SettingsStore::load() {
@@ -83,4 +95,3 @@ AuditStore::AuditStore(SettingsStore*s,QObject*p):QObject(p){messagesPath_=s->da
 void AuditStore::appendMessage(const ChatMessage&m){QMutexLocker l(&mutex_);QFile f(messagesPath_);if(f.open(QIODevice::Append|QIODevice::Text)){f.write(QJsonDocument(m.toJson()).toJson(QJsonDocument::Compact));f.write("\n");}}
 void AuditStore::appendEvent(const StreamEvent&e){auto all=loadEvents();all.prepend(e);while(all.size()>500)all.removeLast();QJsonArray a;for(const auto&x:all)a.append(x.toJson());QMutexLocker l(&mutex_);QSaveFile f(eventsPath_);if(f.open(QIODevice::WriteOnly)){f.write(QJsonDocument(a).toJson(QJsonDocument::Indented));f.commit();}}
 QList<StreamEvent> AuditStore::loadEvents(int limit)const{QMutexLocker l(&mutex_);QFile f(eventsPath_);QList<StreamEvent>out;if(!f.open(QIODevice::ReadOnly))return out;for(const auto&v:QJsonDocument::fromJson(f.readAll()).array()){out<<StreamEvent::fromJson(v.toObject());if(out.size()>=limit)break;}return out;}
-

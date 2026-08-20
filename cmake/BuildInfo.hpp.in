@@ -1,5 +1,5 @@
 #pragma once
 
-namespace multichat {
+namespace leapcast {
 inline constexpr auto Version = "@PROJECT_VERSION@";
 }

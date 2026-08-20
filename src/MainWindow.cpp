@@ -36,7 +36,7 @@ QLabel* label(const QString& text, const char* role = nullptr) {
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle(QStringLiteral("Multi-Chat Studio • Twitch / YouTube / Shorts / TikTok"));
+    setWindowTitle(QStringLiteral("Leapcast Studio • Multi-Chat & Moderation"));
     resize(1280, 760);
     setMinimumSize(1000, 620);
     setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
@@ -104,7 +104,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const QString detail = notes.trimmed().isEmpty()
             ? QStringLiteral("A new version is ready.")
             : notes.left(1200);
-        if (QMessageBox::question(this, QStringLiteral("Multi-Chat Studio update"),
+        if (QMessageBox::question(this, QStringLiteral("Leapcast Studio update"),
                 QStringLiteral("Version %1 is available.\n\n%2\n\nDownload and install it now?")
                     .arg(version, detail)) == QMessageBox::Yes) {
             updater_->downloadAndInstall(asset, name, digest);
@@ -112,7 +112,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(updater_, &UpdateService::upToDate, this, [this] {
         QMessageBox::information(this, QStringLiteral("Updates"),
-                                 QStringLiteral("Multi-Chat Studio is up to date."));
+                                 QStringLiteral("Leapcast Studio is up to date."));
     });
     connect(updater_, &UpdateService::failed, this, [this](const QString& detail) {
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
@@ -138,7 +138,7 @@ QWidget* MainWindow::buildDashboard() {
                          .scaled(62, 62, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     brand->setAlignment(Qt::AlignCenter);
     railLayout->addWidget(brand);
-    railLayout->addWidget(label(QStringLiteral("MULTI-CHAT\nSTUDIO"), "brand"));
+    railLayout->addWidget(label(QStringLiteral("LEAPCAST\nSTUDIO"), "brand"));
 
     pages_ = new QStackedWidget;
     const QStringList names{QStringLiteral("Sources"), QStringLiteral("Events"),
@@ -175,7 +175,9 @@ QWidget* MainWindow::buildDashboard() {
 }
 
 QWidget* MainWindow::makePlatformCard(const QString& name, const QString& status,
-                                      const QColor& accent, const QString& action) {
+                                      const QColor& accent, const QString& action,
+                                      const QString& credentialAction,
+                                      const QUrl& credentialUrl) {
     auto* card = new QFrame;
     card->setProperty("card", true);
     auto* layout = new QVBoxLayout(card);
@@ -185,10 +187,21 @@ QWidget* MainWindow::makePlatformCard(const QString& name, const QString& status
     auto* state = label(status, "status"); state->setStyleSheet("color:" + accent.name());
     head->addWidget(state);
     layout->addLayout(head);
+    auto* actions = new QHBoxLayout;
     auto* button = new QPushButton(action);
     button->setObjectName(QStringLiteral("cardAction"));
     button->setStyleSheet("background:" + accent.name() + ";color:#081018;");
-    layout->addWidget(button);
+    if (!credentialAction.isEmpty() && credentialUrl.isValid()) {
+        auto* credential = new QPushButton(credentialAction);
+        credential->setObjectName(QStringLiteral("credentialLink"));
+        credential->setToolTip(QStringLiteral("Open the provider's credential setup page in your browser."));
+        actions->addWidget(credential, 1);
+        connect(credential, &QPushButton::clicked, this, [credentialUrl] {
+            QDesktopServices::openUrl(credentialUrl);
+        });
+    }
+    actions->addWidget(button, 1);
+    layout->addLayout(actions);
     return card;
 }
 
@@ -295,7 +308,7 @@ QWidget* MainWindow::buildObsPage() {
     connect(copy, &QPushButton::clicked, this, [url] { QApplication::clipboard()->setText(url); });
     connect(open, &QPushButton::clicked, this, [url] { QDesktopServices::openUrl(QUrl(url)); });
     connect(test, &QPushButton::clicked, this, [this] {
-        ChatMessage message; message.user = QStringLiteral("Multi-Chat Studio");
+        ChatMessage message; message.user = QStringLiteral("Leapcast Studio");
         message.text = QStringLiteral("OBS overlay test message"); message.platform = QStringLiteral("twitch");
         message.color = QColor(QStringLiteral("#53cdf3")); overlay_->ingest(message);
     });
@@ -343,7 +356,7 @@ QWidget* MainWindow::buildBansPage() {
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(8, 4, 8, 8);
     layout->addWidget(label(QStringLiteral("BANS & TIMEOUTS"), "heroTitle"));
-    layout->addWidget(label(QStringLiteral("Twitch reads current channel restrictions. YouTube lists actions created and tracked by Multi-Chat Studio."), "muted"));
+    layout->addWidget(label(QStringLiteral("Twitch reads current channel restrictions. YouTube lists actions created and tracked by Leapcast Studio."), "muted"));
     auto* tabs = new QTabWidget;
     const auto makePage = [this](const QString& platform, QListWidget** output) {
         auto* host = new QWidget; auto* hostLayout = new QVBoxLayout(host);
@@ -383,7 +396,7 @@ QWidget* MainWindow::buildModerationPage() {
     auto* heroLayout = new QHBoxLayout(hero);
     auto* copy = new QVBoxLayout;
     copy->addWidget(label(QStringLiteral("CREATOR SAFETY CENTER"), "heroTitle"));
-    copy->addWidget(label(QStringLiteral("Moderate every connected community from one focused workspace."), "muted"));
+    copy->addWidget(label(QStringLiteral("A multi-chat system and moderation device for every connected community."), "muted"));
     heroLayout->addLayout(copy, 1);
     heroLayout->addWidget(label(QStringLiteral("● LIVE ACTIONS\n● RIGHT-CLICK READY\n● LOCAL AUDIT"), "signal"));
     layout->addWidget(hero);
@@ -391,19 +404,25 @@ QWidget* MainWindow::buildModerationPage() {
     auto* columns = new QHBoxLayout;
     auto* left = new QVBoxLayout;
     auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"), QStringLiteral("Not authorized"),
-                                        QColor("#9146ff"), QStringLiteral("Authorize Twitch"));
+                                        QColor("#9146ff"), QStringLiteral("Authorize Twitch"),
+                                        QStringLiteral("Get Twitch keys ↗"),
+                                        QUrl(QStringLiteral("https://dev.twitch.tv/console/apps")));
     left->addWidget(twitchCard);
     connect(twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::configureTwitchModeration);
     auto* youtubeCard = makePlatformCard(QStringLiteral("YouTube"), QStringLiteral("Not authorized"),
-                                         QColor("#ff334f"), QStringLiteral("Authorize YouTube"));
+                                         QColor("#ff334f"), QStringLiteral("Authorize YouTube"),
+                                         QStringLiteral("Get YouTube keys ↗"),
+                                         QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
     left->addWidget(youtubeCard);
     connect(youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::configureYouTubeModeration);
     left->addStretch();
     auto* right = new QVBoxLayout;
     auto* tiktokCard = makePlatformCard(QStringLiteral("TikTok"), QStringLiteral("Not configured"),
-                                        QColor("#18e0d5"), QStringLiteral("Configure moderation access"));
+                                        QColor("#18e0d5"), QStringLiteral("Configure moderation access"),
+                                        QStringLiteral("Get TikTok token ↗"),
+                                        QUrl(QStringLiteral("https://www.eulerstream.com/docs/api/tiktok-general/oauth-tokens")));
     right->addWidget(tiktokCard);
     connect(tiktokCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::configureTikTokModeration);
