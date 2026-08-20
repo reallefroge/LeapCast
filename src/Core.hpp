@@ -27,6 +27,14 @@ struct ChatMessage {
 };
 Q_DECLARE_METATYPE(ChatMessage)
 
+// Renders a message's parsed badges (HOST/MOD/VIP/PRIME/SUB/CHECK/MONEY —
+// see TwitchChatService::parseLine and YouTubeChatService::poll) as a short
+// glyph prefix, in a fixed order so a user's badges don't reshuffle between
+// messages. No network/asset dependency: real Twitch/YouTube badge art
+// requires an authenticated API call and bundled images per badge set, so
+// this uses plain-text glyphs instead.
+QString badgeGlyphs(const QStringList& badges);
+
 struct StreamEvent {
     QString eventId;
     QString kind;
