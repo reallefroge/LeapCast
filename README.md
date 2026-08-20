@@ -36,20 +36,20 @@ The installer includes the required Qt runtime. Streamers and moderators do **no
 
 The main window keeps source connections on the left and a live, platform-filtered chat preview on the right. Sensitive channel and message information in these images has been blurred for privacy.
 
-![Multi-Chat Studio Sources page with Twitch, YouTube, YouTube Shorts, TikTok, and the combined chat preview](docs/images/first-look-sources.png)
+![Multi-Chat Studio Sources page with Twitch, YouTube, YouTube Shorts, TikTok, and the combined chat preview](docs/images/first-look-sources.svg)
 
 ### Moderate from one safety center
 
 Configure access for Twitch, YouTube, and TikTok, then manage the shared blocked-word list from the AutoMod card.
 
-![Multi-Chat Studio Creator Safety Center with Twitch, YouTube, TikTok, and AutoMod cards](docs/images/first-look-moderation.png)
+![Multi-Chat Studio Creator Safety Center with Twitch, YouTube, TikTok, and AutoMod cards](docs/images/first-look-moderation.svg)
 
 ### Keep chat visible while you work
 
 The compact, always-on-top pop-out keeps the combined conversation and total viewer count within view without taking over the desktop.
 
 <p align="center">
-  <img src="docs/images/first-look-popout.png" alt="Multi-Chat Studio compact pop-out chat with combined viewer count" width="290">
+  <img src="docs/images/first-look-popout.svg" alt="Multi-Chat Studio compact pop-out chat with combined viewer count" width="290">
 </p>
 
 The interface is organized into five focused areas:
