@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include <QAction>
 #include <QApplication>
 #include <QButtonGroup>
 #include <QClipboard>
@@ -21,6 +22,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
@@ -31,6 +33,7 @@
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QTextBlock>
+#include <QTextBlockFormat>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -48,15 +51,36 @@ QLabel* label(const QString& text, const char* role = nullptr) {
 // doesn't grow these documents (and every future append/reflow cost) without
 // bound. Chosen independently per view, mirroring PopoutChat's own cap.
 constexpr int kMaxChatBlocks = 300;
-void appendTrimmed(QTextBrowser* view, const QString& html) {
-    if (!view) return;
-    view->append(html);
-    auto* doc = view->document();
+void trimBlocks(QTextDocument* doc) {
     while (doc->blockCount() > kMaxChatBlocks) {
         QTextCursor cursor(doc->firstBlock());
         cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor);
         cursor.removeSelectedText();
     }
+}
+void appendTrimmed(QTextBrowser* view, const QString& html) {
+    if (!view) return;
+    view->append(html);
+    trimBlocks(view->document());
+}
+
+// A right-click on a chat line needs to find its way back to the ChatMessage
+// it came from (see showDashboardChatMenu), so — like PopoutChat's own
+// chat_ — each message is stamped with an id as a block property instead of
+// just appended as plain HTML.
+constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1;
+void appendChatMessage(QTextBrowser* view, const QString& html, qint64 id) {
+    if (!view) return;
+    auto* doc = view->document();
+    QTextCursor cursor(doc);
+    cursor.movePosition(QTextCursor::End);
+    QTextBlockFormat format;
+    format.setProperty(kMessageIdProperty, id);
+    if (!doc->isEmpty()) cursor.insertBlock(format);
+    else cursor.setBlockFormat(format);
+    cursor.insertHtml(html);
+    view->moveCursor(QTextCursor::End);
+    trimBlocks(doc);
 }
 
 QString friendlyTimestamp(const QString& value) {
@@ -102,10 +126,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setCentralWidget(splitter);
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
         const QString colour = m.color.isValid() ? m.color.name() : QStringLiteral("#53cdf3");
-        const QString html = QStringLiteral("<div style='margin:4px 0'><b style='color:%1'>%2</b> %3</div>")
+        const QString html = QStringLiteral("<b style='color:%1'>%2</b> %3")
             .arg(colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
-        appendTrimmed(chatViews_.value(QStringLiteral("combined")), html);
-        appendTrimmed(chatViews_.value(m.platform), html);
+        // Stamped with an id (see appendChatMessage) so a right-click on
+        // either view can be traced back to this message for moderation.
+        const qint64 id = ++nextChatSeq_;
+        chatHistoryById_.insert(id, m);
+        chatHistoryById_.remove(id - 400);
+        appendChatMessage(chatViews_.value(QStringLiteral("combined")), html, id);
+        appendChatMessage(chatViews_.value(m.platform), html, id);
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
@@ -714,6 +743,36 @@ void MainWindow::editBlockedWords() {
     controller_->reloadAutoMod();
 }
 
+void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& pos) {
+    const qint64 id = view->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
+    QMenu menu(this);
+    auto* copyAction = menu.addAction(QStringLiteral("Copy"));
+    copyAction->setEnabled(view->textCursor().hasSelection());
+    connect(copyAction, &QAction::triggered, view, &QTextBrowser::copy);
+    if (chatHistoryById_.contains(id)) {
+        const ChatMessage msg = chatHistoryById_.value(id);
+        const bool isTwitch = msg.platform == QStringLiteral("twitch");
+        const bool isYouTube = msg.platform == QStringLiteral("youtube") || msg.platform == QStringLiteral("yt_shorts");
+        // Only Twitch and YouTube/Shorts have a working moderation API wired
+        // up here; see PopoutChat::showChatContextMenu for why TikTok has no
+        // actions offered.
+        if (isTwitch || isYouTube) {
+            menu.addSeparator();
+            auto* header = menu.addAction(QStringLiteral("Moderate %1").arg(msg.user));
+            header->setEnabled(false);
+            connect(menu.addAction(QStringLiteral("Delete message")), &QAction::triggered,
+                    this, [this, msg] { controller_->deleteChatMessage(msg); });
+            connect(menu.addAction(QStringLiteral("Timeout")), &QAction::triggered,
+                    this, [this, msg] { controller_->moderateMessage(msg, 300); });
+            connect(menu.addAction(isYouTube ? QStringLiteral("Hide from channel") : QStringLiteral("Ban")),
+                    &QAction::triggered, this, [this, msg] { controller_->moderateMessage(msg, 0); });
+        }
+    }
+    menu.addSeparator();
+    connect(menu.addAction(QStringLiteral("Select All")), &QAction::triggered, view, &QTextBrowser::selectAll);
+    menu.exec(view->viewport()->mapToGlobal(pos));
+}
+
 QWidget* MainWindow::buildChatDock() {
     auto* dock = new QFrame; dock->setObjectName(QStringLiteral("chatDock"));
     auto* layout = new QVBoxLayout(dock);
@@ -735,6 +794,9 @@ QWidget* MainWindow::buildChatDock() {
         else chatTabs_->addTab(chat, tab.first);
         chatTabs_->setTabToolTip(static_cast<int>(index), tab.first);
         chatViews_.insert(keys.at(index),chat);
+        chat->viewport()->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(chat->viewport(), &QWidget::customContextMenuRequested, this,
+                [this, chat](const QPoint& pos) { showDashboardChatMenu(chat, pos); });
     }
 
     auto* kickPreview = new QTextBrowser;
