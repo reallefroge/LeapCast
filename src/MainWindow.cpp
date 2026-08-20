@@ -30,6 +30,7 @@
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTextBlock>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>

@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QStackedLayout>
 #include <QTcpSocket>
+#include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextBrowser>
 #include <QTextCursor>
