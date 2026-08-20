@@ -19,6 +19,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QSplitter>
 #include <QSpinBox>
@@ -183,8 +184,30 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             ? QStringLiteral("A new version is ready.")
             : notes.left(1200);
         if (QMessageBox::question(this, QStringLiteral("Leapcast Studio update"),
-                QStringLiteral("Version %1 is available.\n\n%2\n\nDownload and install it now?")
+                QStringLiteral("Version %1 is available.\n\n%2\n\nInstall it now? Leapcast Studio will replace its old program files and reopen automatically.")
                     .arg(version, detail)) == QMessageBox::Yes) {
+            auto* progress = new QProgressDialog(
+                QStringLiteral("Downloading the update…\nLeapcast Studio will reopen automatically."),
+                QString(), 0, 100, this);
+            progress->setWindowTitle(QStringLiteral("Updating Leapcast Studio"));
+            progress->setCancelButton(nullptr);
+            progress->setWindowModality(Qt::WindowModal);
+            progress->setMinimumDuration(0);
+            progress->setAutoClose(false);
+            connect(updater_, &UpdateService::progress, progress,
+                    [progress](qint64 received, qint64 total) {
+                if (total <= 0) {
+                    progress->setRange(0, 0);
+                    return;
+                }
+                progress->setRange(0, 100);
+                progress->setValue(static_cast<int>((received * 100) / total));
+            });
+            connect(updater_, &UpdateService::failed, progress, [progress] {
+                progress->close();
+                progress->deleteLater();
+            });
+            progress->show();
             updater_->downloadAndInstall(asset, name, digest);
         }
     });

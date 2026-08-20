@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -10,6 +11,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QVersionNumber>
+#include <QDir>
 
 namespace {
 constexpr auto OfficialReleaseApi =
@@ -38,7 +40,13 @@ void UpdateService::check(bool userInitiated) {
         if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive)) tag.remove(0, 1);
         const auto remote = QVersionNumber::fromString(tag);
         const auto current = QVersionNumber::fromString(QCoreApplication::applicationVersion());
-        if (remote.isNull() || QVersionNumber::compare(remote, current) <= 0) {
+        // Leapcast Studio moved from an inaccurate legacy build sequence to
+        // the public 2.x version line. Let older installations cross that
+        // reset once; normal semantic comparisons apply after the update.
+        const bool crossesVersionReset = !remote.isNull() && !current.isNull()
+            && current.majorVersion() > remote.majorVersion() && remote.majorVersion() == 2
+            && QVersionNumber::compare(remote, QVersionNumber(2, 0, 3)) >= 0;
+        if (remote.isNull() || (!crossesVersionReset && QVersionNumber::compare(remote, current) <= 0)) {
             if (userInitiated_) emit upToDate();
             reply->deleteLater();
             return;
@@ -79,16 +87,32 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
                 reply->deleteLater(); return;
             }
         }
-        const QString safeName = name.isEmpty() ? QStringLiteral("LeapcastStudio-Update.exe") : name;
-        const QString path = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-                           + QLatin1Char('/') + safeName;
+        const QString safeName = name.isEmpty() ? QStringLiteral("LeapcastStudio-Update.exe")
+                                                : QFileInfo(name).fileName();
+        QDir tempDirectory(QStandardPaths::writableLocation(QStandardPaths::TempLocation));
+        for (const QString& stale : tempDirectory.entryList(
+                 {QStringLiteral("LeapcastStudio-Setup-*.exe"),
+                  QStringLiteral("LeapcastStudio-Update.exe")}, QDir::Files)) {
+            tempDirectory.remove(stale);
+        }
+        const QString path = tempDirectory.filePath(safeName);
         QFile file(path);
         if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size()) {
             emit failed(QStringLiteral("Could not save the downloaded installer."));
             reply->deleteLater(); return;
         }
         file.close();
-        if (!QProcess::startDetached(path, QStringList{})) {
+        const QString logPath = tempDirectory.filePath(QStringLiteral("LeapcastStudio-Update.log"));
+        const QStringList arguments{
+            QStringLiteral("/VERYSILENT"),
+            QStringLiteral("/SUPPRESSMSGBOXES"),
+            QStringLiteral("/NORESTART"),
+            QStringLiteral("/CLOSEAPPLICATIONS"),
+            QStringLiteral("/SP-"),
+            QStringLiteral("/UPDATE"),
+            QStringLiteral("/LOG=%1").arg(QDir::toNativeSeparators(logPath))
+        };
+        if (!QProcess::startDetached(path, arguments)) {
             emit failed(QStringLiteral("Could not launch the downloaded installer."));
             reply->deleteLater(); return;
         }

@@ -15,7 +15,7 @@ $VersionFile = Join-Path $ProjectRoot "VERSION"
 $Version = (Get-Content $VersionFile -Raw).Trim()
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "VERSION must contain a semantic version such as 19.0.3."
+    throw "VERSION must contain a semantic version such as 2.0.3."
 }
 
 if ([string]::IsNullOrWhiteSpace($TwitchClientId)) {

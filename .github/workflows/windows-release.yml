@@ -35,7 +35,7 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "VERSION must contain a semantic version such as 19.0.3."
+            throw "VERSION must contain a semantic version such as 2.0.3."
           }
           if ("${{ github.ref_type }}" -eq "tag") {
             $tagVersion = "${{ github.ref_name }}".TrimStart("v")

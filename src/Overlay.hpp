@@ -4,6 +4,7 @@
 #include <QTcpServer>
 #include <QWidget>
 class QTextBrowser; class QLabel;
+class QStackedLayout;
 class QWebEngineView;
 class QUrl;
 class OverlayServer final : public QObject {
@@ -44,5 +45,6 @@ private:
     QLabel* event_{};
     QLabel* viewers_{};
     QHash<QString, int> counts_;
-    QWebEngineView* alertAudio_{};
+    QStackedLayout* chatStack_{};
+    QWebEngineView* alertView_{};
 };

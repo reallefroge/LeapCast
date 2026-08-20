@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QHostAddress>
 #include <QLabel>
+#include <QStackedLayout>
 #include <QTcpSocket>
 #include <QTextBrowser>
 #include <QTimer>
@@ -10,6 +11,7 @@
 #include <QVBoxLayout>
 #include <QWebEngineSettings>
 #include <QWebEngineView>
+#include <QWebEnginePage>
 namespace {
 QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "HTTP/1.1 "+QByteArray::number(code)+(code==200?" OK\r\n":" Not Found\r\n")+"Content-Type: "+type+"\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: "+QByteArray::number(body.size())+"\r\nConnection: close\r\n\r\n"+body;}
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
@@ -25,12 +27,54 @@ bool OverlayServer::start(quint16 p){for(int i=0;i<20;++i)if(server_.listen(QHos
 void OverlayServer::ingest(const ChatMessage&m){messages_.append({++cursor_,m});while(messages_.size()>400)messages_.removeFirst();} void OverlayServer::setViewers(const QString&p,int n){viewers_[p]=n;} void OverlayServer::clear(){messages_.clear();++cursor_;}
 void OverlayServer::accept(){while(auto*s=server_.nextPendingConnection()){connect(s,&QTcpSocket::readyRead,this,[this,s]{const QByteArray first=s->readAll().split('\n').value(0);s->write(responseFor(first.split(' ').value(1)));s->disconnectFromHost();});connect(s,&QTcpSocket::disconnected,s,&QObject::deleteLater);}}
 QByteArray OverlayServer::responseFor(const QByteArray&t){if(t=="/"||t.startsWith("/?"))return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith("/api/messages")){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"fade_seconds",fadeSeconds_}}).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/viewers")){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}return reply(404,"text/plain","Not found");}
-PopoutChat::PopoutChat(QWidget*p):QWidget(p){setWindowTitle("Multi-Chat Pop-out");setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));resize(460,720);setWindowFlag(Qt::WindowStaysOnTopHint,true);auto*l=new QVBoxLayout(this);l->setContentsMargins(8,8,8,8);event_=new QLabel;event_->setAlignment(Qt::AlignCenter);event_->setWordWrap(true);event_->hide();event_->setStyleSheet("background:#171d2dee;border:1px solid #53cdf3;border-radius:12px;padding:12px;font-size:14pt;font-weight:800;");l->addWidget(event_);chat_=new QTextBrowser;chat_->setStyleSheet("background:#10131dcc;border:0;border-radius:12px;font-size:12pt;");l->addWidget(chat_,1);viewers_=new QLabel("0 watching");viewers_->setStyleSheet("background:#10131d;padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;");l->addWidget(viewers_);}
+PopoutChat::PopoutChat(QWidget*p):QWidget(p){
+    setWindowTitle("Leapcast Studio Pop-out");
+    setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));
+    resize(460,720);
+    setWindowFlag(Qt::WindowStaysOnTopHint,true);
+    auto*l=new QVBoxLayout(this);
+    l->setContentsMargins(8,8,8,8);
+    event_=new QLabel;
+    event_->setAlignment(Qt::AlignCenter);
+    event_->setWordWrap(true);
+    event_->hide();
+    event_->setStyleSheet("background:#171d2dee;border:1px solid #53cdf3;border-radius:12px;padding:12px;font-size:14pt;font-weight:800;");
+    l->addWidget(event_);
+
+    auto*chatHost=new QWidget;
+    chatStack_=new QStackedLayout(chatHost);
+    chatStack_->setContentsMargins(0,0,0,0);
+    chatStack_->setStackingMode(QStackedLayout::StackAll);
+    chat_=new QTextBrowser;
+    chat_->setStyleSheet("background:#10131dcc;border:0;border-radius:12px;font-size:12pt;");
+    chatStack_->addWidget(chat_);
+    l->addWidget(chatHost,1);
+
+    viewers_=new QLabel("0 watching");
+    viewers_->setStyleSheet("background:#10131d;padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;");
+    l->addWidget(viewers_);
+}
 void PopoutChat::appendMessage(const ChatMessage&m){chat_->append(QString("<p><b style='color:%1'>%2</b> %3</p>").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));}
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
 void PopoutChat::setViewers(const QString&p,int n){counts_[p]=n;int total=0;for(int v:counts_)total+=v;viewers_->setText(QString::number(total)+" WATCHING");} void PopoutChat::setGhostMode(bool on){setWindowFlag(Qt::WindowTransparentForInput,on);show();} void PopoutChat::setClearBackground(bool on){setAttribute(Qt::WA_TranslucentBackground,on);} void PopoutChat::setOpacityPercent(int n){setWindowOpacity(qBound(.2,n/100.0,1.0));}
 void PopoutChat::setStreamlabsAlertAudio(bool enabled,const QUrl&url){
-    if(!enabled||!url.isValid()||url.host().isEmpty()){if(alertAudio_){alertAudio_->setUrl(QUrl(QStringLiteral("about:blank")));alertAudio_->deleteLater();alertAudio_=nullptr;}return;}
-    if(!alertAudio_){alertAudio_=new QWebEngineView(this);alertAudio_->setFixedSize(1,1);alertAudio_->setAttribute(Qt::WA_TransparentForMouseEvents,true);alertAudio_->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture,false);layout()->addWidget(alertAudio_);}
-    alertAudio_->setUrl(url);
+    if(!enabled||!url.isValid()||url.host().isEmpty()){
+        if(alertView_){
+            alertView_->setUrl(QUrl(QStringLiteral("about:blank")));
+            chatStack_->removeWidget(alertView_);
+            alertView_->deleteLater();
+            alertView_=nullptr;
+        }
+        return;
+    }
+    if(!alertView_){
+        alertView_=new QWebEngineView;
+        alertView_->setAttribute(Qt::WA_TransparentForMouseEvents,true);
+        alertView_->setStyleSheet(QStringLiteral("background:transparent"));
+        alertView_->page()->setBackgroundColor(Qt::transparent);
+        alertView_->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture,false);
+        chatStack_->addWidget(alertView_);
+        chatStack_->setCurrentWidget(alertView_);
+    }
+    alertView_->setUrl(url);
 }

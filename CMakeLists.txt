@@ -6,7 +6,7 @@ if(DEFINED LEAPCAST_VERSION_OVERRIDE)
     set(LEAPCAST_VERSION "${LEAPCAST_VERSION_OVERRIDE}")
 endif()
 if(NOT LEAPCAST_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-    message(FATAL_ERROR "VERSION must contain a semantic version such as 19.0.3")
+    message(FATAL_ERROR "VERSION must contain a semantic version such as 2.0.3")
 endif()
 
 project(LeapcastStudio VERSION ${LEAPCAST_VERSION} LANGUAGES CXX)
