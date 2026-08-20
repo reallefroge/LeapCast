@@ -5,6 +5,8 @@
 
   **A Windows multi-chat system that also functions as a focused moderation device.**
 
+  NOTE: THIS IS IN EARLY DEVELOPMENT SO THERE WILL BE LOTS OF UPDATE PUSHES TO COME IN THE NEXT MONTH OR SO!! Once everything is fixed and polished, updates will be periodically!
+
   Follow Twitch, YouTube, YouTube Shorts, and TikTok LIVE communities, moderate faster, show chat in OBS, and surface Streamlabs events without juggling a wall of browser windows.
 
   [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
