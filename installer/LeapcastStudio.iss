@@ -24,7 +24,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 WizardStyle=modern
 SetupIconFile=..\resources\lefroge_chat_icon.ico
-UninstallDisplayIcon={app}\LeapcastSudio.exe
+UninstallDisplayIcon={app}\LeapcastStudio.exe
 
 [Files]
 Source: "{#BuildRoot}\\"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -42,4 +42,4 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"; IconFile
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Run]
-Filename: "{app}\LeapcastSudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\LeapcastStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
