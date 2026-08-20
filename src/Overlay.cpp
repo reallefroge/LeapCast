@@ -1,9 +1,13 @@
 #include "Overlay.hpp"
+#include <QApplication>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QHBoxLayout>
 #include <QHostAddress>
 #include <QLabel>
+#include <QPushButton>
 #include <QStackedLayout>
 #include <QTcpSocket>
 #include <QTextBrowser>
@@ -47,6 +51,26 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     qApp->installNativeEventFilter(this);
     auto*l=new QVBoxLayout(this);
     l->setContentsMargins(8,8,8,8);
+    l->setSpacing(6);
+
+    auto*toolbar=new QHBoxLayout;
+    toolbar->setSpacing(6);
+    auto*title=new QLabel("LEAPCAST STUDIO");
+    title->setStyleSheet("color:#8f9bb5;font-size:8pt;font-weight:800;letter-spacing:1px;");
+    toolbar->addWidget(title);
+    toolbar->addStretch();
+    clipButton_=new QPushButton("Clip");
+    clipButton_->setToolTip("Create a Twitch clip of this stream, just like the Clip button on twitch.tv");
+    clipButton_->setCursor(Qt::PointingHandCursor);
+    clipButton_->setStyleSheet(
+        "QPushButton{background:#9146ff;color:white;border:0;border-radius:8px;padding:5px 12px;font-weight:700;font-size:9pt;}"
+        "QPushButton:disabled{background:#2a2f42;color:#66708c;}"
+        "QPushButton:hover:!disabled{background:#a366ff;}");
+    clipButton_->setEnabled(false);
+    connect(clipButton_,&QPushButton::clicked,this,&PopoutChat::clipRequested);
+    toolbar->addWidget(clipButton_);
+    l->addLayout(toolbar);
+
     event_=new QLabel;
     event_->setAlignment(Qt::AlignCenter);
     event_->setWordWrap(true);
@@ -61,6 +85,12 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     chat_=new QTextBrowser;
     chatStack_->addWidget(chat_);
     l->addWidget(chatHost,1);
+
+    clipStatus_=new QLabel;
+    clipStatus_->setWordWrap(true);
+    clipStatus_->setAlignment(Qt::AlignCenter);
+    clipStatus_->hide();
+    l->addWidget(clipStatus_);
 
     viewers_=new QLabel("0 watching");
     l->addWidget(viewers_);
@@ -119,6 +149,23 @@ bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintp
     Q_UNUSED(eventType) Q_UNUSED(message)
 #endif
     return false;
+}
+void PopoutChat::setClipAvailable(bool available){if(clipButton_)clipButton_->setEnabled(available);}
+void PopoutChat::showClipResult(bool success,const QString&text,const QUrl&editUrl){
+    if(!clipStatus_)return;
+    QString body=text.toHtmlEscaped();
+    if(success&&editUrl.isValid()){
+        QApplication::clipboard()->setText(editUrl.toString());
+        body+=QStringLiteral(" <a href='%1' style='color:inherit;text-decoration:underline'>Open editor &#8599;</a>").arg(editUrl.toString());
+    }
+    clipStatus_->setTextFormat(Qt::RichText);
+    clipStatus_->setOpenExternalLinks(true);
+    clipStatus_->setText(body);
+    clipStatus_->setStyleSheet(success
+        ?QStringLiteral("background:#12301fee;border:1px solid #63e6be;border-radius:10px;padding:8px;color:#9ff5d4;font-weight:700;")
+        :QStringLiteral("background:#301217ee;border:1px solid #ff5573;border-radius:10px;padding:8px;color:#ffb3c0;font-weight:700;"));
+    clipStatus_->show();
+    QTimer::singleShot(8000,clipStatus_,&QWidget::hide);
 }
 void PopoutChat::setStreamlabsAlertAudio(bool enabled,const QUrl&url){
     if(!enabled||!url.isValid()||url.host().isEmpty()){

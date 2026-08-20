@@ -33,7 +33,7 @@ class YouTubeModerationService final : public QObject {
     Q_OBJECT
 public:
     explicit YouTubeModerationService(QObject* parent=nullptr);
-    void setAccessToken(QString token){token_=std::move(token);}
+    void setAccessToken(QString token){token_=std::move(token);autoModDenied_.clear();}
     void deleteMessage(const QString& messageId);
     void ban(const QString& liveChatId,const QString& channelId,int seconds,const QString& user);
     void removeBan(const QString& banId);
@@ -43,6 +43,9 @@ signals:
 private:
     QNetworkRequest request(const QUrl& url)const; void watch(QNetworkReply*,const QString&);
     QNetworkAccessManager network_; QString token_;
+    // Live chats we've already been told (via HTTP 401/403) we can't moderate —
+    // see TwitchModerationService::autoModDenied_ for why this matters.
+    QSet<QString> autoModDenied_;
 };
 
 class TikTokPage final : public QWebEnginePage {

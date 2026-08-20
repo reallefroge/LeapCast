@@ -91,6 +91,8 @@ Platform APIs decide which actions are available, and the signed-in account must
 - Serves a local browser-source overlay at `http://127.0.0.1:8080/` by default.
 - Includes copy, open, test, clear, and message-fade controls.
 - Offers an always-on-top pop-out chat with combined viewer totals.
+- Lets you set the pop-out's background opacity independently of chat text and Streamlabs alerts, which always stay fully readable.
+- Creates a Twitch clip of the live broadcast directly from the pop-out's Clip button — the same action as twitch.tv's own Clip button — and copies the editor link to your clipboard.
 - Shows Streamlabs alert cards in Leapcast Studio's streamer-facing chat preview while keeping them out of the OBS overlay feed.
 - Layers the streamer's native Streamlabs Alert Box animation over the pop-out chat, with its selected sound and visuals kept in sync.
 

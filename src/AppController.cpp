@@ -33,7 +33,11 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&twitchMod_,&TwitchModerationService::bansReceived,this,[this](const QJsonArray&a){emit bansUpdated("twitch",a);});
     connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);});
     connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user){QJsonObject o{{"id",id},{"user_name",user},{"type","timeout / ban"},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
-    connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("twitch",ok,d);});
+    connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&action,bool ok,const QString&d){
+        if(action=="clip"){if(!ok)emit twitchClipFailed(d);return;}
+        emit moderationResult("twitch",ok,d);
+    });
+    connect(&twitchMod_,&TwitchModerationService::clipCreated,this,[this](const QString&,const QUrl&editUrl){emit twitchClipCreated(editUrl);});
     connect(&youtubeMod_,&YouTubeModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("youtube",ok,d);});
     connect(&twitchAuth_,&TwitchAuthService::browserAuthorizationReady,this,&AppController::twitchAuthorizationUrl);
     connect(&twitchAuth_,&TwitchAuthService::authorizationPending,this,[this]{emit sourceStatus("twitch","connecting","Waiting for Twitch approval…");});
@@ -59,7 +63,7 @@ AppController::AppController(QObject*p):QObject(p){
 QString AppController::twitchName(const QString&l){auto m=QRegularExpression("twitch\\.tv/([A-Za-z0-9_]+)").match(l);if(m.hasMatch())return m.captured(1).toLower();return QRegularExpression("^[A-Za-z0-9_]{3,25}$").match(l).hasMatch()?l.toLower():QString();}
 QString AppController::tiktokName(const QString&l){auto m=QRegularExpression("tiktok\\.com/@([A-Za-z0-9._]+)").match(l);if(m.hasMatch())return m.captured(1);return l.startsWith('@')?l.mid(1):QString();}
 void AppController::startConfiguredSources(){for(const auto&p:{"twitch","youtube","yt_shorts","tiktok"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
-void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty())twitchMod_.resolveBroadcaster(name);}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));}
+void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty()){twitchMod_.configure(configuredTwitchClientId(settings_),settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));twitchMod_.resolveBroadcaster(name);}}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));}
 void AppController::disconnectSource(const QString&p){if(p=="twitch")twitch_.disconnectChannel();else if(p=="youtube")youtube_.disconnectService();else if(p=="yt_shorts")shorts_.disconnectService();else if(p=="tiktok")tiktok_.disconnectService();}
 void AppController::authorizeTwitch(){twitchAuthorizationRequested_=true;twitchAuth_.authorize(configuredTwitchClientId(settings_));}
 void AppController::configureYouTubeModeration(const QString&t){settings_.setSecret("youtube_access_token",t);youtubeMod_.setAccessToken(t);emit sourceStatus("youtube","ok","moderation configured");}
@@ -67,6 +71,14 @@ void AppController::connectStreamlabs(const QString&t){settings_.setSecret("stre
 void AppController::disconnectStreamlabs(){streamlabs_.disconnectService();settings_.setSecret("streamlabs_socket_token",QString());}
 void AppController::refreshBans(const QString&p){if(p=="twitch"){const QString id=settings_.secret("twitch_broadcaster_id");if(id.isEmpty()){emit moderationResult("twitch",false,"Connect Twitch and configure moderation first.");return;}twitchMod_.listBans(id);}else if(p=="youtube")emit bansUpdated("youtube",youtubeRestrictions_);}
 void AppController::unbanTwitch(const QString&u){const QString id=settings_.secret("twitch_broadcaster_id");if(!id.isEmpty()&&!u.isEmpty()){twitchMod_.unban(id,u);QTimer::singleShot(800,this,[this]{refreshBans("twitch");});}}
+void AppController::createTwitchClip(){
+    const QString broadcaster=settings_.secret("twitch_broadcaster_id");
+    if(settings_.secret("twitch_access_token").isEmpty()||broadcaster.isEmpty()){
+        emit twitchClipFailed(QStringLiteral("Connect Twitch under Moderation, then pick a live Twitch channel, before creating a clip."));
+        return;
+    }
+    twitchMod_.createClip(broadcaster);
+}
 void AppController::unbanYouTube(const QString&id){if(id.isEmpty())return;youtubeMod_.removeBan(id);for(int i=youtubeRestrictions_.size()-1;i>=0;--i)if(youtubeRestrictions_[i].toObject()["id"].toString()==id)youtubeRestrictions_.removeAt(i);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);}
 void AppController::receive(const ChatMessage&m){audit_.appendMessage(m);QString reason;if(automod_.check(m,&reason))autoModerate(m,reason);emit messageReady(m);}
 void AppController::autoModerate(const ChatMessage&m,const QString&r){if(m.platform=="twitch"){const auto broadcaster=m.metadata["room_id"].toString();if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,300,r);}else if(m.platform=="youtube"||m.platform=="yt_shorts"){const auto chat=m.metadata["live_chat_id"].toString();if(!chat.isEmpty()&&!m.userId.isEmpty())youtubeMod_.ban(chat,m.userId,300,m.user);}}

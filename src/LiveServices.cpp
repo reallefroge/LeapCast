@@ -22,7 +22,7 @@ QString twitchError(const QByteArray& payload,const QString& fallback){
 }
 
 TwitchAuthService::TwitchAuthService(QObject*p):QObject(p){
-    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages user:write:chat");
+    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages user:write:chat clips:edit");
     pollTimer_.setSingleShot(true);
     connect(&pollTimer_,&QTimer::timeout,this,&TwitchAuthService::pollForToken);
     refreshTimer_.setSingleShot(true);
@@ -144,15 +144,51 @@ void TwitchChatService::parseLine(const QString&raw){if(raw.startsWith("PING")){
 void TwitchChatService::pollViewers(){if(channel_.isEmpty())return;QNetworkRequest req(QUrl("https://gql.twitch.tv/gql"));req.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");req.setRawHeader("Client-Id",TwitchGqlClient);QJsonObject body{{"query","query($login:String!){user(login:$login){stream{viewersCount}}}"},{"variables",QJsonObject{{"login",channel_}}}};auto*r=network_.post(req,QJsonDocument(body).toJson(QJsonDocument::Compact));connect(r,&QNetworkReply::finished,this,[this,r]{if(r->error()==QNetworkReply::NoError){auto stream=QJsonDocument::fromJson(r->readAll()).object()["data"].toObject()["user"].toObject()["stream"].toObject();if(stream.contains("viewersCount"))emit viewerCountChanged(stream["viewersCount"].toInt());}r->deleteLater();});}
 
 TwitchModerationService::TwitchModerationService(QObject*p):QObject(p){}
-void TwitchModerationService::configure(QString c,QString t,QString m){clientId_=std::move(c);token_=std::move(t);moderatorId_=std::move(m);}
+void TwitchModerationService::configure(QString c,QString t,QString m){clientId_=std::move(c);token_=std::move(t);moderatorId_=std::move(m);autoModDenied_.clear();}
 QNetworkRequest TwitchModerationService::request(const QUrl&u)const{QNetworkRequest r(u);r.setRawHeader("Client-Id",clientId_.toUtf8());r.setRawHeader("Authorization",("Bearer "+token_).toUtf8());r.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");return r;}
 void TwitchModerationService::watch(QNetworkReply*r,const QString&a){connect(r,&QNetworkReply::finished,this,[this,r,a]{const bool ok=r->error()==QNetworkReply::NoError;emit actionFinished(a,ok,ok?QString():QString::fromUtf8(r->readAll()));r->deleteLater();});}
 void TwitchModerationService::resolveBroadcaster(const QString&login){QUrl u("https://api.twitch.tv/helix/users");QUrlQuery q;q.addQueryItem("login",login);u.setQuery(q);auto*r=network_.get(request(u));connect(r,&QNetworkReply::finished,this,[this,r,login]{if(r->error()==QNetworkReply::NoError){auto a=QJsonDocument::fromJson(r->readAll()).object()["data"].toArray();if(!a.isEmpty())emit broadcasterResolved(login,a[0].toObject()["id"].toString());}r->deleteLater();});}
 void TwitchModerationService::listBans(const QString&b){QUrl u("https://api.twitch.tv/helix/moderation/banned");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("first","100");u.setQuery(q);auto*r=network_.get(request(u));connect(r,&QNetworkReply::finished,this,[this,r]{if(r->error()==QNetworkReply::NoError)emit bansReceived(QJsonDocument::fromJson(r->readAll()).object()["data"].toArray());else emit actionFinished("list_bans",false,r->errorString());r->deleteLater();});}
-void TwitchModerationService::ban(const QString&b,const QString&u,int seconds,const QString&reason){QUrl url("https://api.twitch.tv/helix/moderation/bans");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);url.setQuery(q);QJsonObject data{{"user_id",u},{"reason",reason.left(500)}};if(seconds>0)data["duration"]=seconds;watch(network_.post(request(url),QJsonDocument(QJsonObject{{"data",data}}).toJson(QJsonDocument::Compact)),"ban");}
+void TwitchModerationService::ban(const QString&b,const QString&u,int seconds,const QString&reason){
+    // Watching (or testing chat on) a channel you don't moderate is expected —
+    // don't hammer Twitch, and don't keep re-warning the user, once we already
+    // know a broadcaster has rejected our moderator status.
+    if(autoModDenied_.contains(b))return;
+    QUrl url("https://api.twitch.tv/helix/moderation/bans");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);url.setQuery(q);
+    QJsonObject data{{"user_id",u},{"reason",reason.left(500)}};if(seconds>0)data["duration"]=seconds;
+    auto*r=network_.post(request(url),QJsonDocument(QJsonObject{{"data",data}}).toJson(QJsonDocument::Compact));
+    connect(r,&QNetworkReply::finished,this,[this,r,b]{
+        const bool ok=r->error()==QNetworkReply::NoError;
+        const int status=r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString detail=ok?QString():QString::fromUtf8(r->readAll());
+        if(!ok&&(status==401||status==403))autoModDenied_.insert(b);
+        emit actionFinished("ban",ok,detail);
+        r->deleteLater();
+    });
+}
 void TwitchModerationService::unban(const QString&b,const QString&u){QUrl url("https://api.twitch.tv/helix/moderation/bans");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("user_id",u);url.setQuery(q);watch(network_.deleteResource(request(url)),"unban");}
 void TwitchModerationService::deleteMessage(const QString&b,const QString&m){QUrl url("https://api.twitch.tv/helix/moderation/chat");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("message_id",m);url.setQuery(q);watch(network_.deleteResource(request(url)),"delete");}
 void TwitchModerationService::sendMessage(const QString&b,const QString&t){QUrl url("https://api.twitch.tv/helix/chat/messages");watch(network_.post(request(url),QJsonDocument(QJsonObject{{"broadcaster_id",b},{"sender_id",moderatorId_},{"message",t.left(500)}}).toJson(QJsonDocument::Compact)),"send");}
+void TwitchModerationService::createClip(const QString&b){
+    QUrl url("https://api.twitch.tv/helix/clips");QUrlQuery q;q.addQueryItem("broadcaster_id",b);url.setQuery(q);
+    auto*r=network_.post(request(url),QByteArray());
+    connect(r,&QNetworkReply::finished,this,[this,r]{
+        const bool ok=r->error()==QNetworkReply::NoError;
+        const QByteArray body=r->readAll();
+        if(ok){
+            const auto data=QJsonDocument::fromJson(body).object()["data"].toArray();
+            if(!data.isEmpty()){
+                const auto clip=data[0].toObject();
+                emit clipCreated(clip["id"].toString(),QUrl(clip["edit_url"].toString()));
+                emit actionFinished("clip",true,QString());
+                r->deleteLater();
+                return;
+            }
+        }
+        emit actionFinished("clip",false,ok?QStringLiteral("Twitch didn't return a clip. Make sure the channel is live."):twitchError(body,r->errorString()));
+        r->deleteLater();
+    });
+}
 
 StreamlabsService::StreamlabsService(QObject*p):QObject(p){connect(&socket_,&QWebSocket::connected,this,[this]{emit statusChanged("ok","Streamlabs connected");});connect(&socket_,&QWebSocket::textMessageReceived,this,&StreamlabsService::parseSocketIoFrame);connect(&socket_,&QWebSocket::disconnected,this,[this]{if(!token_.isEmpty()){emit statusChanged("warn","Streamlabs reconnecting…");reconnect_.start(3000);}});reconnect_.setSingleShot(true);connect(&reconnect_,&QTimer::timeout,this,[this]{connectToken(token_);});}
 void StreamlabsService::connectToken(const QString&t){token_=t.trimmed();if(token_.isEmpty())return;QUrl u("wss://sockets.streamlabs.com/socket.io/");QUrlQuery q;q.addQueryItem("token",token_);q.addQueryItem("EIO","3");q.addQueryItem("transport","websocket");u.setQuery(q);emit statusChanged("connecting","Connecting to Streamlabs…");socket_.open(u);}
