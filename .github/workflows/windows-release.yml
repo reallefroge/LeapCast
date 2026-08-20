@@ -1,0 +1,66 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          arch: "win64_msvc2022_64"
+          modules: "qtwebengine qtwebchannel qtpositioning"
+          cache: true
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $qtRoot = qmake -query QT_INSTALL_PREFIX
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DCMAKE_PREFIX_PATH=$qtRoot"
+
+      - name: Compile
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
+
+      - name: Assemble portable application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force deploy | Out-Null
+          Copy-Item build\Release\MultiChatStudio.exe deploy\MultiChatStudio.exe
+          windeployqt --release --no-translations --compiler-runtime deploy\MultiChatStudio.exe
+
+      - name: Install installer compiler
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Create installer
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MultiChatStudio.iss'
+
+      - name: Upload downloadable installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiChatStudio-Windows-Installer
+          path: installer/Output/MultiChatStudio-Setup-*.exe
+          if-no-files-found: error
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/Output/MultiChatStudio-Setup-*.exe
+          generate_release_notes: true
