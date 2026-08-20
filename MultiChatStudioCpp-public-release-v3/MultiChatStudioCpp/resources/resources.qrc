@@ -1,0 +1,7 @@
+<RCC>
+  <qresource prefix="/brand">
+    <file>lefroge_chat_icon.png</file>
+    <file>youtube_shorts.png</file>
+  </qresource>
+</RCC>
+
