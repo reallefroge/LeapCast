@@ -76,7 +76,7 @@ void YouTubeModerationService::ban(const QString&chat,const QString&channel,int 
     if(autoModDenied_.contains(chat))return;
     QUrl u("https://www.googleapis.com/youtube/v3/liveChat/bans");QUrlQuery q;q.addQueryItem("part","snippet");u.setQuery(q);QJsonObject sn{{"liveChatId",chat},{"type",seconds>0?"temporary":"permanent"},{"bannedUserDetails",QJsonObject{{"channelId",channel}}}};if(seconds>0)sn["banDurationSeconds"]=seconds;
     auto*r=network_.post(request(u),QJsonDocument(QJsonObject{{"snippet",sn}}).toJson(QJsonDocument::Compact));
-    connect(r,&QNetworkReply::finished,this,[this,r,user,chat]{
+    connect(r,&QNetworkReply::finished,this,[this,r,user,chat,seconds]{
         const bool ok=r->error()==QNetworkReply::NoError;
         const int status=r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto data=QJsonDocument::fromJson(r->readAll()).object();
