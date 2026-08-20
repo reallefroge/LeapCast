@@ -56,7 +56,7 @@ The interface is organized into five focused areas:
 
 - **Sources** — connect or disconnect each chat independently.
 - **Events** — connect Streamlabs events and optionally reuse the sound selected in your Streamlabs Alert Box.
-- **Moderation** — configure Twitch, YouTube, and TikTok moderation access plus AutoMod.
+- **Moderation** — connect Twitch and YouTube moderation, open TikTok's own LIVE controls, and manage AutoMod.
 - **Bans** — review and remove supported Twitch and YouTube restrictions.
 - **OBS** — copy the local browser-source URL, send a test message, clear the overlay, and set its fade timer.
 
@@ -72,7 +72,7 @@ The interface is organized into five focused areas:
 
 ### Moderation built for a live workflow
 
-- Configurable Twitch, YouTube, and TikTok moderation access.
+- Integrated Twitch and YouTube moderation access, plus a direct shortcut to the configured TikTok LIVE room.
 - Five-minute automated timeouts or mutes when AutoMod detects a configured violation.
 - Editable blocked-word list with checks for common leetspeak, separators, repeated letters, Unicode lookalikes, and one-character misspellings.
 - Spam checks for repeated messages, floods, excessive capitals, follower/viewer promotion, and optionally links.
@@ -107,7 +107,7 @@ Platform APIs decide which actions are available, and the signed-in account must
 
 1. Open **Sources** and paste a Twitch channel, YouTube channel/live URL, YouTube Shorts live URL, or TikTok profile/live URL.
 2. Select **Connect** beside each community you want to watch.
-3. Open **Moderation** only if you want moderation actions. For Twitch, select **Authorize Twitch** and approve Leapcast Studio in your browser—no Client ID, token, or numeric user ID is requested.
+3. Open **Moderation** only if you want moderation actions. For Twitch, select **Connect Twitch** and approve Leapcast Studio in your browser—no Client ID, token, or numeric user ID is requested.
 4. Open **OBS**, select **Copy URL**, and add that address to OBS as a **Browser Source**.
 5. Use **Test message** before going live, then adjust the fade timer to match your layout.
 6. Optionally connect Streamlabs under **Events** and enable Alert Box audio syncing.
@@ -120,14 +120,15 @@ When upgrading from Multi-Chat Studio, Leapcast Studio copies the existing setti
 
 Twitch uses its public-client device authorization flow. Leapcast Studio opens Twitch's approval page, receives the access token and account ID automatically, and refreshes the session without asking users to copy credentials.
 
-Release maintainers configure the public Twitch application ID once by setting the repository Actions variable `TWITCH_CLIENT_ID`, or by passing `-TwitchClientId` to `build-installer.ps1`. This is application configuration, not an end-user setup step. Never embed a Twitch Client Secret in the desktop app.
+Release maintainers configure the public Twitch application ID once by setting the repository Actions variable `TWITCH_CLIENT_ID`, or by passing `-TwitchClientId` to `build-installer.ps1`. This is application configuration, not an end-user setup step. Never embed a Twitch Client Secret in the desktop app. Release builds now stop with a clear error if this value is missing, preventing another installer with a non-working Twitch button.
 
-The remaining platform cards include browser shortcuts beside their authorization actions:
+YouTube now remembers a saved moderation connection and immediately shows **Connected** instead of continuing to display **Not authorized**.
+
+TikTok does not require a token or developer account in Leapcast Studio:
 
 - **YouTube:** [Google Cloud API Credentials](https://console.cloud.google.com/apis/credentials) for a project, YouTube Data API access, and OAuth credentials.
-- **TikTok moderation:** [Euler Stream OAuth token documentation](https://www.eulerstream.com/docs/api/tiktok-general/oauth-tokens), because the current moderation integration sends its requests through Euler Stream and expects an Euler-compatible TikTok OAuth token.
-
-The official [TikTok for Developers portal](https://developers.tiktok.com/) creates credentials for TikTok's official developer products, but those credentials are not interchangeable with the Euler Stream moderation token currently requested by Leapcast Studio.
+- **TikTok chat and viewer counts:** connect a TikTok profile from **Sources**.
+- **TikTok moderation:** select **Open TikTok LIVE in browser**. Leapcast opens the configured creator's live room directly so the user can moderate with TikTok's own controls.
 
 ## How it compares
 
@@ -135,7 +136,7 @@ Leapcast Studio is intentionally a focused Windows chat and moderation companion
 
 | Product | Where it is strongest | Trade-offs compared with Leapcast Studio |
 |---|---|---|
-| **Leapcast Studio** | Native Windows multi-chat and moderation device for Twitch, YouTube, Shorts, and TikTok; built-in cross-platform AutoMod; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources; YouTube and TikTok moderation still require provider-specific setup; no video encoding, hosted studio, guest system, or cloud multistream relay |
+| **Leapcast Studio** | Native Windows multi-chat and moderation device for Twitch, YouTube, Shorts, and TikTok; built-in AutoMod for supported moderation APIs; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources; TikTok moderation opens TikTok's own LIVE controls; no video encoding, hosted studio, guest system, or cloud multistream relay |
 | [**Restream Chat**](https://support.restream.io/en/articles/2379624-what-is-restream-chat) | Established unified chat with desktop and Studio access, on-stream overlays, replies, and cross-platform relay | Best suited to the wider Restream account and broadcasting workflow; Leapcast Studio is more narrowly focused on local OBS use and its own AutoMod/moderation workspace |
 | [**Social Stream Ninja**](https://socialstream.ninja/docs/features) | Free and open-source browser tooling, very broad platform support, two-way chat, templates, CSS/JavaScript customization, and automation hooks | The extension, pop-out chat, dashboard, and advanced customization can mean more setup; Leapcast Studio offers a smaller, opinionated native Windows interface |
 | [**Streamlabs**](https://streamlabs.com/multistream) | Full streaming suite with multistreaming, widgets, alerts, themes, and creator tools in one ecosystem | Much broader and heavier than a dedicated chat companion; some multistream functionality is part of Streamlabs Ultra, while Leapcast Studio is designed to sit beside OBS and reuse Streamlabs alerts |
@@ -157,7 +158,7 @@ Leapcast Studio is intentionally a focused Windows chat and moderation companion
 - Windows 10/11 x64 only; no macOS, Linux, mobile, or web edition.
 - Supports fewer destinations than broad browser-extension and cloud-studio competitors.
 - The app does not send video or multistream the broadcast itself.
-- YouTube and TikTok moderation still require provider-specific credentials or tokens and the correct account permissions; Twitch uses one-click account authorization.
+- YouTube moderation still requires the correct Google access and account permissions; Twitch uses account authorization; TikTok moderation opens the creator's live room in the browser.
 - YouTube's Bans page tracks restrictions created through Leapcast Studio; it is not a complete server-side history of every YouTube moderation action.
 - TikTok and YouTube web integrations can require maintenance when those platforms change their pages or endpoints.
 - New unsigned installers may show a Windows SmartScreen warning.
@@ -167,7 +168,7 @@ Feature availability can change when a platform changes its API or third-party a
 ## Privacy and account access
 
 - The application has no Python runtime and does not compile creator tokens into the repository.
-- Connections go directly to the services needed for enabled features, including Twitch, YouTube, TikTok/Euler Stream, Streamlabs, and GitHub Releases for update checks.
+- Connections go directly to the services needed for enabled features, including Twitch, YouTube, TikTok, Streamlabs, and GitHub Releases for update checks.
 - Chat and event audit data is written locally.
 - Only grant the moderation scopes you need. Revoke or rotate a token through its platform if it is ever exposed.
 

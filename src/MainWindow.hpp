@@ -9,6 +9,7 @@ class QTabWidget;
 class QTextBrowser;
 class QLabel;
 class QListWidget;
+class QPushButton;
 class AppController;
 class OverlayServer;
 class PopoutChat;
@@ -35,7 +36,7 @@ private:
     void applyTheme();
     void authorizeTwitch();
     void configureYouTubeModeration();
-    void configureTikTokModeration();
+    void openTikTokModeration();
     void editBlockedWords();
 
     QStackedWidget* pages_{};
@@ -45,6 +46,9 @@ private:
     QListWidget* twitchBans_{};
     QListWidget* youtubeBans_{};
     QLabel* twitchModerationStatus_{};
+    QPushButton* twitchConnectButton_{};
+    QLabel* youtubeModerationStatus_{};
+    QPushButton* youtubeConnectButton_{};
     AppController* controller_{};
     OverlayServer* overlay_{};
     PopoutChat* popout_{};

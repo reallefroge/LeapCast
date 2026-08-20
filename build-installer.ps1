@@ -18,6 +18,10 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "VERSION must contain a semantic version such as 19.0.3."
 }
 
+if ([string]::IsNullOrWhiteSpace($TwitchClientId)) {
+    throw "LEAPCAST_TWITCH_CLIENT_ID is required. Refusing to create an installer with a broken Twitch Connect button."
+}
+
 if ([string]::IsNullOrWhiteSpace($QtRoot)) {
     $Qmake = Get-Command qmake.exe -ErrorAction SilentlyContinue
     if (-not $Qmake) {
