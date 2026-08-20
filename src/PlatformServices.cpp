@@ -15,6 +15,7 @@ QNetworkRequest webReq(const QUrl&u){
     // while live, until a direct video/live link (which skips this page) is
     // pasted in instead.
     r.setRawHeader("Cookie","CONSENT=YES+1");
+    r.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::NoLessSafeRedirectPolicy);
     return r;
 }
 QString capture(const QByteArray&b,const QString&p){auto m=QRegularExpression(p).match(QString::fromUtf8(b));return m.hasMatch()?m.captured(1):QString();}}
@@ -30,8 +31,39 @@ QStringList YouTubeChatService::liveIds(const QByteArray&raw){QString body=QStri
     // and only BADGE_STYLE_TYPE_LIVE_NOW could detect a live video — which
     // isn't always present, showing "not live" for channels that actually are.
     if((window.contains("BADGE_STYLE_TYPE_LIVE_NOW")||window.contains("\"isLive\":true")||window.contains("liveBroadcastContent\":\"live"))&&!ids.contains(hits[i].first))ids<<hits[i].first;}return ids;}
-void YouTubeChatService::resolveTarget(){if(target_.isEmpty())return;if(explicitVideo_){bootstrap(videoId_);return;}QString base=target_;if(!base.startsWith("http")){emit statusChanged("error","invalid YouTube channel");return;}auto*r=network_.get(webReq(QUrl(base+"/streams")));connect(r,&QNetworkReply::finished,this,[this,r]{auto bytes=r->readAll();if(r->error()!=QNetworkReply::NoError){emit statusChanged("error",r->errorString());retry_.start(10000);r->deleteLater();return;}auto ids=liveIds(bytes);if(ids.isEmpty()){emit statusChanged("warn",verticalOnly_?"no vertical / Shorts live found":"not live");retry_.start(30000);r->deleteLater();return;}videoId_=ids.first();bootstrap(videoId_);r->deleteLater();});}
-void YouTubeChatService::bootstrap(const QString&vid){auto*r=network_.get(webReq(QUrl("https://www.youtube.com/live_chat?is_popout=1&v="+vid)));connect(r,&QNetworkReply::finished,this,[this,r,vid]{auto b=r->readAll();r->deleteLater();apiKey_=capture(b,"\\\"INNERTUBE_API_KEY\\\":\\\"([^\\\"]+)");clientVersion_=capture(b,"\\\"clientVersion\\\":\\\"([\\d.]+)");continuation_=capture(b,"\\\"continuation\\\":\\\"([^\\\"]+)");liveChatId_=capture(b,"\\\"liveChatId\\\":\\\"([^\\\"]+)");if(apiKey_.isEmpty()||continuation_.isEmpty()){emit statusChanged("warn","chat unavailable");retry_.start(20000);return;}if(clientVersion_.isEmpty())clientVersion_="2.20240101.00.00";emit statusChanged("ok",vid);viewerTimer_.start();poll();pollViewers();});}
+void YouTubeChatService::resolveTarget(){
+    if(target_.isEmpty())return;
+    if(explicitVideo_){bootstrap(videoId_);return;}
+    QString base=target_;
+    if(!base.startsWith("http")){emit statusChanged("error","invalid YouTube channel");return;}
+    resolveViaLiveRedirect(base);
+}
+void YouTubeChatService::resolveViaLiveRedirect(const QString&base){
+    // youtube.com/<channel>/live redirects straight to the live watch page
+    // when the channel is live, and otherwise lands back on a channel page
+    // with no video id in the URL. This is far more reliable than scraping
+    // the Streams tab for "is this live" markers, whose page layout changes
+    // often enough that a live channel could still show "not live".
+    auto*r=network_.get(webReq(QUrl(base+"/live")));
+    connect(r,&QNetworkReply::finished,this,[this,r,base]{
+        const QUrl finalUrl=r->url();
+        r->deleteLater();
+        const auto m=QRegularExpression("(?:watch\\?v=|/live/)([A-Za-z0-9_-]{11})").match(finalUrl.toString());
+        if(m.hasMatch()){videoId_=m.captured(1);bootstrap(videoId_);return;}
+        resolveViaStreamsScrape(base);
+    });
+}
+void YouTubeChatService::resolveViaStreamsScrape(const QString&base){
+    auto*r=network_.get(webReq(QUrl(base+"/streams")));
+    connect(r,&QNetworkReply::finished,this,[this,r]{
+        auto bytes=r->readAll();
+        if(r->error()!=QNetworkReply::NoError){emit statusChanged("error",r->errorString());retry_.start(10000);r->deleteLater();return;}
+        auto ids=liveIds(bytes);
+        if(ids.isEmpty()){emit statusChanged("warn",verticalOnly_?"no vertical / Shorts live found":"not live");retry_.start(30000);r->deleteLater();return;}
+        videoId_=ids.first();bootstrap(videoId_);r->deleteLater();
+    });
+}
+void YouTubeChatService::bootstrap(const QString&vid){auto*r=network_.get(webReq(QUrl("https://www.youtube.com/live_chat?is_popout=1&v="+vid)));connect(r,&QNetworkReply::finished,this,[this,r,vid]{auto b=r->readAll();r->deleteLater();apiKey_=capture(b,"\\\"INNERTUBE_API_KEY\\\":\\\"([^\\\"]+)");clientVersion_=capture(b,"\\\"clientVersion\\\":\\\"([\\d.]+)");continuation_=capture(b,"\\\"continuation\\\":\\\"([^\\\"]+)");liveChatId_=capture(b,"\\\"liveChatId\\\":\\\"([^\\\"]+)");if(apiKey_.isEmpty()||continuation_.isEmpty()){emit statusChanged("warn","chat unavailable");retry_.start(20000);return;}if(clientVersion_.isEmpty())clientVersion_="2.20240101.00.00";emit statusChanged("ok",QStringLiteral("LIVE — %1").arg(vid));viewerTimer_.start();poll();pollViewers();});}
 QString YouTubeChatService::runsText(const QJsonObject&m){QString out;for(const auto&v:m["runs"].toArray()){auto r=v.toObject();if(r.contains("text"))out+=r["text"].toString();else{auto e=r["emoji"].toObject();auto s=e["shortcuts"].toArray();out+=s.isEmpty()?e["emojiId"].toString():s[0].toString();}}return out;}
 void YouTubeChatService::poll(){if(continuation_.isEmpty())return;QUrl u("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat");QUrlQuery q;q.addQueryItem("key",apiKey_);q.addQueryItem("prettyPrint","false");u.setQuery(q);QJsonObject client{{"clientName","WEB"},{"clientVersion",clientVersion_}};QJsonObject body{{"context",QJsonObject{{"client",client}}},{"continuation",continuation_}};auto req=webReq(u);req.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");auto*r=network_.post(req,QJsonDocument(body).toJson(QJsonDocument::Compact));connect(r,&QNetworkReply::finished,this,[this,r]{if(r->error()!=QNetworkReply::NoError){emit statusChanged("warn",r->errorString());retry_.start(5000);r->deleteLater();return;}auto lcc=QJsonDocument::fromJson(r->readAll()).object()["continuationContents"].toObject()["liveChatContinuation"].toObject();r->deleteLater();for(const auto&av:lcc["actions"].toArray()){auto item=av.toObject()["addChatItemAction"].toObject()["item"].toObject();auto rend=item["liveChatTextMessageRenderer"].toObject();bool paid=false;if(rend.isEmpty()){rend=item["liveChatPaidMessageRenderer"].toObject();paid=!rend.isEmpty();}const QString id=rend["id"].toString();if(rend.isEmpty()||seen_.contains(id))continue;seen_.insert(id);ChatMessage m;m.platform=platform_;m.user=rend["authorName"].toObject()["simpleText"].toString("viewer");m.text=runsText(rend["message"].toObject());m.messageId=id;m.userId=rend["authorExternalChannelId"].toString();m.metadata={{"video_id",videoId_},{"live_chat_id",liveChatId_},{"vertical",verticalOnly_}};for(const auto&bv:rend["authorBadges"].toArray()){const QString tip=bv.toObject()["liveChatAuthorBadgeRenderer"].toObject()["tooltip"].toString().toLower();if(tip.contains("owner"))m.badges<<"HOST";else if(tip.contains("moderator"))m.badges<<"MOD";else if(tip.contains("member"))m.badges<<"SUB";else if(tip.contains("verified"))m.badges<<"CHECK";}if(paid)m.badges<<"MONEY";if(!m.text.isEmpty())emit messageReceived(m);}auto cs=lcc["continuations"].toArray();if(cs.isEmpty()){emit statusChanged("warn","chat ended");retry_.start(10000);return;}auto c=cs[0].toObject();QJsonObject n;for(const auto&k:{"invalidationContinuationData","timedContinuationData","reloadContinuationData","liveChatReplayContinuationData"})if(c.contains(k)){n=c[k].toObject();break;}continuation_=n["continuation"].toString();pollTimer_.start(qBound(800,n["timeoutMs"].toInt(1500),1500));});}
 void YouTubeChatService::pollViewers(){if(videoId_.isEmpty())return;QUrl u("https://www.youtube.com/youtubei/v1/updated_metadata");QUrlQuery q;q.addQueryItem("key",apiKey_);q.addQueryItem("prettyPrint","false");u.setQuery(q);QJsonObject body{{"context",QJsonObject{{"client",QJsonObject{{"clientName","WEB"},{"clientVersion",clientVersion_}}}}},{"videoId",videoId_}};auto req=webReq(u);req.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");auto*r=network_.post(req,QJsonDocument(body).toJson(QJsonDocument::Compact));connect(r,&QNetworkReply::finished,this,[this,r]{for(const auto&av:QJsonDocument::fromJson(r->readAll()).object()["actions"].toArray()){auto vc=av.toObject()["updateViewershipAction"].toObject()["viewCount"].toObject()["videoViewCountRenderer"].toObject();QString raw=vc["originalViewCount"].toString();raw.remove(QRegularExpression("[^0-9]"));if(!raw.isEmpty()){emit viewerCountChanged(raw.toInt());break;}}r->deleteLater();});}
@@ -48,7 +80,7 @@ void YouTubeModerationService::ban(const QString&chat,const QString&channel,int 
         const bool ok=r->error()==QNetworkReply::NoError;
         const int status=r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto data=QJsonDocument::fromJson(r->readAll()).object();
-        if(ok){emit banCreated(data["id"].toString(),user);emit actionFinished("ban",true,QString());r->deleteLater();return;}
+        if(ok){emit banCreated(data["id"].toString(),user,seconds<=0);emit actionFinished("ban",true,QString());r->deleteLater();return;}
         // Only a hard 403 (not a moderator/owner of this broadcast) should stop
         // retrying for this chat, matching Twitch's behavior. A 401 usually just
         // means the pasted access token expired — unlike Twitch, YouTube here

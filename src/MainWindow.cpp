@@ -91,6 +91,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
+    connect(controller_, &AppController::messageModerated, this, [this](const ChatMessage& m, const QString& reason) {
+        // Deliberately never touches overlay_ — viewers never see this note,
+        // and since the original message was never ingested either, nothing
+        // is "skipped" in the overlay's own message list.
+        const QString note = QStringLiteral(
+            "<div style='margin:3px 0;color:#7f8ba5;font-style:italic;font-size:9pt'>"
+            "&#9888; %1's message was removed by AutoMod (%2)</div>")
+            .arg(m.user.toHtmlEscaped(), reason.toHtmlEscaped());
+        if (chatViews_.contains(QStringLiteral("combined"))) chatViews_[QStringLiteral("combined")]->append(note);
+        if (chatViews_.contains(m.platform)) chatViews_[m.platform]->append(note);
+        if (popout_) popout_->appendModerationNote(m.user, reason);
+    });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
             e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):QStringLiteral("#63e6be");
@@ -142,10 +154,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             const QString reason = ban.value(QStringLiteral("reason")).toString();
             // Twitch marks a timed-out (as opposed to permanently banned) user
             // with a non-empty expires_at; YouTube restrictions recorded here
-            // are always the 5-minute AutoMod timeout (see autoModerate()).
+            // carry an explicit "Hide from channel" vs "Timeout (5 min)" type
+            // (see AppController's banCreated handler).
             const bool isTimeout = platform == QStringLiteral("twitch")
                 ? !ban.value(QStringLiteral("expires_at")).toString().isEmpty()
-                : true;
+                : ban.value(QStringLiteral("type")).toString() != QStringLiteral("Hide from channel");
             const QString type = ban.value(QStringLiteral("type")).toString(
                 isTimeout ? QStringLiteral("Timeout") : QStringLiteral("Ban"));
             const QString created = ban.value(QStringLiteral("created_at")).toString();
@@ -274,7 +287,9 @@ QWidget* MainWindow::buildDashboard() {
 
     auto* rail = new QFrame;
     rail->setObjectName(QStringLiteral("navigationRail"));
-    rail->setFixedWidth(116);
+    // Wide enough for the longest label ("Moderation") at the nav button's
+    // reduced padding/font without truncating.
+    rail->setFixedWidth(140);
     auto* railLayout = new QVBoxLayout(rail);
     auto* brand = new QLabel;
     brand->setPixmap(QPixmap(QStringLiteral(":/brand/lefroge_chat_icon.png"))
@@ -794,7 +809,7 @@ void MainWindow::applyTheme() {
         QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
         QPushButton { background:#20283a; border:0; border-radius:8px; padding:10px 12px; font-weight:700; }
         QPushButton:hover { background:#2b3650; }
-        QPushButton[nav='true'] { text-align:left; margin:2px 4px; }
+        QPushButton[nav='true'] { text-align:left; margin:2px 4px; padding:9px 8px; font-size:9pt; }
         QPushButton[nav='true']:checked { background:#7667ef; color:white; }
         QPushButton[primary='true'] { background:#53cdf3; color:#071018; }
         QPushButton[danger='true'] { background:#44202b; color:#ff91a4; }

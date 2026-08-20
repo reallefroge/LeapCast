@@ -52,6 +52,9 @@ public:
     explicit PopoutChat(QWidget* parent = nullptr);
     ~PopoutChat() override;
     void appendMessage(const ChatMessage& message);
+    // A muted, in-line note that AutoMod removed a message — shown here and in
+    // the dashboard chat views only, never sent to the OBS overlay feed.
+    void appendModerationNote(const QString& user, const QString& reason);
     void showEvent(const StreamEvent& event);
     void setViewers(const QString& platform, int count);
     // Click-through "ghost" mode: the window ignores mouse/keyboard input so the

@@ -22,6 +22,7 @@ signals:
     void viewerCountChanged(int viewers);
 private:
     void resolveTarget(); void bootstrap(const QString& videoId); void poll(); void pollViewers();
+    void resolveViaLiveRedirect(const QString& base); void resolveViaStreamsScrape(const QString& base);
     static QStringList liveIds(const QByteArray& html);
     static QString runsText(const QJsonObject& message);
     QNetworkAccessManager network_; QTimer retry_,pollTimer_,viewerTimer_;
@@ -39,7 +40,9 @@ public:
     void removeBan(const QString& banId);
 signals:
     void actionFinished(const QString& action,bool success,const QString& detail);
-    void banCreated(const QString& id,const QString& user);
+    // permanent distinguishes a "Hide from channel" ban from a timed timeout,
+    // so callers can record/display which one actually happened.
+    void banCreated(const QString& id,const QString& user,bool permanent);
 private:
     QNetworkRequest request(const QUrl& url)const; void watch(QNetworkReply*,const QString&);
     QNetworkAccessManager network_; QString token_;
