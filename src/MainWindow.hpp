@@ -33,7 +33,7 @@ private:
                               const QString& credentialAction = {},
                               const QUrl& credentialUrl = {});
     void applyTheme();
-    void configureTwitchModeration();
+    void authorizeTwitch();
     void configureYouTubeModeration();
     void configureTikTokModeration();
     void editBlockedWords();
@@ -44,6 +44,7 @@ private:
     QHash<QString,QLabel*> sourceStates_;
     QListWidget* twitchBans_{};
     QListWidget* youtubeBans_{};
+    QLabel* twitchModerationStatus_{};
     AppController* controller_{};
     OverlayServer* overlay_{};
     PopoutChat* popout_{};

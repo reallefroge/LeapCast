@@ -11,8 +11,7 @@ public:
     void startConfiguredSources();
     void connectSource(const QString& platform,const QString& link);
     void disconnectSource(const QString& platform);
-    void configureTwitchModeration(const QString& clientId, const QString& token,
-                                   const QString& moderatorId);
+    void authorizeTwitch();
     void configureYouTubeModeration(const QString& token);
     void configureTikTokModeration(const QString& token);
     void connectStreamlabs(const QString& token);
@@ -29,6 +28,8 @@ signals:
     void viewerCount(const QString& platform,int count);
     void moderationResult(const QString& platform,bool success,const QString& detail);
     void bansUpdated(const QString& platform, const QJsonArray& bans);
+    void twitchAuthorizationUrl(const QUrl& url);
+    void twitchAuthorized(const QString& login);
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
@@ -42,8 +43,10 @@ private:
     YouTubeChatService shorts_{QStringLiteral("yt_shorts"),true};
     TikTokLiveService tiktok_;
     StreamlabsService streamlabs_;
+    TwitchAuthService twitchAuth_;
     TwitchModerationService twitchMod_;
     YouTubeModerationService youtubeMod_;
     TikTokModerationService tiktokMod_;
     QJsonArray youtubeRestrictions_;
+    bool twitchAuthorizationRequested_{};
 };

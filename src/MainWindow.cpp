@@ -98,6 +98,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             [this](const QString&, bool success, const QString& detail) {
         if (!success) QMessageBox::warning(this, QStringLiteral("Moderation"), detail);
     });
+    connect(controller_,&AppController::twitchAuthorizationUrl,this,[this](const QUrl&url){
+        if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Waiting for approval…"));
+        if(!QDesktopServices::openUrl(url))QMessageBox::warning(this,QStringLiteral("Twitch authorization"),QStringLiteral("Could not open Twitch in your browser."));
+    });
+    connect(controller_,&AppController::twitchAuthorized,this,[this](const QString&login){
+        if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Authorized as %1").arg(login));
+        QMessageBox::information(this,QStringLiteral("Twitch authorization"),QStringLiteral("Twitch is connected as %1.").arg(login));
+    });
     connect(updater_, &UpdateService::updateAvailable, this,
             [this](const QString& version, const QString& notes, const QUrl& asset,
                    const QString& name, const QString& digest) {
@@ -118,7 +126,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
     });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
-    QTimer::singleShot(2500, this, [this] { updater_->check(false); });
+    QTimer::singleShot(7500, this, [this] { updater_->check(false); });
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -184,7 +192,7 @@ QWidget* MainWindow::makePlatformCard(const QString& name, const QString& status
     auto* head = new QHBoxLayout;
     head->addWidget(label(name, "cardTitle"));
     head->addStretch();
-    auto* state = label(status, "status"); state->setStyleSheet("color:" + accent.name());
+    auto* state = label(status, "status"); state->setObjectName(QStringLiteral("cardStatus"));state->setStyleSheet("color:" + accent.name());
     head->addWidget(state);
     layout->addLayout(head);
     auto* actions = new QHBoxLayout;
@@ -384,7 +392,7 @@ QWidget* MainWindow::buildBansPage() {
     tabs->addTab(makePage(QStringLiteral("twitch"), &twitchBans_), QStringLiteral("Twitch"));
     tabs->addTab(makePage(QStringLiteral("youtube"), &youtubeBans_), QStringLiteral("YouTube"));
     layout->addWidget(tabs, 1);
-    QTimer::singleShot(0, this, [this] { controller_->refreshBans(QStringLiteral("twitch")); controller_->refreshBans(QStringLiteral("youtube")); });
+    QTimer::singleShot(0, this, [this] { controller_->refreshBans(QStringLiteral("youtube")); });
     return page;
 }
 
@@ -403,13 +411,14 @@ QWidget* MainWindow::buildModerationPage() {
 
     auto* columns = new QHBoxLayout;
     auto* left = new QVBoxLayout;
-    auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"), QStringLiteral("Not authorized"),
-                                        QColor("#9146ff"), QStringLiteral("Authorize Twitch"),
-                                        QStringLiteral("Get Twitch keys ↗"),
-                                        QUrl(QStringLiteral("https://dev.twitch.tv/console/apps")));
+    const bool twitchAuthorized=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
+    auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"),
+                                        twitchAuthorized?QStringLiteral("Authorization saved"):QStringLiteral("Not authorized"),
+                                        QColor("#9146ff"), QStringLiteral("Authorize Twitch"));
+    twitchModerationStatus_=twitchCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
     left->addWidget(twitchCard);
     connect(twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
-            this, &MainWindow::configureTwitchModeration);
+            this, &MainWindow::authorizeTwitch);
     auto* youtubeCard = makePlatformCard(QStringLiteral("YouTube"), QStringLiteral("Not authorized"),
                                          QColor("#ff334f"), QStringLiteral("Authorize YouTube"),
                                          QStringLiteral("Get YouTube keys ↗"),
@@ -437,22 +446,8 @@ QWidget* MainWindow::buildModerationPage() {
     return page;
 }
 
-void MainWindow::configureTwitchModeration() {
-    bool ok = false;
-    const QString client = QInputDialog::getText(this, QStringLiteral("Twitch moderation"),
-        QStringLiteral("Twitch application Client ID:"), QLineEdit::Normal,
-        controller_->settings()->secret(QStringLiteral("twitch_client_id")), &ok).trimmed();
-    if (!ok || client.isEmpty()) return;
-    const QString token = QInputDialog::getText(this, QStringLiteral("Twitch moderation"),
-        QStringLiteral("OAuth access token:"), QLineEdit::Password,
-        controller_->settings()->secret(QStringLiteral("twitch_access_token")), &ok).trimmed();
-    if (!ok || token.isEmpty()) return;
-    const QString moderator = QInputDialog::getText(this, QStringLiteral("Twitch moderation"),
-        QStringLiteral("Moderator Twitch user ID:"), QLineEdit::Normal,
-        controller_->settings()->secret(QStringLiteral("twitch_moderator_id")), &ok).trimmed();
-    if (!ok || moderator.isEmpty()) return;
-    controller_->configureTwitchModeration(client, token, moderator);
-    QMessageBox::information(this, QStringLiteral("Twitch moderation"), QStringLiteral("Twitch moderation credentials were saved."));
+void MainWindow::authorizeTwitch() {
+    controller_->authorizeTwitch();
 }
 
 void MainWindow::configureYouTubeModeration() {

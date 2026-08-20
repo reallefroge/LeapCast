@@ -51,10 +51,11 @@ int main(int argc, char* argv[]) {
     splash.show();
     app.processEvents();
 
-    MainWindow window;
     QElapsedTimer minimumBrandTime;
     minimumBrandTime.start();
-    while (minimumBrandTime.elapsed() < 700) {
+
+    MainWindow window;
+    while (minimumBrandTime.elapsed() < 5000) {
         app.processEvents();
         QThread::msleep(10);
     }

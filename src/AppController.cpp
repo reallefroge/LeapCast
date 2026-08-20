@@ -1,6 +1,14 @@
 #include "AppController.hpp"
+#include "BuildInfo.hpp"
 #include <QRegularExpression>
 #include <QTimer>
+
+namespace {
+QString configuredTwitchClientId(SettingsStore& settings){
+    const QString bundled=QString::fromLatin1(leapcast::TwitchClientId).trimmed();
+    return bundled.isEmpty()?settings.secret(QStringLiteral("twitch_client_id")):bundled;
+}
+}
 
 AppController::AppController(QObject*p):QObject(p){
     for(auto*service:{static_cast<QObject*>(&twitch_),static_cast<QObject*>(&youtube_),static_cast<QObject*>(&shorts_),static_cast<QObject*>(&tiktok_)})Q_UNUSED(service);
@@ -18,7 +26,8 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("tiktok",n);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("streamlabs",s,d);});
-    twitchMod_.configure(settings_.secret("twitch_client_id"),settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));
+    const QString twitchClientId=configuredTwitchClientId(settings_);
+    twitchMod_.configure(twitchClientId,settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));
     youtubeMod_.setAccessToken(settings_.secret("youtube_access_token"));tiktokMod_.setToken(settings_.secret("tiktok_mod_token"));
     for(const auto& item:settings_.preference("youtube_restrictions").toList())youtubeRestrictions_.append(QJsonObject::fromVariantMap(item.toMap()));
     connect(&twitchMod_,&TwitchModerationService::bansReceived,this,[this](const QJsonArray&a){emit bansUpdated("twitch",a);});
@@ -27,13 +36,29 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("twitch",ok,d);});
     connect(&youtubeMod_,&YouTubeModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("youtube",ok,d);});
     connect(&tiktokMod_,&TikTokModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("tiktok",ok,d);});
+    connect(&twitchAuth_,&TwitchAuthService::browserAuthorizationReady,this,&AppController::twitchAuthorizationUrl);
+    connect(&twitchAuth_,&TwitchAuthService::authorizationPending,this,[this]{emit sourceStatus("twitch","connecting","Waiting for Twitch approval…");});
+    connect(&twitchAuth_,&TwitchAuthService::authorizationFailed,this,[this](const QString&detail){emit sourceStatus("twitch","error",detail);});
+    connect(&twitchAuth_,&TwitchAuthService::authorized,this,[this,twitchClientId](const QString&token,const QString&refresh,const QString&userId,const QString&login,int){
+        settings_.setSecret("twitch_access_token",token);
+        settings_.setSecret("twitch_refresh_token",refresh);
+        settings_.setSecret("twitch_moderator_id",userId);
+        twitchMod_.configure(twitchClientId,token,userId);
+        const QString channel=twitchName(settings_.link("twitch"));
+        if(!channel.isEmpty())twitchMod_.resolveBroadcaster(channel);
+        emit sourceStatus("twitch","ok",QStringLiteral("Authorized as %1").arg(login));
+        if(twitchAuthorizationRequested_)emit twitchAuthorized(login);
+        twitchAuthorizationRequested_=false;
+    });
+    if(!twitchClientId.isEmpty()&&!settings_.secret("twitch_access_token").isEmpty())
+        twitchAuth_.restore(twitchClientId,settings_.secret("twitch_access_token"),settings_.secret("twitch_refresh_token"));
 }
 QString AppController::twitchName(const QString&l){auto m=QRegularExpression("twitch\\.tv/([A-Za-z0-9_]+)").match(l);if(m.hasMatch())return m.captured(1).toLower();return QRegularExpression("^[A-Za-z0-9_]{3,25}$").match(l).hasMatch()?l.toLower():QString();}
 QString AppController::tiktokName(const QString&l){auto m=QRegularExpression("tiktok\\.com/@([A-Za-z0-9._]+)").match(l);if(m.hasMatch())return m.captured(1);return l.startsWith('@')?l.mid(1):QString();}
 void AppController::startConfiguredSources(){for(const auto&p:{"twitch","youtube","yt_shorts","tiktok"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
 void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty())twitchMod_.resolveBroadcaster(name);}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));}
 void AppController::disconnectSource(const QString&p){if(p=="twitch")twitch_.disconnectChannel();else if(p=="youtube")youtube_.disconnectService();else if(p=="yt_shorts")shorts_.disconnectService();else if(p=="tiktok")tiktok_.disconnectService();}
-void AppController::configureTwitchModeration(const QString&c,const QString&t,const QString&m){settings_.setSecret("twitch_client_id",c);settings_.setSecret("twitch_access_token",t);settings_.setSecret("twitch_moderator_id",m);twitchMod_.configure(c,t,m);const QString channel=twitchName(settings_.link("twitch"));if(!channel.isEmpty())twitchMod_.resolveBroadcaster(channel);emit sourceStatus("twitch","ok","moderation configured");}
+void AppController::authorizeTwitch(){twitchAuthorizationRequested_=true;twitchAuth_.authorize(configuredTwitchClientId(settings_));}
 void AppController::configureYouTubeModeration(const QString&t){settings_.setSecret("youtube_access_token",t);youtubeMod_.setAccessToken(t);emit sourceStatus("youtube","ok","moderation configured");}
 void AppController::configureTikTokModeration(const QString&t){settings_.setSecret("tiktok_mod_token",t);tiktokMod_.setToken(t);emit sourceStatus("tiktok","ok","moderation configured");}
 void AppController::connectStreamlabs(const QString&t){settings_.setSecret("streamlabs_socket_token",t);streamlabs_.connectToken(t);}

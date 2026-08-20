@@ -2,4 +2,5 @@
 
 namespace leapcast {
 inline constexpr auto Version = "@PROJECT_VERSION@";
+inline constexpr auto TwitchClientId = "@LEAPCAST_TWITCH_CLIENT_ID@";
 }
