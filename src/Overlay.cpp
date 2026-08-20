@@ -1,4 +1,5 @@
 #include "Overlay.hpp"
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QHostAddress>
@@ -12,7 +13,17 @@
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#ifndef MOD_NOREPEAT
+#define MOD_NOREPEAT 0x4000
+#endif
+#endif
 namespace {
+#ifdef Q_OS_WIN
+constexpr int kRestoreHotkeyEscape = 0xC201;
+constexpr int kRestoreHotkeyAltC = 0xC202;
+#endif
 QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "HTTP/1.1 "+QByteArray::number(code)+(code==200?" OK\r\n":" Not Found\r\n")+"Content-Type: "+type+"\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: "+QByteArray::number(body.size())+"\r\nConnection: close\r\n\r\n"+body;}
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
 html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif;color:white}
@@ -32,6 +43,8 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));
     resize(460,720);
     setWindowFlag(Qt::WindowStaysOnTopHint,true);
+    setAttribute(Qt::WA_TranslucentBackground,true);
+    qApp->installNativeEventFilter(this);
     auto*l=new QVBoxLayout(this);
     l->setContentsMargins(8,8,8,8);
     event_=new QLabel;
@@ -46,17 +59,67 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     chatStack_->setContentsMargins(0,0,0,0);
     chatStack_->setStackingMode(QStackedLayout::StackAll);
     chat_=new QTextBrowser;
-    chat_->setStyleSheet("background:#10131dcc;border:0;border-radius:12px;font-size:12pt;");
     chatStack_->addWidget(chat_);
     l->addWidget(chatHost,1);
 
     viewers_=new QLabel("0 watching");
-    viewers_->setStyleSheet("background:#10131d;padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;");
     l->addWidget(viewers_);
+    applyOpacity();
+}
+PopoutChat::~PopoutChat(){
+    unregisterRestoreHotkeys();
+    qApp->removeNativeEventFilter(this);
 }
 void PopoutChat::appendMessage(const ChatMessage&m){chat_->append(QString("<p><b style='color:%1'>%2</b> %3</p>").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));}
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
-void PopoutChat::setViewers(const QString&p,int n){counts_[p]=n;int total=0;for(int v:counts_)total+=v;viewers_->setText(QString::number(total)+" WATCHING");} void PopoutChat::setGhostMode(bool on){setWindowFlag(Qt::WindowTransparentForInput,on);show();} void PopoutChat::setClearBackground(bool on){setAttribute(Qt::WA_TranslucentBackground,on);} void PopoutChat::setOpacityPercent(int n){setWindowOpacity(qBound(.2,n/100.0,1.0));}
+void PopoutChat::setViewers(const QString&p,int n){counts_[p]=n;int total=0;for(int v:counts_)total+=v;viewers_->setText(QString::number(total)+" WATCHING");}
+void PopoutChat::clearMessages(){chat_->clear();}
+void PopoutChat::setGhostMode(bool on){
+    if(ghostMode_==on)return;
+    ghostMode_=on;
+    setWindowFlag(Qt::WindowTransparentForInput,on);
+    if(on)registerRestoreHotkeys();else unregisterRestoreHotkeys();
+    show();
+    emit ghostModeChanged(ghostMode_);
+}
+void PopoutChat::setClearBackground(bool on){clearBackground_=on;applyOpacity();}
+void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(10,n,100);applyOpacity();}
+void PopoutChat::applyOpacity(){
+    const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
+    chat_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);border:0;border-radius:12px;font-size:12pt;").arg(alpha));
+    viewers_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(alpha));
+}
+void PopoutChat::registerRestoreHotkeys(){
+#ifdef Q_OS_WIN
+    if(hotkeysRegistered_)return;
+    RegisterHotKey(nullptr,kRestoreHotkeyEscape,MOD_NOREPEAT,VK_ESCAPE);
+    RegisterHotKey(nullptr,kRestoreHotkeyAltC,MOD_ALT|MOD_NOREPEAT,'C');
+    hotkeysRegistered_=true;
+#endif
+}
+void PopoutChat::unregisterRestoreHotkeys(){
+#ifdef Q_OS_WIN
+    if(!hotkeysRegistered_)return;
+    UnregisterHotKey(nullptr,kRestoreHotkeyEscape);
+    UnregisterHotKey(nullptr,kRestoreHotkeyAltC);
+    hotkeysRegistered_=false;
+#endif
+}
+bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintptr*result){
+    Q_UNUSED(result)
+#ifdef Q_OS_WIN
+    if(eventType=="windows_generic_MSG"||eventType=="windows_dispatcher_MSG"){
+        auto*msg=static_cast<MSG*>(message);
+        if(msg->message==WM_HOTKEY&&(msg->wParam==kRestoreHotkeyEscape||msg->wParam==kRestoreHotkeyAltC)){
+            setGhostMode(false);
+            return true;
+        }
+    }
+#else
+    Q_UNUSED(eventType) Q_UNUSED(message)
+#endif
+    return false;
+}
 void PopoutChat::setStreamlabsAlertAudio(bool enabled,const QUrl&url){
     if(!enabled||!url.isValid()||url.host().isEmpty()){
         if(alertView_){

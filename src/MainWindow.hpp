@@ -10,6 +10,8 @@ class QTextBrowser;
 class QLabel;
 class QListWidget;
 class QPushButton;
+class QCheckBox;
+class QSlider;
 class AppController;
 class OverlayServer;
 class PopoutChat;
@@ -19,6 +21,9 @@ class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+
+protected:
+    bool event(QEvent* e) override;
 
 private:
     QWidget* buildSidebar();
@@ -49,6 +54,8 @@ private:
     QPushButton* twitchConnectButton_{};
     QLabel* youtubeModerationStatus_{};
     QPushButton* youtubeConnectButton_{};
+    QCheckBox* popoutClickThrough_{};
+    QSlider* popoutOpacity_{};
     AppController* controller_{};
     OverlayServer* overlay_{};
     PopoutChat* popout_{};
