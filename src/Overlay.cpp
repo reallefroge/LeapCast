@@ -2,6 +2,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QJsonArray>
@@ -16,13 +17,27 @@
 #include <QTextBlockFormat>
 #include <QTextBrowser>
 #include <QTextCursor>
+#include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
-namespace { constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1; }
+namespace {
+constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1;
+// Caps how many lines chat_'s QTextDocument keeps. Without this, a
+// multi-hour stream's chat/moderation-note history would grow the document
+// (and the cost of every future append/reflow) without bound.
+constexpr int kMaxChatBlocks = 300;
+void trimChatBlocks(QTextDocument* doc) {
+    while (doc->blockCount() > kMaxChatBlocks) {
+        QTextCursor cursor(doc->firstBlock());
+        cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+    }
+}
+}
 #ifdef Q_OS_WIN
 #include <windows.h>
 #ifndef MOD_NOREPEAT
@@ -126,6 +141,7 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     cursor.insertHtml(QString("<b style='color:%1'>%2</b> %3").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
+    trimChatBlocks(chat_->document());
 }
 void PopoutChat::appendModerationNote(const QString&user,const QString&reason){
     QTextCursor cursor(chat_->document());
@@ -137,6 +153,7 @@ void PopoutChat::appendModerationNote(const QString&user,const QString&reason){
         .arg(user.toHtmlEscaped(),reason.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
+    trimChatBlocks(chat_->document());
 }
 void PopoutChat::showChatContextMenu(const QPoint&pos){
     const qint64 id=chat_->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
@@ -310,4 +327,8 @@ void ClipEditorWindow::openUrl(const QUrl&url){
     show();
     raise();
     activateWindow();
+}
+void ClipEditorWindow::closeEvent(QCloseEvent*event){
+    view_->setUrl(QUrl(QStringLiteral("about:blank")));
+    QWidget::closeEvent(event);
 }

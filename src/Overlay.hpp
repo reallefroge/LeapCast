@@ -9,6 +9,7 @@ class QTextBrowser; class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
 class QUrl;
+class QCloseEvent;
 
 // Embedded Chromium (Qt WebEngine) window used to open the Twitch clip editor
 // in-app instead of the user's external browser. Uses the default persistent
@@ -20,6 +21,11 @@ class ClipEditorWindow final : public QWidget {
 public:
     explicit ClipEditorWindow(QWidget* parent = nullptr);
     void openUrl(const QUrl& url);
+protected:
+    // Releases the loaded page's renderer memory once the window is closed,
+    // instead of keeping a full Twitch tab resident for the rest of the
+    // app's lifetime after a single clip. Reopening just reloads the URL.
+    void closeEvent(QCloseEvent* event) override;
 private:
     QWebEngineView* view_{};
     QLabel* addressLabel_{};

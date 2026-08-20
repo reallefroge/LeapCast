@@ -31,6 +31,8 @@
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QTextBrowser>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -39,6 +41,21 @@ QLabel* label(const QString& text, const char* role = nullptr) {
     auto* value = new QLabel(text);
     if (role) value->setProperty("role", QString::fromLatin1(role));
     return value;
+}
+
+// Caps how many lines each dashboard chat view keeps, so a multi-hour stream
+// doesn't grow these documents (and every future append/reflow cost) without
+// bound. Chosen independently per view, mirroring PopoutChat's own cap.
+constexpr int kMaxChatBlocks = 300;
+void appendTrimmed(QTextBrowser* view, const QString& html) {
+    if (!view) return;
+    view->append(html);
+    auto* doc = view->document();
+    while (doc->blockCount() > kMaxChatBlocks) {
+        QTextCursor cursor(doc->firstBlock());
+        cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+    }
 }
 
 QString friendlyTimestamp(const QString& value) {
@@ -86,8 +103,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const QString colour = m.color.isValid() ? m.color.name() : QStringLiteral("#53cdf3");
         const QString html = QStringLiteral("<div style='margin:4px 0'><b style='color:%1'>%2</b> %3</div>")
             .arg(colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
-        if (chatViews_.contains(QStringLiteral("combined"))) chatViews_[QStringLiteral("combined")]->append(html);
-        if (chatViews_.contains(m.platform)) chatViews_[m.platform]->append(html);
+        appendTrimmed(chatViews_.value(QStringLiteral("combined")), html);
+        appendTrimmed(chatViews_.value(m.platform), html);
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
@@ -99,8 +116,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             "<div style='margin:3px 0;color:#7f8ba5;font-style:italic;font-size:9pt'>"
             "&#9888; %1's message was removed by AutoMod (%2)</div>")
             .arg(m.user.toHtmlEscaped(), reason.toHtmlEscaped());
-        if (chatViews_.contains(QStringLiteral("combined"))) chatViews_[QStringLiteral("combined")]->append(note);
-        if (chatViews_.contains(m.platform)) chatViews_[m.platform]->append(note);
+        appendTrimmed(chatViews_.value(QStringLiteral("combined")), note);
+        appendTrimmed(chatViews_.value(m.platform), note);
         if (popout_) popout_->appendModerationNote(m.user, reason);
     });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
@@ -112,8 +129,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             "<b style='color:#f8fbff'>%2</b> <span style='color:%1'>%3</span>%4</div>")
             .arg(colour,e.user.toHtmlEscaped(),eventAction(e).toHtmlEscaped(),
                  e.message.isEmpty()?QString():QStringLiteral("<br><span style='color:#c7cede'>%1</span>").arg(e.message.toHtmlEscaped()));
-        if(chatViews_.contains(QStringLiteral("combined")))chatViews_[QStringLiteral("combined")]->append(message);
-        if(chatViews_.contains(e.platform))chatViews_[e.platform]->append(message);
+        appendTrimmed(chatViews_.value(QStringLiteral("combined")), message);
+        appendTrimmed(chatViews_.value(e.platform), message);
         if(popout_)popout_->showEvent(e);
     });
     connect(controller_,&AppController::viewerCount,this,[this](const QString&p,int n){overlay_->setViewers(p,n);if(popout_)popout_->setViewers(p,n);});
