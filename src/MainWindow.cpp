@@ -748,7 +748,8 @@ void MainWindow::editBlockedWords() {
     controller_->reloadAutoMod();
 }
 
-void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& pos) {
+void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos) {
+    const QPoint pos = view->viewport()->mapFromGlobal(globalPos);
     const qint64 id = view->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
     QMenu menu(this);
     auto* copyAction = menu.addAction(QStringLiteral("Copy"));
@@ -775,7 +776,7 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& pos) {
     }
     menu.addSeparator();
     connect(menu.addAction(QStringLiteral("Select All")), &QAction::triggered, view, &QTextBrowser::selectAll);
-    menu.exec(view->viewport()->mapToGlobal(pos));
+    menu.exec(globalPos);
 }
 
 QWidget* MainWindow::buildChatDock() {
@@ -792,16 +793,15 @@ QWidget* MainWindow::buildChatDock() {
     const QStringList keys{QStringLiteral("combined"),QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok")};
     for (qsizetype index=0; index<tabs.size(); ++index) {
         const auto& tab=tabs.at(index);
-        auto* chat = new QTextBrowser;
+        auto* chat = new ChatBrowser;
         chat->setPlaceholderText(QStringLiteral("Connected messages appear here."));
         const QIcon icon(tab.second);
         if (!icon.isNull()) chatTabs_->addTab(chat, icon, QString());
         else chatTabs_->addTab(chat, tab.first);
         chatTabs_->setTabToolTip(static_cast<int>(index), tab.first);
         chatViews_.insert(keys.at(index),chat);
-        chat->viewport()->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(chat->viewport(), &QWidget::customContextMenuRequested, this,
-                [this, chat](const QPoint& pos) { showDashboardChatMenu(chat, pos); });
+        connect(chat, &ChatBrowser::chatContextMenuRequested, this,
+                [this, chat](const QPoint& globalPos) { showDashboardChatMenu(chat, globalPos); });
     }
 
     auto* kickPreview = new QTextBrowser;

@@ -1,15 +1,36 @@
 #pragma once
 #include "Core.hpp"
 #include <QAbstractNativeEventFilter>
+#include <QContextMenuEvent>
 #include <QHash>
 #include <QPoint>
 #include <QTcpServer>
+#include <QTextBrowser>
 #include <QWidget>
-class QTextBrowser; class QLabel; class QPushButton;
+class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
 class QUrl;
 class QCloseEvent;
+
+// A QTextBrowser that reports right-clicks via a signal instead of showing
+// its own built-in Copy/Copy Link Location/Select All menu. Overriding
+// contextMenuEvent() directly (rather than relying on
+// Qt::CustomContextMenu + customContextMenuRequested on the viewport) means
+// there's no dependency on how that policy gets routed through
+// QAbstractScrollArea's viewport — this virtual override always wins.
+class ChatBrowser final : public QTextBrowser {
+    Q_OBJECT
+public:
+    using QTextBrowser::QTextBrowser;
+signals:
+    void chatContextMenuRequested(const QPoint& globalPos);
+protected:
+    void contextMenuEvent(QContextMenuEvent* event) override {
+        emit chatContextMenuRequested(event->globalPos());
+        event->accept();
+    }
+};
 
 // Embedded Chromium (Qt WebEngine) window used to open the Twitch clip editor
 // in-app instead of the user's external browser. Uses the default persistent
@@ -98,9 +119,9 @@ private:
     void applyOpacity();
     void registerRestoreHotkeys();
     void unregisterRestoreHotkeys();
-    void showChatContextMenu(const QPoint& pos);
+    void showChatContextMenu(const QPoint& globalPos);
 
-    QTextBrowser* chat_{};
+    ChatBrowser* chat_{};
     QLabel* event_{};
     QLabel* viewers_{};
     QLabel* clipStatus_{};

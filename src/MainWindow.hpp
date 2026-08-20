@@ -51,7 +51,7 @@ private:
     // Right-click moderation menu for the dashboard's own chat views — same
     // idea as PopoutChat::showChatContextMenu, kept separate since it acts on
     // a different QTextBrowser (and its own message-id history) per tab.
-    void showDashboardChatMenu(QTextBrowser* view, const QPoint& pos);
+    void showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos);
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};

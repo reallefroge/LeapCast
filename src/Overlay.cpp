@@ -105,9 +105,8 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     chatStack_=new QStackedLayout(chatHost);
     chatStack_->setContentsMargins(0,0,0,0);
     chatStack_->setStackingMode(QStackedLayout::StackAll);
-    chat_=new QTextBrowser;
-    chat_->viewport()->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(chat_->viewport(),&QWidget::customContextMenuRequested,this,&PopoutChat::showChatContextMenu);
+    chat_=new ChatBrowser;
+    connect(chat_,&ChatBrowser::chatContextMenuRequested,this,&PopoutChat::showChatContextMenu);
     chatStack_->addWidget(chat_);
     l->addWidget(chatHost,1);
 
@@ -159,7 +158,8 @@ void PopoutChat::appendModerationNote(const QString&user,const QString&reason){
     chat_->ensureCursorVisible();
     trimChatBlocks(chat_->document());
 }
-void PopoutChat::showChatContextMenu(const QPoint&pos){
+void PopoutChat::showChatContextMenu(const QPoint&globalPos){
+    const QPoint pos=chat_->viewport()->mapFromGlobal(globalPos);
     const qint64 id=chat_->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
     QMenu menu(this);
     auto*copyAction=menu.addAction(QStringLiteral("Copy"));
@@ -186,7 +186,7 @@ void PopoutChat::showChatContextMenu(const QPoint&pos){
     }
     menu.addSeparator();
     connect(menu.addAction(QStringLiteral("Select All")),&QAction::triggered,chat_,&QTextBrowser::selectAll);
-    menu.exec(chat_->viewport()->mapToGlobal(pos));
+    menu.exec(globalPos);
 }
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
 void PopoutChat::setViewers(const QString&p,int n){
