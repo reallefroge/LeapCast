@@ -10,10 +10,10 @@ Start from a clean `main` branch containing all changes for the release:
 
 ```powershell
 git pull --ff-only
-.\scripts\prepare-release.ps1 -Version 19.0.3 -Push
+.\scripts\prepare-release.ps1 -Version 2.0.3 -Push
 ```
 
-Replace `19.0.3` with the next semantic version. The script:
+Replace `2.0.3` with the next semantic version. The script:
 
 1. refuses to run if uncommitted files could be lost;
 2. verifies that the new version is greater than the current version;
@@ -38,14 +38,14 @@ installer the next time an older version starts.
 Omit `-Push` to create the release commit and tag locally:
 
 ```powershell
-.\scripts\prepare-release.ps1 -Version 19.0.3
+.\scripts\prepare-release.ps1 -Version 2.0.3
 ```
 
 After reviewing the commit and tag, publish them:
 
 ```powershell
 git push origin HEAD
-git push origin v19.0.3
+git push origin v2.0.3
 ```
 
 ## Test a build without releasing
