@@ -17,7 +17,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 WizardStyle=modern
-SetupIconFile=..\packaging\lefroge_chat_icon.ico
+SetupIconFile=..\resources\lefroge_chat_icon.ico
 UninstallDisplayIcon={app}\MultiChatStudio.exe
 
 [Files]
@@ -32,4 +32,3 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Run]
 Filename: "{app}\MultiChatStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
-
