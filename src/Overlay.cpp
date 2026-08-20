@@ -56,7 +56,8 @@ html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI'
 .m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:#101522d9;text-shadow:0 1px 3px #000;opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}
 .m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}
 </style><main id=c></main><script>
-let n=0;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';x.querySelector('.u').textContent=m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
+const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}
+let n=0;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
 </script>)HTML";
 }
 OverlayServer::OverlayServer(QObject*p):QObject(p){connect(&server_,&QTcpServer::newConnection,this,&OverlayServer::accept);}
@@ -139,7 +140,9 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     format.setProperty(kMessageIdProperty,id);
     if(!chat_->document()->isEmpty())cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
-    cursor.insertHtml(QString("<b style='color:%1'>%2</b> %3").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
+    const QString badges=badgeGlyphs(m.badges);
+    cursor.insertHtml(QString("%1<b style='color:%2'>%3</b> %4")
+        .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
     trimChatBlocks(chat_->document());

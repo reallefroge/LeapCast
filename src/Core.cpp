@@ -8,6 +8,23 @@
 #include <QStandardPaths>
 #include <QTextStream>
 
+QString badgeGlyphs(const QStringList& badges) {
+    static const QHash<QString, QString> glyphs{
+        {QStringLiteral("HOST"), QStringLiteral("\U0001F3A5")},   // broadcaster
+        {QStringLiteral("MOD"), QStringLiteral("⚔️")},  // moderator
+        {QStringLiteral("VIP"), QStringLiteral("\U0001F48E")},    // VIP
+        {QStringLiteral("PRIME"), QStringLiteral("\U0001F451")},  // Prime/Turbo
+        {QStringLiteral("SUB"), QStringLiteral("⭐")},        // subscriber/founder
+        {QStringLiteral("CHECK"), QStringLiteral("✅")},      // verified/partner
+        {QStringLiteral("MONEY"), QStringLiteral("\U0001F4B0")},  // paid/superchat
+    };
+    static const QStringList order{QStringLiteral("HOST"), QStringLiteral("MOD"), QStringLiteral("VIP"),
+        QStringLiteral("PRIME"), QStringLiteral("SUB"), QStringLiteral("CHECK"), QStringLiteral("MONEY")};
+    QString out;
+    for (const auto& key : order) if (badges.contains(key)) out += glyphs.value(key);
+    return out;
+}
+
 QJsonObject ChatMessage::toJson() const {
     return {{QStringLiteral("user"), user}, {QStringLiteral("text"), text},
             {QStringLiteral("platform"), platform},

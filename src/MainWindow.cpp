@@ -126,8 +126,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setCentralWidget(splitter);
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
         const QString colour = m.color.isValid() ? m.color.name() : QStringLiteral("#53cdf3");
-        const QString html = QStringLiteral("<b style='color:%1'>%2</b> %3")
-            .arg(colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
+        const QString badges = badgeGlyphs(m.badges);
+        const QString html = QStringLiteral("%1<b style='color:%2'>%3</b> %4")
+            .arg(badges.isEmpty() ? QString() : badges + QStringLiteral(" "), colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
         // Stamped with an id (see appendChatMessage) so a right-click on
         // either view can be traced back to this message for moderation.
         const qint64 id = ++nextChatSeq_;
