@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" LEAPCAST_VERSION)
-string(STRI@ "${LEAPCAST_VERSION}" LEAPCAST_VERSION)
+string(STRIP "${LEAPCAST_VERSION}" LEAPCAST_VERSION)
 if(DEFINED LEAPCAST_VERSION_OVERRIDE)
     set(LEAPCAST_VERSION "${LEAPCAST_VERSION_OVERRIDE}")
 endif()
@@ -59,6 +59,6 @@ target_link_libraries(LeapcastStudio PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::WebSockets Qt6::WebEngineWidgets
 )
 
-target_compile_definitions(LeapcastSudio PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_definitions(LeapcastStudio PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
-install(TARGETS LeapcastSudio RUNTIME DESTINATION .)
+install(TARGETS LeapcastStudio RUNTIME DESTINATION .)
