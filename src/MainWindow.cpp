@@ -152,6 +152,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         appendTrimmed(chatViews_.value(m.platform), note);
         if (popout_) popout_->appendModerationNote(m.user, reason);
     });
+    connect(controller_,&AppController::twitchAppealsUpdated,this,[this](const QJsonArray&appeals){
+        if(!twitchAppeals_)return;twitchAppeals_->clear();
+        for(const auto&v:appeals){const auto a=v.toObject();auto*item=new QListWidgetItem;
+            const QString user=a.value("user_name").toString(a.value("user_login").toString("Unknown user"));
+            item->setText(QStringLiteral("%1\n%2").arg(user,a.value("text").toString("No appeal message provided.")));
+            item->setData(Qt::UserRole,a.value("user_id").toString());item->setData(Qt::UserRole+1,user);item->setToolTip(QStringLiteral("Submitted %1").arg(friendlyTimestamp(a.value("created_at").toString())));twitchAppeals_->addItem(item);}
+        if(twitchAppeals_->count()==0){auto*i=new QListWidgetItem("No pending Twitch appeals.");i->setFlags(Qt::NoItemFlags);twitchAppeals_->addItem(i);}
+    });
+    connect(controller_,&AppController::userChatHistoryReady,this,[this](const QString&,const QJsonArray&messages){
+        if(!twitchAppealHistory_)return;QString html;
+        for(const auto&v:messages){const auto m=v.toObject();html+=QStringLiteral("<div style='margin:0 0 9px;padding:9px;background:#171d2b;border-radius:8px'><span style='color:#7f8ba5;font-size:8pt'>%1</span><br><b style='color:#b48cff'>%2</b> %3</div>").arg(friendlyTimestamp(m.value("time").toString()).toHtmlEscaped(),m.value("user").toString().toHtmlEscaped(),m.value("text").toString().toHtmlEscaped());}
+        twitchAppealHistory_->setHtml(html.isEmpty()?QStringLiteral("<div style='color:#7f8ba5;text-align:center;margin-top:30px'>No stored chat messages were found for this user.</div>"):html);
+    });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
             e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):QStringLiteral("#63e6be");
@@ -643,6 +656,23 @@ QWidget* MainWindow::buildBansPage() {
     };
     tabs->addTab(makePage(QStringLiteral("twitch"), &twitchBans_), QStringLiteral("Twitch"));
     tabs->addTab(makePage(QStringLiteral("youtube"), &youtubeBans_), QStringLiteral("YouTube"));
+    auto* appealsPage=new QWidget;auto* appealsLayout=new QVBoxLayout(appealsPage);
+    appealsLayout->setContentsMargins(14,14,14,14);appealsLayout->setSpacing(10);
+    auto* appealsIntro=label(QStringLiteral("Pending Twitch ban appeals appear here. Select an appeal to review every stored chat message from that account."),"muted");
+    appealsIntro->setWordWrap(true);appealsLayout->addWidget(appealsIntro);
+    auto* appealSplit=new QSplitter(Qt::Horizontal);
+    twitchAppeals_=new QListWidget;twitchAppeals_->setObjectName(QStringLiteral("restrictionList"));twitchAppeals_->setSpacing(6);
+    twitchAppealHistory_=new QTextBrowser;twitchAppealHistory_->setPlaceholderText(QStringLiteral("Select an appeal to view all-time chat logs."));
+    appealSplit->addWidget(twitchAppeals_);appealSplit->addWidget(twitchAppealHistory_);appealSplit->setStretchFactor(0,2);appealSplit->setStretchFactor(1,3);
+    appealsLayout->addWidget(appealSplit,1);
+    auto* appealControls=new QHBoxLayout;auto* refreshAppeals=new QPushButton(QStringLiteral("Refresh appeals"));
+    appealControls->addWidget(refreshAppeals);appealControls->addStretch();appealsLayout->addLayout(appealControls);
+    connect(refreshAppeals,&QPushButton::clicked,this,[this]{controller_->refreshTwitchAppeals();});
+    connect(twitchAppeals_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem*item,QListWidgetItem*){
+        if(!item||!(item->flags()&Qt::ItemIsEnabled)){if(twitchAppealHistory_)twitchAppealHistory_->clear();return;}
+        controller_->loadTwitchUserHistory(item->data(Qt::UserRole).toString(),item->data(Qt::UserRole+1).toString());
+    });
+    tabs->addTab(appealsPage,QStringLiteral("Twitch Appeals"));
     layout->addWidget(tabs, 1);
     QTimer::singleShot(0, this, [this] { controller_->refreshBans(QStringLiteral("youtube")); });
     return page;
@@ -767,11 +797,11 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
             auto* header = menu.addAction(QStringLiteral("Moderate %1").arg(msg.user));
             header->setEnabled(false);
             connect(menu.addAction(QStringLiteral("Delete message")), &QAction::triggered,
-                    this, [this, msg] { controller_->deleteChatMessage(msg); });
+                    this, [this, msg] { controller_->deleteChatMessage(msg); const QString note=QStringLiteral("<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>");appendTrimmed(chatViews_.value("combined"),note);appendTrimmed(chatViews_.value(msg.platform),note);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated"); });
             connect(menu.addAction(QStringLiteral("Timeout")), &QAction::triggered,
-                    this, [this, msg] { controller_->moderateMessage(msg, 300); });
+                    this, [this, msg] {bool ok=false;const QString r=QInputDialog::getMultiLineText(this,"Timeout reason","Why is this user being timed out?",QString(),&ok).trimmed();if(ok&&!r.isEmpty()){controller_->moderateMessage(msg,300,r);const QString n="<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>";appendTrimmed(chatViews_.value("combined"),n);appendTrimmed(chatViews_.value(msg.platform),n);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated");}});
             connect(menu.addAction(isYouTube ? QStringLiteral("Hide from channel") : QStringLiteral("Ban")),
-                    &QAction::triggered, this, [this, msg] { controller_->moderateMessage(msg, 0); });
+                    &QAction::triggered, this, [this, msg] {bool ok=false;const QString r=QInputDialog::getMultiLineText(this,"Ban reason","Why is this user being banned?",QString(),&ok).trimmed();if(ok&&!r.isEmpty()){controller_->moderateMessage(msg,0,r);const QString n="<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>";appendTrimmed(chatViews_.value("combined"),n);appendTrimmed(chatViews_.value(msg.platform),n);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated");}});
         }
     }
     menu.addSeparator();
@@ -833,9 +863,9 @@ QWidget* MainWindow::buildChatDock() {
             clipEditor_->openUrl(url);
         });
         connect(popout_, &PopoutChat::deleteMessageRequested, this,
-                [this](const ChatMessage& message) { controller_->deleteChatMessage(message); });
+                [this](const ChatMessage& message) { controller_->deleteChatMessage(message);if(popout_)popout_->appendModerationNote(message.user,QStringLiteral("Message Moderated")); });
         connect(popout_, &PopoutChat::timeoutUserRequested, this,
-                [this](const ChatMessage& message, int seconds) { controller_->moderateMessage(message, seconds); });
+                [this](const ChatMessage& message, int seconds,const QString&reason) { controller_->moderateMessage(message, seconds,reason);if(popout_)popout_->appendModerationNote(message.user,QStringLiteral("Message Moderated")); });
         return popout_;
     };
 

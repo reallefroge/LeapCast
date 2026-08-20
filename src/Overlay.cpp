@@ -10,6 +10,7 @@
 #include <QHBoxLayout>
 #include <QHostAddress>
 #include <QLabel>
+#include <QInputDialog>
 #include <QMenu>
 #include <QPushButton>
 #include <QStackedLayout>
@@ -152,8 +153,10 @@ void PopoutChat::appendModerationNote(const QString&user,const QString&reason){
     QTextBlockFormat format;
     if(!chat_->document()->isEmpty())cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
-    cursor.insertHtml(QStringLiteral("<span style='color:#7f8ba5;font-style:italic;font-size:9pt'>&#9888; %1's message was removed by AutoMod (%2)</span>")
-        .arg(user.toHtmlEscaped(),reason.toHtmlEscaped()));
+    const bool manual=reason==QStringLiteral("Message Moderated");
+    cursor.insertHtml(manual
+        ? QStringLiteral("<span style='color:#7f8ba5;font-style:italic;font-size:9pt'>&lt;Message Moderated&gt;</span>")
+        : QStringLiteral("<span style='color:#7f8ba5;font-style:italic;font-size:9pt'>&#9888; %1's message was removed by AutoMod (%2)</span>").arg(user.toHtmlEscaped(),reason.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
     trimChatBlocks(chat_->document());
@@ -177,11 +180,11 @@ void PopoutChat::showChatContextMenu(const QPoint&globalPos){
             auto*header=menu.addAction(QStringLiteral("Moderate %1").arg(msg.user));
             header->setEnabled(false);
             connect(menu.addAction(QStringLiteral("Delete message")),&QAction::triggered,this,[this,msg]{emit deleteMessageRequested(msg);});
-            connect(menu.addAction(QStringLiteral("Timeout")),&QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,300);});
+            connect(menu.addAction(QStringLiteral("Timeout")),&QAction::triggered,this,[this,msg]{bool ok=false;const QString reason=QInputDialog::getMultiLineText(this,"Timeout reason","Why is this user being timed out?",QString(),&ok).trimmed();if(ok&&!reason.isEmpty())emit timeoutUserRequested(msg,300,reason);});
             // Twitch calls this a "Ban"; YouTube Studio calls the same
             // permanent action "Hide user on this channel".
             connect(menu.addAction(isYouTube?QStringLiteral("Hide from channel"):QStringLiteral("Ban")),
-                    &QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,0);});
+                    &QAction::triggered,this,[this,msg]{bool ok=false;const QString reason=QInputDialog::getMultiLineText(this,"Ban reason","Why is this user being banned?",QString(),&ok).trimmed();if(ok&&!reason.isEmpty())emit timeoutUserRequested(msg,0,reason);});
         }
     }
     menu.addSeparator();

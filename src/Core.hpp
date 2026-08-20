@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QMutex>
 #include <QObject>
 #include <QQueue>
@@ -102,6 +103,8 @@ class AuditStore final : public QObject {
 public:
     explicit AuditStore(SettingsStore* settings, QObject* parent = nullptr);
     void appendMessage(const ChatMessage& message);
+    QJsonArray messagesForUser(const QString& platform, const QString& userId,
+                               const QString& userName, int limit = 2000) const;
     void appendEvent(const StreamEvent& event);
     QList<StreamEvent> loadEvents(int limit = 500) const;
 private:

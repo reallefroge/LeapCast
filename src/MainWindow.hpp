@@ -69,6 +69,8 @@ private:
     QHash<QString,QString> lastModerationWarning_;
     QListWidget* twitchBans_{};
     QListWidget* youtubeBans_{};
+    QListWidget* twitchAppeals_{};
+    QTextBrowser* twitchAppealHistory_{};
     // Getting-started card shown on the Sources page only while every link is
     // still blank (a fresh install). Hidden for good after the first source
     // connects successfully.

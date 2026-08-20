@@ -21,7 +21,7 @@ public:
     void createTwitchClip();
     // Manual moderation triggered from a chat message's context menu, for the
     // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
-    void moderateMessage(const ChatMessage& message, int seconds);
+    void moderateMessage(const ChatMessage& message, int seconds, const QString& reason);
     void deleteChatMessage(const ChatMessage& message);
     QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
     bool reloadAutoMod() { return automod_.reload(); }
@@ -35,6 +35,8 @@ signals:
     void viewerCount(const QString& platform,int count);
     void moderationResult(const QString& platform,bool success,const QString& detail);
     void bansUpdated(const QString& platform, const QJsonArray& bans);
+    void twitchAppealsUpdated(const QJsonArray& appeals);
+    void userChatHistoryReady(const QString& userId, const QJsonArray& messages);
     void twitchClipCreated(const QUrl& editUrl);
     void twitchClipFailed(const QString& detail);
     void twitchAuthorizationUrl(const QUrl& url);
@@ -45,6 +47,9 @@ private:
     static QString tiktokName(const QString& link);
     void receive(const ChatMessage& message);
     void autoModerate(const ChatMessage& message,const QString& reason);
+public:
+    void refreshTwitchAppeals();
+    void loadTwitchUserHistory(const QString& userId,const QString& userName);
     SettingsStore settings_;
     AuditStore audit_{&settings_};
     AutoMod automod_{&settings_};
@@ -57,5 +62,6 @@ private:
     TwitchModerationService twitchMod_;
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
+    QHash<QString,QString> pendingYouTubeReasons_;
     bool twitchAuthorizationRequested_{};
 };

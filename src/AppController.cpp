@@ -31,8 +31,9 @@ AppController::AppController(QObject*p):QObject(p){
     youtubeMod_.setAccessToken(settings_.secret("youtube_access_token"));
     for(const auto& item:settings_.preference("youtube_restrictions").toList())youtubeRestrictions_.append(QJsonObject::fromVariantMap(item.toMap()));
     connect(&twitchMod_,&TwitchModerationService::bansReceived,this,[this](const QJsonArray&a){emit bansUpdated("twitch",a);});
+    connect(&twitchMod_,&TwitchModerationService::unbanRequestsReceived,this,&AppController::twitchAppealsUpdated);
     connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);});
-    connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user,bool permanent){QJsonObject o{{"id",id},{"user_name",user},{"type",permanent?QStringLiteral("Hide from channel"):QStringLiteral("Timeout (5 min)")},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
+    connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user,bool permanent){QJsonObject o{{"id",id},{"user_name",user},{"type",permanent?QStringLiteral("Hide from channel"):QStringLiteral("Timeout (5 min)")},{"reason",pendingYouTubeReasons_.take(user)},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
     connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&action,bool ok,const QString&d){
         if(action=="clip"){if(!ok)emit twitchClipFailed(d);return;}
         emit moderationResult("twitch",ok,d);
@@ -106,15 +107,17 @@ void AppController::receive(const ChatMessage&m){
     emit messageReady(m);
 }
 void AppController::autoModerate(const ChatMessage&m,const QString&r){if(m.platform=="twitch"){const auto broadcaster=m.metadata["room_id"].toString();if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,300,r);}else if(m.platform=="youtube"||m.platform=="yt_shorts"){const auto chat=m.metadata["live_chat_id"].toString();if(!chat.isEmpty()&&!m.userId.isEmpty())youtubeMod_.ban(chat,m.userId,300,m.user);}}
-void AppController::moderateMessage(const ChatMessage&m,int seconds){
+void AppController::moderateMessage(const ChatMessage&m,int seconds,const QString&reason){
     if(m.platform=="twitch"){
         const auto broadcaster=m.metadata["room_id"].toString();
-        if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,seconds,QStringLiteral("Manual moderation"));
+        if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,seconds,reason);
     }else if(m.platform=="youtube"||m.platform=="yt_shorts"){
         const auto chat=m.metadata["live_chat_id"].toString();
-        if(!chat.isEmpty()&&!m.userId.isEmpty())youtubeMod_.ban(chat,m.userId,seconds,m.user);
+        if(!chat.isEmpty()&&!m.userId.isEmpty()){pendingYouTubeReasons_[m.user]=reason;youtubeMod_.ban(chat,m.userId,seconds,m.user);}
     }
 }
+void AppController::refreshTwitchAppeals(){const QString id=settings_.secret("twitch_broadcaster_id");if(id.isEmpty()){emit moderationResult("twitch",false,"Connect Twitch and choose a channel first.");return;}twitchMod_.listUnbanRequests(id);}
+void AppController::loadTwitchUserHistory(const QString&userId,const QString&userName){emit userChatHistoryReady(userId,audit_.messagesForUser("twitch",userId,userName));}
 void AppController::deleteChatMessage(const ChatMessage&m){
     if(m.platform=="twitch"){
         const auto broadcaster=m.metadata["room_id"].toString();

@@ -110,7 +110,7 @@ signals:
     // Manual moderation from a chat message's right-click menu, for whatever
     // AutoMod doesn't catch. seconds=0 means a permanent ban.
     void deleteMessageRequested(const ChatMessage& message);
-    void timeoutUserRequested(const ChatMessage& message, int seconds);
+    void timeoutUserRequested(const ChatMessage& message, int seconds, const QString& reason);
 
 protected:
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;

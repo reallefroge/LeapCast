@@ -148,5 +148,17 @@ bool AutoMod::check(const ChatMessage&m,QString*reason){auto cfg=settings_->mode
 
 AuditStore::AuditStore(SettingsStore*s,QObject*p):QObject(p){messagesPath_=s->dataDirectory()+"/chat_history.jsonl";eventsPath_=s->dataDirectory()+"/stream_events.json";}
 void AuditStore::appendMessage(const ChatMessage&m){QMutexLocker l(&mutex_);QFile f(messagesPath_);if(f.open(QIODevice::Append|QIODevice::Text)){f.write(QJsonDocument(m.toJson()).toJson(QJsonDocument::Compact));f.write("\n");}}
+QJsonArray AuditStore::messagesForUser(const QString&platform,const QString&userId,const QString&userName,int limit)const{
+    QMutexLocker l(&mutex_); QFile f(messagesPath_); QJsonArray out;
+    if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return out;
+    while(!f.atEnd()){
+        const auto o=QJsonDocument::fromJson(f.readLine()).object();
+        if(o.value("platform").toString()!=platform)continue;
+        const bool idMatch=!userId.isEmpty()&&o.value("user_id").toString()==userId;
+        const bool nameMatch=userId.isEmpty()&&!userName.isEmpty()&&o.value("user").toString().compare(userName,Qt::CaseInsensitive)==0;
+        if(idMatch||nameMatch){out.append(o);while(out.size()>limit)out.removeAt(0);}
+    }
+    return out;
+}
 void AuditStore::appendEvent(const StreamEvent&e){auto all=loadEvents();all.prepend(e);while(all.size()>500)all.removeLast();QJsonArray a;for(const auto&x:all)a.append(x.toJson());QMutexLocker l(&mutex_);QSaveFile f(eventsPath_);if(f.open(QIODevice::WriteOnly)){f.write(QJsonDocument(a).toJson(QJsonDocument::Indented));f.commit();}}
 QList<StreamEvent> AuditStore::loadEvents(int limit)const{QMutexLocker l(&mutex_);QFile f(eventsPath_);QList<StreamEvent>out;if(!f.open(QIODevice::ReadOnly))return out;for(const auto&v:QJsonDocument::fromJson(f.readAll()).array()){out<<StreamEvent::fromJson(v.toObject());if(out.size()>=limit)break;}return out;}

@@ -69,6 +69,7 @@ public:
     void configure(QString clientId, QString accessToken, QString moderatorId);
     void resolveBroadcaster(const QString& login);
     void listBans(const QString& broadcasterId);
+    void listUnbanRequests(const QString& broadcasterId);
     void ban(const QString& broadcasterId, const QString& userId,
              int seconds, const QString& reason);
     void unban(const QString& broadcasterId, const QString& userId);
@@ -82,6 +83,7 @@ signals:
     void broadcasterResolved(const QString& login, const QString& id);
     void actionFinished(const QString& action, bool success, const QString& detail);
     void bansReceived(const QJsonArray& bans);
+    void unbanRequestsReceived(const QJsonArray& requests);
     void clipCreated(const QString& id, const QUrl& editUrl);
 private:
     QNetworkRequest request(const QUrl& url) const;
