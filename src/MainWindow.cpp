@@ -9,6 +9,7 @@
 #include <QCheckBox>
 #include <QDesktopServices>
 #include <QDateTime>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -21,6 +22,8 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QSignalBlocker>
+#include <QSlider>
 #include <QSplitter>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -222,6 +225,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     QTimer::singleShot(7500, this, [this] { updater_->check(false); });
 }
 
+bool MainWindow::event(QEvent* e) {
+    if (e->type() == QEvent::WindowActivate && popout_ && popout_->ghostMode()) {
+        popout_->setGhostMode(false);
+    }
+    return QMainWindow::event(e);
+}
+
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
 
 QWidget* MainWindow::buildDashboard() {
@@ -413,7 +423,10 @@ QWidget* MainWindow::buildObsPage() {
         message.text = QStringLiteral("OBS overlay test message"); message.platform = QStringLiteral("twitch");
         message.color = QColor(QStringLiteral("#53cdf3")); overlay_->ingest(message);
     });
-    connect(clear, &QPushButton::clicked, overlay_, &OverlayServer::clear);
+    connect(clear, &QPushButton::clicked, this, [this] {
+        overlay_->clear();
+        if (popout_) popout_->clearMessages();
+    });
     layout->addWidget(urlCard);
 
     auto* fadeCard = new QFrame; fadeCard->setProperty("card", true);
@@ -630,15 +643,53 @@ QWidget* MainWindow::buildChatDock() {
         chatViews_.insert(keys.at(index),chat);
     }
     layout->addWidget(chatTabs_, 1);
+
+    const auto ensurePopout = [this] {
+        if (popout_) return popout_;
+        popout_ = new PopoutChat;
+        popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 80).toInt());
+        connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
+            if (!popoutClickThrough_) return;
+            QSignalBlocker blocker(popoutClickThrough_);
+            popoutClickThrough_->setChecked(enabled);
+        });
+        return popout_;
+    };
+
+    const int savedOpacity = controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 80).toInt();
+    auto* opacityRow = new QHBoxLayout;
+    opacityRow->addWidget(label(QStringLiteral("Pop-out opacity")));
+    popoutOpacity_ = new QSlider(Qt::Horizontal);
+    popoutOpacity_->setRange(10, 100);
+    popoutOpacity_->setValue(savedOpacity);
+    opacityRow->addWidget(popoutOpacity_, 1);
+    auto* opacityValue = label(QString::number(savedOpacity) + QStringLiteral("%"));
+    opacityRow->addWidget(opacityValue);
+    layout->addLayout(opacityRow);
+    connect(popoutOpacity_, &QSlider::valueChanged, this, [this, opacityValue](int value) {
+        opacityValue->setText(QString::number(value) + QStringLiteral("%"));
+        controller_->settings()->setPreference(QStringLiteral("popout_opacity_percent"), value);
+        if (popout_) popout_->setOpacityPercent(value);
+    });
+
+    popoutClickThrough_ = new QCheckBox(QStringLiteral("Click-through (see and click what's behind it)"));
+    layout->addWidget(popoutClickThrough_);
+    layout->addWidget(label(QStringLiteral("Press Esc or Alt+C, or click back into Leapcast Studio, to regain control of the pop-out."), "muted"));
+    connect(popoutClickThrough_, &QCheckBox::toggled, this, [ensurePopout](bool enabled) {
+        auto* popout = ensurePopout();
+        popout->setGhostMode(enabled);
+        popout->raise();
+    });
+
     auto* popout = new QPushButton(QStringLiteral("Open Pop-out Chat"));
     popout->setProperty("primary", true);
     layout->addWidget(popout);
-    connect(popout,&QPushButton::clicked,this,[this]{
-        if(!popout_) popout_=new PopoutChat;
-        popout_->setStreamlabsAlertAudio(
+    connect(popout,&QPushButton::clicked,this,[this,ensurePopout]{
+        auto* view = ensurePopout();
+        view->setStreamlabsAlertAudio(
             controller_->settings()->preference(QStringLiteral("streamlabs_audio_enabled"),false).toBool(),
             QUrl(controller_->settings()->preference(QStringLiteral("streamlabs_alert_box_url")).toString()));
-        popout_->show();popout_->raise();
+        view->show();view->raise();
     });
     return dock;
 }
