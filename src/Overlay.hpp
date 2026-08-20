@@ -2,12 +2,28 @@
 #include "Core.hpp"
 #include <QAbstractNativeEventFilter>
 #include <QHash>
+#include <QPoint>
 #include <QTcpServer>
 #include <QWidget>
 class QTextBrowser; class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
 class QUrl;
+
+// Embedded Chromium (Qt WebEngine) window used to open the Twitch clip editor
+// in-app instead of the user's external browser. Uses the default persistent
+// profile, the same one TikTok's embedded view uses, so a Twitch web login
+// made here is remembered on later opens — the app's own Twitch device-code
+// authorization is a separate API token and doesn't carry a browser session.
+class ClipEditorWindow final : public QWidget {
+    Q_OBJECT
+public:
+    explicit ClipEditorWindow(QWidget* parent = nullptr);
+    void openUrl(const QUrl& url);
+private:
+    QWebEngineView* view_{};
+    QLabel* addressLabel_{};
+};
 class OverlayServer final : public QObject {
 public:
     explicit OverlayServer(QObject* parent = nullptr);
@@ -59,6 +75,12 @@ public:
 signals:
     void ghostModeChanged(bool enabled);
     void clipRequested();
+    // "Open editor" was clicked after a clip was created.
+    void openClipEditor(const QUrl& url);
+    // Manual moderation from a chat message's right-click menu, for whatever
+    // AutoMod doesn't catch. seconds=0 means a permanent ban.
+    void deleteMessageRequested(const ChatMessage& message);
+    void timeoutUserRequested(const ChatMessage& message, int seconds);
 
 protected:
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;
@@ -67,6 +89,7 @@ private:
     void applyOpacity();
     void registerRestoreHotkeys();
     void unregisterRestoreHotkeys();
+    void showChatContextMenu(const QPoint& pos);
 
     QTextBrowser* chat_{};
     QLabel* event_{};
@@ -74,6 +97,12 @@ private:
     QLabel* clipStatus_{};
     QPushButton* clipButton_{};
     QHash<QString, int> counts_;
+    // Messages currently rendered in chat_, keyed by an ever-increasing id
+    // stamped onto each message's paragraph as a block property, so a
+    // right-click can be traced back to the ChatMessage it landed on. Ids are
+    // never reused, so trimming old entries doesn't invalidate the rest.
+    QHash<qint64, ChatMessage> historyById_;
+    qint64 nextMessageSeq_{};
     QStackedLayout* chatStack_{};
     QWebEngineView* alertView_{};
     int opacityPercent_{80};

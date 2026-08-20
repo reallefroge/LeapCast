@@ -12,9 +12,11 @@ class QListWidget;
 class QPushButton;
 class QCheckBox;
 class QSlider;
+class QFrame;
 class AppController;
 class OverlayServer;
 class PopoutChat;
+class ClipEditorWindow;
 class UpdateService;
 
 class MainWindow final : public QMainWindow {
@@ -54,6 +56,10 @@ private:
     QHash<QString,QString> lastModerationWarning_;
     QListWidget* twitchBans_{};
     QListWidget* youtubeBans_{};
+    // Getting-started card shown on the Sources page only while every link is
+    // still blank (a fresh install). Hidden for good after the first source
+    // connects successfully.
+    QFrame* sourcesWelcome_{};
     QLabel* twitchModerationStatus_{};
     QPushButton* twitchConnectButton_{};
     QLabel* youtubeModerationStatus_{};
@@ -63,5 +69,6 @@ private:
     AppController* controller_{};
     OverlayServer* overlay_{};
     PopoutChat* popout_{};
+    ClipEditorWindow* clipEditor_{};
     UpdateService* updater_{};
 };
