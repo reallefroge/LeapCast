@@ -1,7 +1,13 @@
 #define AppName "Multi-Chat Studio"
-#define AppVersion "19.0.2"
 #define AppPublisher "Lefroge"
-#define BuildRoot "..\deploy"
+
+#ifndef AppVersion
+  #define AppVersion "0.0.0-local"
+#endif
+
+#ifndef BuildRoot
+  #define BuildRoot "..\deploy"
+#endif
 
 [Setup]
 AppId={{A80DBFB8-59F3-45A6-A9F0-F9576C59C3D0}

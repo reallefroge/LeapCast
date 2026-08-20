@@ -1,4 +1,5 @@
 #include "MainWindow.hpp"
+#include "BuildInfo.hpp"
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -34,7 +35,7 @@ public:
         p.setPen(QPen(QColor("#15e0d2"), 3)); p.drawLine(54, 285, 190, 285);
         p.setPen(QColor("#a8b0c7"));
         p.drawText(QRect(0, 302, 560, 20), Qt::AlignCenter,
-                   QStringLiteral("OPENING YOUR CREATOR CONSOLE…"));
+                   QStringLiteral("OPENING YOUR CREATOR CONSOLEâ¦"));
         setPixmap(art);
     }
 };
@@ -42,7 +43,7 @@ public:
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Multi-Chat Studio"));
-    QApplication::setApplicationVersion(QStringLiteral("19.0.2"));
+    QApplication::setApplicationVersion(QString::fromLatin1(multichat::Version));
     QApplication::setOrganizationName(QStringLiteral("Lefroge"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
 

@@ -7,7 +7,7 @@
 
   Follow every community, moderate faster, show chat in OBS, and surface Streamlabs events without juggling a wall of browser windows.
 
-  [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) Â· [First look](#first-look) Â· [Features](#features) Â· [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
+  [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
 </div>
 
 > [!IMPORTANT]
@@ -54,11 +54,11 @@ The compact, always-on-top pop-out keeps the combined conversation and total vie
 
 The interface is organized into five focused areas:
 
-- **Sources** â€” connect or disconnect each chat independently.
-- **Events** â€” connect Streamlabs events and optionally reuse the sound selected in your Streamlabs Alert Box.
-- **Moderation** â€” configure Twitch, YouTube, and TikTok moderation access plus AutoMod.
-- **Bans** â€” review and remove supported Twitch and YouTube restrictions.
-- **OBS** â€” copy the local browser-source URL, send a test message, clear the overlay, and set its fade timer.
+- **Sources** — connect or disconnect each chat independently.
+- **Events** — connect Streamlabs events and optionally reuse the sound selected in your Streamlabs Alert Box.
+- **Moderation** — configure Twitch, YouTube, and TikTok moderation access plus AutoMod.
+- **Bans** — review and remove supported Twitch and YouTube restrictions.
+- **OBS** — copy the local browser-source URL, send a test message, clear the overlay, and set its fade timer.
 
 ## Features
 
@@ -168,12 +168,16 @@ Feature availability can change when a platform changes its API or third-party a
 ### Configure and build
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-  -DCMAKE_PREFIX_PATH="C:\Qt\6.8.3\msvc2022_64"
-cmake --build build --config Release
+.\build-installer.ps1
 ```
 
-Run `windeployqt` into `deploy`, copy `MultiChatStudio.exe` there, and compile `installer/MultiChatStudio.iss`. The included GitHub Actions workflow can also compile the Windows app, bundle Qt, create the installer, and attach it to a tagged release.
+The script reads the single version number from `VERSION`, builds the app,
+bundles Qt, creates the installer, and writes the installer plus its SHA-256
+file to `artifacts`. If Qt is not on `PATH`, pass its location with
+`-QtRoot`.
+
+For a complete one-command release workflow, see
+[PUBLISHING.md](PUBLISHING.md).
 
 ## Support and contributions
 
@@ -183,4 +187,4 @@ Run `windeployqt` into `deploy`, copy `MultiChatStudio.exe` there, and compile `
 
 ---
 
-Multi-Chat Studio v19.0.2 Â· Built by Lefroge with C++20 and Qt 6.
+Multi-Chat Studio · Built by Lefroge with C++20 and Qt 6 · [MIT License](LICENSE)

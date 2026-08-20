@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
-project(MultiChatStudio VERSION 19.0.2 LANGUAGES CXX)
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MULTICHAT_VERSION)
+string(STRIP "${MULTICHAT_VERSION}" MULTICHAT_VERSION)
+if(DEFINED MULTICHAT_VERSION_OVERRIDE)
+    set(MULTICHAT_VERSION "${MULTICHAT_VERSION_OVERRIDE}")
+endif()
+if(NOT MULTICHAT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain a semantic version such as 19.0.3")
+endif()
+
+project(MultiChatStudio VERSION ${MULTICHAT_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +18,12 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network WebSockets WebEngineWidgets)
+
+configure_file(
+    cmake/BuildInfo.hpp.in
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/BuildInfo.hpp"
+    @ONLY
+)
 
 qt_add_executable(MultiChatStudio WIN32
     src/main.cpp
@@ -26,6 +42,10 @@ qt_add_executable(MultiChatStudio WIN32
     src/UpdateService.cpp
     src/UpdateService.hpp
     resources/resources.qrc
+)
+
+target_include_directories(MultiChatStudio PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 
 target_link_libraries(MultiChatStudio PRIVATE

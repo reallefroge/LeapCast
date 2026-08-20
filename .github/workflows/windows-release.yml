@@ -1,22 +1,49 @@
-name: Build Windows Installer
+name: Windows build and release
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: windows-${{ github.sha }}
+  cancel-in-progress: true
 
 jobs:
   windows-installer:
     runs-on: windows-2022
     timeout-minutes: 90
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Validate version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION must contain a semantic version such as 19.0.3."
+          }
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+            if ($tagVersion -ne $version) {
+              throw "Tag version $tagVersion does not match VERSION ($version)."
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -26,41 +53,44 @@ jobs:
           modules: "qtwebengine qtwebchannel qtpositioning qtwebsockets"
           cache: true
 
-      - name: Configure
-        shell: pwsh
-        run: |
-          $qtRoot = qmake -query QT_INSTALL_PREFIX
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DCMAKE_PREFIX_PATH=$qtRoot"
-
-      - name: Compile
-        shell: pwsh
-        run: cmake --build build --config Release --parallel
-
-      - name: Assemble portable application
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force deploy | Out-Null
-          Copy-Item build\Release\MultiChatStudio.exe deploy\MultiChatStudio.exe
-          windeployqt --release --no-translations --compiler-runtime deploy\MultiChatStudio.exe
-
       - name: Install installer compiler
         shell: pwsh
         run: choco install innosetup --yes --no-progress
 
-      - name: Create installer
+      - name: Build application and installer
         shell: pwsh
-        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MultiChatStudio.iss'
+        run: .\build-installer.ps1
 
-      - name: Upload downloadable installer
+      - name: Upload testable installer
         uses: actions/upload-artifact@v4
         with:
-          name: MultiChatStudio-Windows-Installer
-          path: installer/Output/MultiChatStudio-Setup-*.exe
+          name: MultiChatSudio-${{ steps.version.outputs.version }}-Windows
+          path: |
+            artifacts/MultiChatStudio-Setup-*.exe
+            artifacts/MultiChatSudio-Setup-*.exe.sha256
           if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows-installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified installer
+        uses: actions/download-artifact@v4
+        with:
+          name: MultiChatStudio-${{ needs.windows-installer.outputs.version }}-Windows
+          path: release-assets
 
       - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: installer/Output/MultiChatStudio-Setup-*.exe
+          files: release-assets/*
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
