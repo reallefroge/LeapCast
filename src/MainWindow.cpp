@@ -68,10 +68,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(controller_,&AppController::viewerCount,this,[this](const QString&p,int n){overlay_->setViewers(p,n);if(popout_)popout_->setViewers(p,n);});
     connect(controller_, &AppController::sourceStatus, this,
             [this](const QString& platform,const QString& state,const QString& detail){
-        if(!sourceStates_.contains(platform)) return;
-        auto* value=sourceStates_[platform]; value->setText(detail);
         const QString colour=state=="ok"?"#63e6be":state=="error"?"#ff5573":"#f6c85f";
-        value->setStyleSheet("color:"+colour);
+        if(sourceStates_.contains(platform)){
+            auto* value=sourceStates_[platform]; value->setText(detail);
+            value->setStyleSheet("color:"+colour);
+        }
+        if(platform==QStringLiteral("twitch")&&twitchModerationStatus_){
+            twitchModerationStatus_->setText(detail);
+            twitchModerationStatus_->setStyleSheet("color:"+colour);
+        }
+        if(platform==QStringLiteral("youtube")&&youtubeModerationStatus_){
+            youtubeModerationStatus_->setText(detail);
+            youtubeModerationStatus_->setStyleSheet("color:"+colour);
+        }
     });
     connect(controller_, &AppController::bansUpdated, this,
             [this](const QString& platform, const QJsonArray& bans) {
@@ -99,12 +108,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (!success) QMessageBox::warning(this, QStringLiteral("Moderation"), detail);
     });
     connect(controller_,&AppController::twitchAuthorizationUrl,this,[this](const QUrl&url){
-        if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Waiting for approval…"));
+        if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Finish signing in on Twitch, then return here."));
+        if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Waiting for Twitch…"));twitchConnectButton_->setEnabled(false);}
         if(!QDesktopServices::openUrl(url))QMessageBox::warning(this,QStringLiteral("Twitch authorization"),QStringLiteral("Could not open Twitch in your browser."));
     });
     connect(controller_,&AppController::twitchAuthorized,this,[this](const QString&login){
-        if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Authorized as %1").arg(login));
-        QMessageBox::information(this,QStringLiteral("Twitch authorization"),QStringLiteral("Twitch is connected as %1.").arg(login));
+        if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Connected as %1").arg(login));
+        if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Reconnect Twitch"));twitchConnectButton_->setEnabled(true);}
+        QMessageBox::information(this,QStringLiteral("Twitch connected"),QStringLiteral("You're all set. Leapcast Studio is connected to Twitch as %1.").arg(login));
+    });
+    connect(controller_,&AppController::twitchAuthorizationFailed,this,[this](const QString&detail){
+        if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Try Twitch again"));twitchConnectButton_->setEnabled(true);}
+        const bool missingAppId=detail.contains(QStringLiteral("application ID"),Qt::CaseInsensitive);
+        QMessageBox::critical(this,QStringLiteral("Twitch couldn't connect"),
+            missingAppId
+                ? QStringLiteral("This installer is missing Leapcast Studio's Twitch connection setting. This is a build problem—not something you need to find or paste.\n\nPlease install the next Leapcast Studio update and try again.")
+                : QStringLiteral("Twitch did not finish connecting.\n\n%1\n\nNothing was changed. Select Try Twitch again when you're ready.").arg(detail));
     });
     connect(updater_, &UpdateService::updateAvailable, this,
             [this](const QString& version, const QString& notes, const QUrl& asset,
@@ -413,28 +432,30 @@ QWidget* MainWindow::buildModerationPage() {
     auto* left = new QVBoxLayout;
     const bool twitchAuthorized=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
     auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"),
-                                        twitchAuthorized?QStringLiteral("Authorization saved"):QStringLiteral("Not authorized"),
-                                        QColor("#9146ff"), QStringLiteral("Authorize Twitch"));
+                                        twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),
+                                        QColor("#9146ff"), twitchAuthorized?QStringLiteral("Reconnect Twitch"):QStringLiteral("Connect Twitch"));
     twitchModerationStatus_=twitchCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
+    twitchConnectButton_=twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction"));
     left->addWidget(twitchCard);
-    connect(twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
-            this, &MainWindow::authorizeTwitch);
-    auto* youtubeCard = makePlatformCard(QStringLiteral("YouTube"), QStringLiteral("Not authorized"),
-                                         QColor("#ff334f"), QStringLiteral("Authorize YouTube"),
+    connect(twitchConnectButton_, &QPushButton::clicked, this, &MainWindow::authorizeTwitch);
+    const bool youtubeAuthorized=!controller_->settings()->secret(QStringLiteral("youtube_access_token")).isEmpty();
+    auto* youtubeCard = makePlatformCard(QStringLiteral("YouTube"),
+                                         youtubeAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your YouTube account"),
+                                         QColor("#ff334f"), youtubeAuthorized?QStringLiteral("Reconnect YouTube"):QStringLiteral("Connect YouTube"),
                                          QStringLiteral("Get YouTube keys ↗"),
                                          QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
+    youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
+    youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));
     left->addWidget(youtubeCard);
-    connect(youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
-            this, &MainWindow::configureYouTubeModeration);
+    connect(youtubeConnectButton_, &QPushButton::clicked, this, &MainWindow::configureYouTubeModeration);
     left->addStretch();
     auto* right = new QVBoxLayout;
-    auto* tiktokCard = makePlatformCard(QStringLiteral("TikTok"), QStringLiteral("Not configured"),
-                                        QColor("#18e0d5"), QStringLiteral("Configure moderation access"),
-                                        QStringLiteral("Get TikTok token ↗"),
-                                        QUrl(QStringLiteral("https://www.eulerstream.com/docs/api/tiktok-general/oauth-tokens")));
+    auto* tiktokCard = makePlatformCard(QStringLiteral("TikTok"),
+                                        QStringLiteral("Moderate directly on TikTok"),
+                                        QColor("#18e0d5"), QStringLiteral("Open TikTok LIVE in browser"));
     right->addWidget(tiktokCard);
     connect(tiktokCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
-            this, &MainWindow::configureTikTokModeration);
+            this, &MainWindow::openTikTokModeration);
     auto* automodCard = makePlatformCard(QStringLiteral("AutoMod"), QStringLiteral("Ready"),
                                          QColor("#63e6be"), QStringLiteral("Edit blocked words"));
     right->addWidget(automodCard);
@@ -447,6 +468,8 @@ QWidget* MainWindow::buildModerationPage() {
 }
 
 void MainWindow::authorizeTwitch() {
+    if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Opening Twitch sign-in…"));
+    if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Connecting…"));twitchConnectButton_->setEnabled(false);}
     controller_->authorizeTwitch();
 }
 
@@ -457,17 +480,34 @@ void MainWindow::configureYouTubeModeration() {
         controller_->settings()->secret(QStringLiteral("youtube_access_token")), &ok).trimmed();
     if (!ok || token.isEmpty()) return;
     controller_->configureYouTubeModeration(token);
-    QMessageBox::information(this, QStringLiteral("YouTube moderation"), QStringLiteral("YouTube moderation access was saved."));
+    if(youtubeModerationStatus_){
+        youtubeModerationStatus_->setText(QStringLiteral("Connected"));
+        youtubeModerationStatus_->setStyleSheet(QStringLiteral("color:#63e6be"));
+    }
+    if(youtubeConnectButton_)youtubeConnectButton_->setText(QStringLiteral("Reconnect YouTube"));
+    QMessageBox::information(this, QStringLiteral("YouTube connected"), QStringLiteral("YouTube moderation access was saved. You're all set."));
 }
 
-void MainWindow::configureTikTokModeration() {
-    bool ok = false;
-    const QString token = QInputDialog::getText(this, QStringLiteral("TikTok moderation"),
-        QStringLiteral("Euler Stream OAuth token:"), QLineEdit::Password,
-        controller_->settings()->secret(QStringLiteral("tiktok_mod_token")), &ok).trimmed();
-    if (!ok || token.isEmpty()) return;
-    controller_->configureTikTokModeration(token);
-    QMessageBox::information(this, QStringLiteral("TikTok moderation"), QStringLiteral("TikTok moderation access was saved."));
+void MainWindow::openTikTokModeration() {
+    QString saved=controller_->settings()->link(QStringLiteral("tiktok")).trimmed();
+    if(saved.isEmpty()){
+        if(QMessageBox::information(this,QStringLiteral("Add your TikTok profile first"),
+            QStringLiteral("Open Sources and paste your TikTok profile, such as tiktok.com/@yourname. Then this button will open your LIVE stream directly."),
+            QStringLiteral("Go to Sources"),QStringLiteral("Cancel"))==0)pages_->setCurrentIndex(0);
+        return;
+    }
+
+    if(saved.startsWith(QLatin1Char('@')))saved.remove(0,1);
+    if(!saved.contains(QStringLiteral("tiktok.com"),Qt::CaseInsensitive))
+        saved=QStringLiteral("https://www.tiktok.com/@")+saved;
+    QUrl url=QUrl::fromUserInput(saved);
+    QString path=url.path();
+    while(path.endsWith(QLatin1Char('/')))path.chop(1);
+    if(!path.endsWith(QStringLiteral("/live"),Qt::CaseInsensitive))path+=QStringLiteral("/live");
+    url.setPath(path);url.setQuery(QString());url.setFragment(QString());
+    if(!url.isValid()||!QDesktopServices::openUrl(url))
+        QMessageBox::warning(this,QStringLiteral("TikTok couldn't open"),
+                             QStringLiteral("Check the TikTok profile saved under Sources and try again."));
 }
 
 void MainWindow::editBlockedWords() {
