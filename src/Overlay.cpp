@@ -102,7 +102,29 @@ PopoutChat::~PopoutChat(){
 }
 void PopoutChat::appendMessage(const ChatMessage&m){chat_->append(QString("<p><b style='color:%1'>%2</b> %3</p>").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));}
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
-void PopoutChat::setViewers(const QString&p,int n){counts_[p]=n;int total=0;for(int v:counts_)total+=v;viewers_->setText(QString::number(total)+" WATCHING");}
+void PopoutChat::setViewers(const QString&p,int n){
+    counts_[p]=n;
+    int total=0;
+    for(int v:counts_)total+=v;
+    // Fixed display order so the breakdown doesn't reshuffle as counts update.
+    // Kick has no live source wired up yet, so it never appears here even
+    // though the pop-out's tab already exists as a "Coming Soon" placeholder.
+    static const QList<QPair<QString,QString>> platforms{
+        {QStringLiteral("twitch"),QStringLiteral("Twitch")},
+        {QStringLiteral("youtube"),QStringLiteral("YouTube")},
+        {QStringLiteral("yt_shorts"),QStringLiteral("Shorts")},
+        {QStringLiteral("tiktok"),QStringLiteral("TikTok")}};
+    QStringList parts;
+    for(const auto&platform:platforms){
+        const int count=counts_.value(platform.first,0);
+        if(count>0)parts<<QStringLiteral("%1 %2").arg(platform.second,QString::number(count));
+    }
+    QString text=QString::number(total)+QStringLiteral(" WATCHING");
+    // Only worth breaking down once two or more sources are actually live —
+    // otherwise it's just repeating the total.
+    if(parts.size()>1)text+=QStringLiteral("  ·  ")+parts.join(QStringLiteral("  ·  "));
+    viewers_->setText(text);
+}
 void PopoutChat::clearMessages(){chat_->clear();}
 void PopoutChat::setGhostMode(bool on){
     if(ghostMode_==on)return;
