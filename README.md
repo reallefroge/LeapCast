@@ -55,7 +55,7 @@ The compact, always-on-top pop-out keeps the combined conversation and total vie
 The interface is organized into five focused areas:
 
 - **Sources** — connect or disconnect each chat independently.
-- **Events** — connect Streamlabs events and optionally reuse the sound selected in your Streamlabs Alert Box.
+- **Events** — connect Streamlabs events, show them as alert cards in the streamer chat preview, and optionally reuse the sound selected in your Streamlabs Alert Box.
 - **Moderation** — connect Twitch and YouTube moderation, open TikTok's own LIVE controls, and manage AutoMod.
 - **Bans** — review and remove supported Twitch and YouTube restrictions.
 - **OBS** — copy the local browser-source URL, send a test message, clear the overlay, and set its fade timer.
@@ -87,7 +87,7 @@ Platform APIs decide which actions are available, and the signed-in account must
 - Serves a local browser-source overlay at `http://127.0.0.1:8080/` by default.
 - Includes copy, open, test, clear, and message-fade controls.
 - Offers an always-on-top pop-out chat with combined viewer totals.
-- Keeps Streamlabs alert cards out of the OBS chat feed so alerts and chat do not get mixed together.
+- Shows Streamlabs alert cards in Leapcast Studio's streamer-facing chat preview while keeping them out of the OBS overlay feed.
 
 ### Streamlabs events and optional audio
 

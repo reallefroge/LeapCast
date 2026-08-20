@@ -47,6 +47,10 @@ qt_add_executable(LeapcastStudio WIN32
     resources/resources.qrc
 )
 
+if(WIN32)
+    target_sources(LeapcastStudio PRIVATE resources/LeapcastStudio.rc)
+endif()
+
 target_include_directories(LeapcastStudio PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )

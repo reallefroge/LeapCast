@@ -27,7 +27,7 @@ SetupIconFile=..\resources\lefroge_chat_icon.ico
 UninstallDisplayIcon={app}\LeapcastStudio.exe
 
 [Files]
-Source: "{#BuildRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildRoot}\\"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
 Type: files; Name: "{app}\MultiChatStudio.exe"
@@ -35,8 +35,8 @@ Type: files; Name: "{autoprograms}\Multi-Chat Studio.lnk"
 Type: files; Name: "{autodesktop}\Multi-Chat Studio.lnk"
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"; IconFilename: "{app}\LeapcastStudio.exe"; IconIndex: 0
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"; IconFilename: "{app}\LeapcastStudio.exe"; IconIndex: 0; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"

@@ -8,6 +8,7 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QDesktopServices>
+#include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -32,6 +33,26 @@ QLabel* label(const QString& text, const char* role = nullptr) {
     auto* value = new QLabel(text);
     if (role) value->setProperty("role", QString::fromLatin1(role));
     return value;
+}
+
+QString friendlyTimestamp(const QString& value) {
+    const QDateTime timestamp = QDateTime::fromString(value, Qt::ISODate);
+    if (!timestamp.isValid()) return value;
+    return timestamp.toLocalTime().toString(QStringLiteral("MMM d, yyyy  •  h:mm AP"));
+}
+
+QString eventAction(const StreamEvent& event) {
+    if (event.kind.contains(QStringLiteral("donation")))
+        return event.amount.isEmpty() ? QStringLiteral("sent a donation")
+                                      : QStringLiteral("donated %1").arg(event.amount);
+    if (event.kind.contains(QStringLiteral("follow"))) return QStringLiteral("followed the channel");
+    if (event.kind.contains(QStringLiteral("raid"))) return QStringLiteral("raided the channel");
+    if (event.kind.contains(QStringLiteral("host"))) return QStringLiteral("hosted the channel");
+    if (event.kind.contains(QStringLiteral("bits")))
+        return event.amount.isEmpty() ? QStringLiteral("sent Bits")
+                                      : QStringLiteral("sent %1 Bits").arg(event.amount);
+    if (event.kind.contains(QStringLiteral("member"))) return QStringLiteral("became a member");
+    return QStringLiteral("subscribed");
 }
 }
 
@@ -64,7 +85,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
-    connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){if(popout_)popout_->showEvent(e);});
+    connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
+        const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
+            e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):QStringLiteral("#63e6be");
+        const QString message=QStringLiteral(
+            "<div style='margin:7px 0;padding:9px 11px;background:#171d2d;border-left:3px solid %1;border-radius:7px'>"
+            "<span style='color:#8f9bb5;font-size:9pt;font-weight:700'>STREAM ALERT</span><br>"
+            "<b style='color:#f8fbff'>%2</b> <span style='color:%1'>%3</span>%4</div>")
+            .arg(colour,e.user.toHtmlEscaped(),eventAction(e).toHtmlEscaped(),
+                 e.message.isEmpty()?QString():QStringLiteral("<br><span style='color:#c7cede'>%1</span>").arg(e.message.toHtmlEscaped()));
+        if(chatViews_.contains(QStringLiteral("combined")))chatViews_[QStringLiteral("combined")]->append(message);
+        if(chatViews_.contains(e.platform))chatViews_[e.platform]->append(message);
+        if(popout_)popout_->showEvent(e);
+    });
     connect(controller_,&AppController::viewerCount,this,[this](const QString&p,int n){overlay_->setViewers(p,n);if(popout_)popout_->setViewers(p,n);});
     connect(controller_, &AppController::sourceStatus, this,
             [this](const QString& platform,const QString& state,const QString& detail){
@@ -91,17 +124,35 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             const QJsonObject ban = value.toObject();
             const QString user = ban.value(QStringLiteral("user_name")).toString(
                 ban.value(QStringLiteral("user_login")).toString(QStringLiteral("Unknown user")));
-            const QString reason = ban.value(QStringLiteral("reason")).toString(
-                ban.value(QStringLiteral("type")).toString(QStringLiteral("Restricted")));
+            const QString reason = ban.value(QStringLiteral("reason")).toString();
+            const QString type = ban.value(QStringLiteral("type")).toString(QStringLiteral("Active restriction"));
             const QString created = ban.value(QStringLiteral("created_at")).toString();
-            auto* item = new QListWidgetItem(QStringLiteral("%1  •  %2%3")
-                .arg(user, reason, created.isEmpty() ? QString() : QStringLiteral("  •  ") + created));
+            const QString summary = reason.isEmpty() ? type : reason;
+            auto* item = new QListWidgetItem;
             item->setData(Qt::UserRole, platform == QStringLiteral("twitch")
                 ? ban.value(QStringLiteral("user_id")).toString()
                 : ban.value(QStringLiteral("id")).toString());
+            item->setData(Qt::UserRole + 1, QStringLiteral("Account: %1\nReason: %2\nCreated: %3")
+                .arg(user, summary, created.isEmpty() ? QStringLiteral("Not recorded") : friendlyTimestamp(created)));
+            auto* card = new QWidget;
+            card->setProperty("restrictionCard", true);
+            auto* cardLayout = new QVBoxLayout(card);
+            cardLayout->setContentsMargins(13, 9, 13, 9);
+            cardLayout->setSpacing(3);
+            cardLayout->addWidget(label(user, "restrictionName"));
+            auto* detail = label(summary, "restrictionReason");
+            detail->setWordWrap(true);
+            cardLayout->addWidget(detail);
+            if (!created.isEmpty()) cardLayout->addWidget(label(friendlyTimestamp(created), "restrictionTime"));
+            item->setSizeHint(card->sizeHint());
             list->addItem(item);
+            list->setItemWidget(item, card);
         }
-        if (list->count() == 0) list->addItem(QStringLiteral("No tracked restrictions."));
+        if (list->count() == 0) {
+            auto* empty = new QListWidgetItem(QStringLiteral("No active restrictions found."));
+            empty->setFlags(Qt::NoItemFlags);
+            list->addItem(empty);
+        }
     });
     connect(controller_, &AppController::moderationResult, this,
             [this](const QString&, bool success, const QString& detail) {
@@ -256,7 +307,7 @@ QWidget* MainWindow::buildEventsPage() {
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(8, 4, 8, 8);
     layout->addWidget(label(QStringLiteral("STREAMLABS EVENTS"), "heroTitle"));
-    layout->addWidget(label(QStringLiteral("Alerts appear in the pop-out chat and never enter the OBS chat feed."), "muted"));
+    layout->addWidget(label(QStringLiteral("Alerts appear in your chat preview and pop-out without entering the OBS overlay feed."), "muted"));
     auto* card = new QFrame;
     card->setProperty("card", true);
     auto* cardLayout = new QVBoxLayout(card);
@@ -382,21 +433,39 @@ QWidget* MainWindow::buildBansPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(8, 4, 8, 8);
-    layout->addWidget(label(QStringLiteral("BANS & TIMEOUTS"), "heroTitle"));
-    layout->addWidget(label(QStringLiteral("Twitch reads current channel restrictions. YouTube lists actions created and tracked by Leapcast Studio."), "muted"));
+    layout->setSpacing(12);
+    auto* hero = new QFrame;
+    hero->setObjectName(QStringLiteral("bansHero"));
+    auto* heroLayout = new QVBoxLayout(hero);
+    heroLayout->setContentsMargins(18, 16, 18, 16);
+    heroLayout->addWidget(label(QStringLiteral("BANS & TIMEOUTS"), "heroTitle"));
+    auto* help = label(QStringLiteral("Review active Twitch restrictions and moderation actions created through Leapcast Studio."), "muted");
+    help->setWordWrap(true);
+    heroLayout->addWidget(help);
+    layout->addWidget(hero);
     auto* tabs = new QTabWidget;
+    tabs->setObjectName(QStringLiteral("moderationTabs"));
     const auto makePage = [this](const QString& platform, QListWidget** output) {
         auto* host = new QWidget; auto* hostLayout = new QVBoxLayout(host);
-        auto* list = new QListWidget; *output = list; hostLayout->addWidget(list, 1);
+        hostLayout->setContentsMargins(14, 14, 14, 14);
+        hostLayout->setSpacing(10);
+        auto* list = new QListWidget;
+        list->setObjectName(QStringLiteral("restrictionList"));
+        list->setSpacing(6);
+        *output = list; hostLayout->addWidget(list, 1);
         auto* controls = new QHBoxLayout;
-        auto* refresh = new QPushButton(QStringLiteral("Refresh"));
-        auto* details = new QPushButton(QStringLiteral("Details"));
-        auto* unban = new QPushButton(QStringLiteral("Remove restriction"));
+        auto* refresh = new QPushButton(QStringLiteral("Refresh list"));
+        auto* details = new QPushButton(QStringLiteral("View details"));
+        auto* unban = new QPushButton(QStringLiteral("Remove selected"));
+        unban->setProperty("danger", true);
         controls->addWidget(refresh); controls->addWidget(details); controls->addStretch(); controls->addWidget(unban);
         hostLayout->addLayout(controls);
         connect(refresh, &QPushButton::clicked, this, [this, platform] { controller_->refreshBans(platform); });
         connect(details, &QPushButton::clicked, this, [this, list] {
-            if (auto* item = list->currentItem()) QMessageBox::information(this, QStringLiteral("Restriction details"), item->text());
+            if (auto* item = list->currentItem()) {
+                const QString details = item->data(Qt::UserRole + 1).toString();
+                if (!details.isEmpty()) QMessageBox::information(this, QStringLiteral("Restriction details"), details);
+            }
         });
         connect(unban, &QPushButton::clicked, this, [this, list, platform] {
             auto* item = list->currentItem(); if (!item) return;
@@ -563,16 +632,27 @@ void MainWindow::applyTheme() {
         QLabel[role='signal'] { color:#68e9d5; font-size:8pt; font-weight:700; }
         QLabel[role='cardTitle'] { font-size:12pt; font-weight:700; }
         QFrame#safetyHero { background:#171d2d; border-left:5px solid #53cdf3; border-radius:12px; }
+        QFrame#bansHero { background:#141a29; border:1px solid #28334a; border-left:5px solid #7667ef; border-radius:12px; }
         QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
         QPushButton { background:#20283a; border:0; border-radius:8px; padding:10px 12px; font-weight:700; }
         QPushButton:hover { background:#2b3650; }
         QPushButton[nav='true'] { text-align:left; margin:2px 4px; }
         QPushButton[nav='true']:checked { background:#7667ef; color:white; }
         QPushButton[primary='true'] { background:#53cdf3; color:#071018; }
+        QPushButton[danger='true'] { background:#44202b; color:#ff91a4; }
+        QPushButton[danger='true']:hover { background:#5a2635; color:#ffd3da; }
         QTabWidget::pane { border:1px solid #242b3d; border-radius:9px; }
         QTabBar::tab { background:#171d2d; min-width:62px; min-height:38px; padding:5px 10px; margin-right:2px; }
         QTabBar::tab:selected { background:#7667ef; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }
+        QTabWidget#moderationTabs::pane { background:#101522; border:1px solid #283149; border-radius:10px; }
+        QListWidget#restrictionList { background:transparent; border:0; outline:0; padding:2px; }
+        QListWidget#restrictionList::item { background:#171d2b; border:1px solid #273149; border-radius:9px; }
+        QListWidget#restrictionList::item:selected { background:#202944; border:1px solid #7667ef; }
+        QWidget[restrictionCard='true'] { background:transparent; }
+        QLabel[role='restrictionName'] { color:#ffffff; font-size:11pt; font-weight:750; }
+        QLabel[role='restrictionReason'] { color:#c7cede; }
+        QLabel[role='restrictionTime'] { color:#7f8ba5; font-size:9pt; }
         QSplitter::handle { background:#242b3d; width:2px; }
     )"));
 }
