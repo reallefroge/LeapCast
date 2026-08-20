@@ -1,6 +1,7 @@
 #pragma once
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QString>
 #include <QUrl>
 
 class QNetworkReply;
@@ -13,6 +14,8 @@ public:
     void downloadAndInstall(const QUrl& assetUrl, const QString& assetName,
                             const QString& expectedDigest = {});
 signals:
+    // Keep this signature synchronized with the five values emitted by
+    // UpdateService::check() and consumed by MainWindow.
     void updateAvailable(const QString& version, const QString& notes,
                          const QUrl& assetUrl, const QString& assetName,
                          const QString& digest);
@@ -23,4 +26,3 @@ private:
     QNetworkAccessManager network_;
     bool userInitiated_{};
 };
-
