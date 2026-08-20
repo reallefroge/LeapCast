@@ -7,9 +7,11 @@ class QStackedWidget;
 class QTabWidget;
 class QTextBrowser;
 class QLabel;
+class QListWidget;
 class AppController;
 class OverlayServer;
 class PopoutChat;
+class UpdateService;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -20,17 +22,27 @@ private:
     QWidget* buildSidebar();
     QWidget* buildDashboard();
     QWidget* buildSourcesPage();
+    QWidget* buildEventsPage();
+    QWidget* buildObsPage();
+    QWidget* buildBansPage();
     QWidget* buildChatDock();
     QWidget* buildModerationPage();
     QWidget* makePlatformCard(const QString& name, const QString& status,
                               const QColor& accent, const QString& action);
     void applyTheme();
+    void configureTwitchModeration();
+    void configureYouTubeModeration();
+    void configureTikTokModeration();
+    void editBlockedWords();
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
     QHash<QString,QTextBrowser*> chatViews_;
     QHash<QString,QLabel*> sourceStates_;
+    QListWidget* twitchBans_{};
+    QListWidget* youtubeBans_{};
     AppController* controller_{};
     OverlayServer* overlay_{};
     PopoutChat* popout_{};
+    UpdateService* updater_{};
 };

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MultiChatStudio VERSION 19.0.0 LANGUAGES CXX)
+project(MultiChatStudio VERSION 19.0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,8 @@ qt_add_executable(MultiChatStudio WIN32
     src/AppController.hpp
     src/Overlay.cpp
     src/Overlay.hpp
+    src/UpdateService.cpp
+    src/UpdateService.hpp
     resources/resources.qrc
 )
 

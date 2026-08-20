@@ -1,17 +1,26 @@
 #include "MainWindow.hpp"
 #include "AppController.hpp"
 #include "Overlay.hpp"
+#include "UpdateService.hpp"
 
 #include <QApplication>
 #include <QButtonGroup>
+#include <QClipboard>
+#include <QCheckBox>
+#include <QDesktopServices>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSplitter>
+#include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QTextBrowser>
@@ -35,6 +44,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controller_ = new AppController(this);
     overlay_ = new OverlayServer(this);
     overlay_->start(static_cast<quint16>(controller_->settings()->preference(QStringLiteral("port"),8080).toInt()));
+    overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"), 0).toInt());
+    updater_ = new UpdateService(this);
 
     auto* splitter = new QSplitter(Qt::Horizontal);
     splitter->setChildrenCollapsible(false);
@@ -62,7 +73,52 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const QString colour=state=="ok"?"#63e6be":state=="error"?"#ff5573":"#f6c85f";
         value->setStyleSheet("color:"+colour);
     });
+    connect(controller_, &AppController::bansUpdated, this,
+            [this](const QString& platform, const QJsonArray& bans) {
+        QListWidget* list = platform == QStringLiteral("twitch") ? twitchBans_ : youtubeBans_;
+        if (!list) return;
+        list->clear();
+        for (const auto& value : bans) {
+            const QJsonObject ban = value.toObject();
+            const QString user = ban.value(QStringLiteral("user_name")).toString(
+                ban.value(QStringLiteral("user_login")).toString(QStringLiteral("Unknown user")));
+            const QString reason = ban.value(QStringLiteral("reason")).toString(
+                ban.value(QStringLiteral("type")).toString(QStringLiteral("Restricted")));
+            const QString created = ban.value(QStringLiteral("created_at")).toString();
+            auto* item = new QListWidgetItem(QStringLiteral("%1  •  %2%3")
+                .arg(user, reason, created.isEmpty() ? QString() : QStringLiteral("  •  ") + created));
+            item->setData(Qt::UserRole, platform == QStringLiteral("twitch")
+                ? ban.value(QStringLiteral("user_id")).toString()
+                : ban.value(QStringLiteral("id")).toString());
+            list->addItem(item);
+        }
+        if (list->count() == 0) list->addItem(QStringLiteral("No tracked restrictions."));
+    });
+    connect(controller_, &AppController::moderationResult, this,
+            [this](const QString&, bool success, const QString& detail) {
+        if (!success) QMessageBox::warning(this, QStringLiteral("Moderation"), detail);
+    });
+    connect(updater_, &UpdateService::updateAvailable, this,
+            [this](const QString& version, const QString& notes, const QUrl& asset,
+                   const QString& name, const QString& digest) {
+        const QString detail = notes.trimmed().isEmpty()
+            ? QStringLiteral("A new version is ready.")
+            : notes.left(1200);
+        if (QMessageBox::question(this, QStringLiteral("Multi-Chat Studio update"),
+                QStringLiteral("Version %1 is available.\n\n%2\n\nDownload and install it now?")
+                    .arg(version, detail)) == QMessageBox::Yes) {
+            updater_->downloadAndInstall(asset, name, digest);
+        }
+    });
+    connect(updater_, &UpdateService::upToDate, this, [this] {
+        QMessageBox::information(this, QStringLiteral("Updates"),
+                                 QStringLiteral("Multi-Chat Studio is up to date."));
+    });
+    connect(updater_, &UpdateService::failed, this, [this](const QString& detail) {
+        QMessageBox::warning(this, QStringLiteral("Update check"), detail);
+    });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
+    QTimer::singleShot(2500, this, [this] { updater_->check(false); });
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -97,7 +153,10 @@ QWidget* MainWindow::buildDashboard() {
         group->addButton(button, static_cast<int>(i));
         railLayout->addWidget(button);
         if (i == 0) pages_->addWidget(buildSourcesPage());
+        else if (i == 1) pages_->addWidget(buildEventsPage());
         else if (i == 2) pages_->addWidget(buildModerationPage());
+        else if (i == 3) pages_->addWidget(buildBansPage());
+        else if (i == 4) pages_->addWidget(buildObsPage());
         else {
             auto* page = new QWidget;
             auto* layout = new QVBoxLayout(page);
@@ -127,6 +186,7 @@ QWidget* MainWindow::makePlatformCard(const QString& name, const QString& status
     head->addWidget(state);
     layout->addLayout(head);
     auto* button = new QPushButton(action);
+    button->setObjectName(QStringLiteral("cardAction"));
     button->setStyleSheet("background:" + accent.name() + ";color:#081018;");
     layout->addWidget(button);
     return card;
@@ -151,6 +211,170 @@ QWidget* MainWindow::buildSourcesPage() {
     layout->addStretch();return page;
 }
 
+QWidget* MainWindow::buildEventsPage() {
+    auto* page = new QWidget;
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(8, 4, 8, 8);
+    layout->addWidget(label(QStringLiteral("STREAMLABS EVENTS"), "heroTitle"));
+    layout->addWidget(label(QStringLiteral("Alerts appear in the pop-out chat and never enter the OBS chat feed."), "muted"));
+    auto* card = new QFrame;
+    card->setProperty("card", true);
+    auto* cardLayout = new QVBoxLayout(card);
+    auto* token = new QLineEdit(controller_->settings()->secret(QStringLiteral("streamlabs_socket_token")));
+    token->setEchoMode(QLineEdit::Password);
+    token->setPlaceholderText(QStringLiteral("Streamlabs Socket API token"));
+    cardLayout->addWidget(token);
+    auto* buttons = new QHBoxLayout;
+    auto* getKey = new QPushButton(QStringLiteral("Get Streamlabs API Key ↗"));
+    auto* connectButton = new QPushButton(QStringLiteral("Connect Streamlabs"));
+    auto* disconnectButton = new QPushButton(QStringLiteral("Disconnect"));
+    buttons->addWidget(getKey); buttons->addWidget(connectButton); buttons->addWidget(disconnectButton);
+    cardLayout->addLayout(buttons);
+    connect(getKey, &QPushButton::clicked, this, [] {
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://streamlabs.com/dashboard#/settings/api-settings")));
+    });
+    connect(connectButton, &QPushButton::clicked, this, [this, token] {
+        if (token->text().trimmed().isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("Streamlabs"), QStringLiteral("Paste the Socket API token first."));
+            return;
+        }
+        controller_->connectStreamlabs(token->text());
+    });
+    connect(disconnectButton, &QPushButton::clicked, controller_, &AppController::disconnectStreamlabs);
+    auto* audioDivider = label(QStringLiteral("OPTIONAL STREAMLABS ALERT AUDIO"), "cardTitle");
+    cardLayout->addWidget(audioDivider);
+    auto* audioEnabled = new QCheckBox(QStringLiteral("Use the sound selected in my Streamlabs Alert Box"));
+    audioEnabled->setChecked(controller_->settings()->preference(QStringLiteral("streamlabs_audio_enabled"), false).toBool());
+    cardLayout->addWidget(audioEnabled);
+    auto* alertUrl = new QLineEdit(controller_->settings()->preference(QStringLiteral("streamlabs_alert_box_url")).toString());
+    alertUrl->setPlaceholderText(QStringLiteral("https://streamlabs.com/alert-box/v3/your-widget-token"));
+    cardLayout->addWidget(alertUrl);
+    auto* audioButtons = new QHBoxLayout;
+    auto* openAlertSettings = new QPushButton(QStringLiteral("Open Alert Box settings ↗"));
+    auto* saveAudio = new QPushButton(QStringLiteral("Save audio sync"));
+    audioButtons->addWidget(openAlertSettings); audioButtons->addWidget(saveAudio);
+    cardLayout->addLayout(audioButtons);
+    connect(openAlertSettings, &QPushButton::clicked, this, [] {
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://streamlabs.com/dashboard#/alertbox")));
+    });
+    const auto applyAudio = [this, audioEnabled, alertUrl] {
+        const bool enabled = audioEnabled->isChecked();
+        const QUrl url(alertUrl->text().trimmed());
+        if (enabled && (!url.isValid() || !url.host().endsWith(QStringLiteral("streamlabs.com")))) {
+            QMessageBox::warning(this, QStringLiteral("Streamlabs audio"),
+                                 QStringLiteral("Paste a valid Streamlabs Alert Box widget URL first."));
+            return;
+        }
+        controller_->settings()->setPreference(QStringLiteral("streamlabs_audio_enabled"), enabled);
+        controller_->settings()->setPreference(QStringLiteral("streamlabs_alert_box_url"), alertUrl->text().trimmed());
+        if (popout_) popout_->setStreamlabsAlertAudio(enabled, url);
+    };
+    connect(saveAudio, &QPushButton::clicked, this, applyAudio);
+    connect(audioEnabled, &QCheckBox::toggled, this, [applyAudio](bool) { applyAudio(); });
+    layout->addWidget(card);
+    layout->addStretch();
+    return page;
+}
+
+QWidget* MainWindow::buildObsPage() {
+    auto* page = new QWidget;
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(8, 4, 8, 8);
+    layout->addWidget(label(QStringLiteral("OBS OVERLAY"), "heroTitle"));
+    const QString url = QStringLiteral("http://127.0.0.1:%1/").arg(overlay_->port());
+    auto* urlCard = new QFrame; urlCard->setProperty("card", true);
+    auto* urlLayout = new QVBoxLayout(urlCard);
+    auto* urlValue = new QLineEdit(url); urlValue->setReadOnly(true); urlLayout->addWidget(urlValue);
+    auto* urlButtons = new QHBoxLayout;
+    auto* copy = new QPushButton(QStringLiteral("Copy URL"));
+    auto* open = new QPushButton(QStringLiteral("Open overlay"));
+    auto* test = new QPushButton(QStringLiteral("Test message"));
+    auto* clear = new QPushButton(QStringLiteral("Clear overlay"));
+    urlButtons->addWidget(copy); urlButtons->addWidget(open); urlButtons->addWidget(test); urlButtons->addWidget(clear);
+    urlLayout->addLayout(urlButtons);
+    connect(copy, &QPushButton::clicked, this, [url] { QApplication::clipboard()->setText(url); });
+    connect(open, &QPushButton::clicked, this, [url] { QDesktopServices::openUrl(QUrl(url)); });
+    connect(test, &QPushButton::clicked, this, [this] {
+        ChatMessage message; message.user = QStringLiteral("Multi-Chat Studio");
+        message.text = QStringLiteral("OBS overlay test message"); message.platform = QStringLiteral("twitch");
+        message.color = QColor(QStringLiteral("#53cdf3")); overlay_->ingest(message);
+    });
+    connect(clear, &QPushButton::clicked, overlay_, &OverlayServer::clear);
+    layout->addWidget(urlCard);
+
+    auto* fadeCard = new QFrame; fadeCard->setProperty("card", true);
+    auto* fadeLayout = new QHBoxLayout(fadeCard);
+    auto* copyText = new QVBoxLayout;
+    copyText->addWidget(label(QStringLiteral("MESSAGE FADE TIMER"), "cardTitle"));
+    copyText->addWidget(label(QStringLiteral("How long each chat message remains visible in the OBS overlay."), "muted"));
+    fadeLayout->addLayout(copyText, 1);
+    auto* seconds = new QSpinBox;
+    seconds->setRange(0, 3600);
+    seconds->setSuffix(QStringLiteral(" seconds"));
+    seconds->setSpecialValueText(QStringLiteral("Never fade"));
+    seconds->setValue(overlay_->fadeSeconds());
+    fadeLayout->addWidget(seconds);
+    connect(seconds, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
+        overlay_->setFadeSeconds(value);
+        controller_->settings()->setPreference(QStringLiteral("overlay_fade_seconds"), value);
+    });
+    layout->addWidget(fadeCard);
+
+    auto* updateCard = new QFrame; updateCard->setProperty("card", true);
+    auto* updateLayout = new QHBoxLayout(updateCard);
+    auto* updateText = new QVBoxLayout;
+    updateText->addWidget(label(QStringLiteral("AUTOMATIC UPDATES"), "cardTitle"));
+    updateText->addWidget(label(QStringLiteral("Checks github.com/reallefroge/MultiStreamChat Releases whenever the app starts."), "muted"));
+    updateLayout->addLayout(updateText, 1);
+    auto* releases = new QPushButton(QStringLiteral("Open Releases"));
+    auto* checkNow = new QPushButton(QStringLiteral("Check now"));
+    updateLayout->addWidget(releases); updateLayout->addWidget(checkNow);
+    connect(releases, &QPushButton::clicked, this, [] {
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/reallefroge/MultiStreamChat/releases")));
+    });
+    connect(checkNow, &QPushButton::clicked, this, [this] { updater_->check(true); });
+    layout->addWidget(updateCard);
+    layout->addStretch();
+    return page;
+}
+
+QWidget* MainWindow::buildBansPage() {
+    auto* page = new QWidget;
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(8, 4, 8, 8);
+    layout->addWidget(label(QStringLiteral("BANS & TIMEOUTS"), "heroTitle"));
+    layout->addWidget(label(QStringLiteral("Twitch reads current channel restrictions. YouTube lists actions created and tracked by Multi-Chat Studio."), "muted"));
+    auto* tabs = new QTabWidget;
+    const auto makePage = [this](const QString& platform, QListWidget** output) {
+        auto* host = new QWidget; auto* hostLayout = new QVBoxLayout(host);
+        auto* list = new QListWidget; *output = list; hostLayout->addWidget(list, 1);
+        auto* controls = new QHBoxLayout;
+        auto* refresh = new QPushButton(QStringLiteral("Refresh"));
+        auto* details = new QPushButton(QStringLiteral("Details"));
+        auto* unban = new QPushButton(QStringLiteral("Remove restriction"));
+        controls->addWidget(refresh); controls->addWidget(details); controls->addStretch(); controls->addWidget(unban);
+        hostLayout->addLayout(controls);
+        connect(refresh, &QPushButton::clicked, this, [this, platform] { controller_->refreshBans(platform); });
+        connect(details, &QPushButton::clicked, this, [this, list] {
+            if (auto* item = list->currentItem()) QMessageBox::information(this, QStringLiteral("Restriction details"), item->text());
+        });
+        connect(unban, &QPushButton::clicked, this, [this, list, platform] {
+            auto* item = list->currentItem(); if (!item) return;
+            const QString id = item->data(Qt::UserRole).toString(); if (id.isEmpty()) return;
+            if (QMessageBox::question(this, QStringLiteral("Remove restriction"),
+                    QStringLiteral("Remove the selected restriction?")) != QMessageBox::Yes) return;
+            if (platform == QStringLiteral("twitch")) controller_->unbanTwitch(id);
+            else controller_->unbanYouTube(id);
+        });
+        return host;
+    };
+    tabs->addTab(makePage(QStringLiteral("twitch"), &twitchBans_), QStringLiteral("Twitch"));
+    tabs->addTab(makePage(QStringLiteral("youtube"), &youtubeBans_), QStringLiteral("YouTube"));
+    layout->addWidget(tabs, 1);
+    QTimer::singleShot(0, this, [this] { controller_->refreshBans(QStringLiteral("twitch")); controller_->refreshBans(QStringLiteral("youtube")); });
+    return page;
+}
+
 QWidget* MainWindow::buildModerationPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
@@ -166,20 +390,75 @@ QWidget* MainWindow::buildModerationPage() {
 
     auto* columns = new QHBoxLayout;
     auto* left = new QVBoxLayout;
-    left->addWidget(makePlatformCard(QStringLiteral("Twitch"), QStringLiteral("Not authorized"),
-                                     QColor("#9146ff"), QStringLiteral("Authorize Twitch")));
-    left->addWidget(makePlatformCard(QStringLiteral("YouTube"), QStringLiteral("Not authorized"),
-                                     QColor("#ff334f"), QStringLiteral("Authorize YouTube")));
+    auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"), QStringLiteral("Not authorized"),
+                                        QColor("#9146ff"), QStringLiteral("Authorize Twitch"));
+    left->addWidget(twitchCard);
+    connect(twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
+            this, &MainWindow::configureTwitchModeration);
+    auto* youtubeCard = makePlatformCard(QStringLiteral("YouTube"), QStringLiteral("Not authorized"),
+                                         QColor("#ff334f"), QStringLiteral("Authorize YouTube"));
+    left->addWidget(youtubeCard);
+    connect(youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
+            this, &MainWindow::configureYouTubeModeration);
     left->addStretch();
     auto* right = new QVBoxLayout;
-    right->addWidget(makePlatformCard(QStringLiteral("TikTok"), QStringLiteral("Not configured"),
-                                      QColor("#18e0d5"), QStringLiteral("Configure moderation access")));
-    right->addWidget(makePlatformCard(QStringLiteral("AutoMod"), QStringLiteral("Ready"),
-                                      QColor("#63e6be"), QStringLiteral("Edit blocked words")));
+    auto* tiktokCard = makePlatformCard(QStringLiteral("TikTok"), QStringLiteral("Not configured"),
+                                        QColor("#18e0d5"), QStringLiteral("Configure moderation access"));
+    right->addWidget(tiktokCard);
+    connect(tiktokCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
+            this, &MainWindow::configureTikTokModeration);
+    auto* automodCard = makePlatformCard(QStringLiteral("AutoMod"), QStringLiteral("Ready"),
+                                         QColor("#63e6be"), QStringLiteral("Edit blocked words"));
+    right->addWidget(automodCard);
+    connect(automodCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
+            this, &MainWindow::editBlockedWords);
     right->addStretch();
     columns->addLayout(left, 1); columns->addLayout(right, 1);
     layout->addLayout(columns, 1);
     return page;
+}
+
+void MainWindow::configureTwitchModeration() {
+    bool ok = false;
+    const QString client = QInputDialog::getText(this, QStringLiteral("Twitch moderation"),
+        QStringLiteral("Twitch application Client ID:"), QLineEdit::Normal,
+        controller_->settings()->secret(QStringLiteral("twitch_client_id")), &ok).trimmed();
+    if (!ok || client.isEmpty()) return;
+    const QString token = QInputDialog::getText(this, QStringLiteral("Twitch moderation"),
+        QStringLiteral("OAuth access token:"), QLineEdit::Password,
+        controller_->settings()->secret(QStringLiteral("twitch_access_token")), &ok).trimmed();
+    if (!ok || token.isEmpty()) return;
+    const QString moderator = QInputDialog::getText(this, QStringLiteral("Twitch moderation"),
+        QStringLiteral("Moderator Twitch user ID:"), QLineEdit::Normal,
+        controller_->settings()->secret(QStringLiteral("twitch_moderator_id")), &ok).trimmed();
+    if (!ok || moderator.isEmpty()) return;
+    controller_->configureTwitchModeration(client, token, moderator);
+    QMessageBox::information(this, QStringLiteral("Twitch moderation"), QStringLiteral("Twitch moderation credentials were saved."));
+}
+
+void MainWindow::configureYouTubeModeration() {
+    bool ok = false;
+    const QString token = QInputDialog::getText(this, QStringLiteral("YouTube moderation"),
+        QStringLiteral("Google OAuth access token:"), QLineEdit::Password,
+        controller_->settings()->secret(QStringLiteral("youtube_access_token")), &ok).trimmed();
+    if (!ok || token.isEmpty()) return;
+    controller_->configureYouTubeModeration(token);
+    QMessageBox::information(this, QStringLiteral("YouTube moderation"), QStringLiteral("YouTube moderation access was saved."));
+}
+
+void MainWindow::configureTikTokModeration() {
+    bool ok = false;
+    const QString token = QInputDialog::getText(this, QStringLiteral("TikTok moderation"),
+        QStringLiteral("Euler Stream OAuth token:"), QLineEdit::Password,
+        controller_->settings()->secret(QStringLiteral("tiktok_mod_token")), &ok).trimmed();
+    if (!ok || token.isEmpty()) return;
+    controller_->configureTikTokModeration(token);
+    QMessageBox::information(this, QStringLiteral("TikTok moderation"), QStringLiteral("TikTok moderation access was saved."));
+}
+
+void MainWindow::editBlockedWords() {
+    QDesktopServices::openUrl(QUrl::fromLocalFile(controller_->blockedWordsPath()));
+    controller_->reloadAutoMod();
 }
 
 QWidget* MainWindow::buildChatDock() {
@@ -187,10 +466,12 @@ QWidget* MainWindow::buildChatDock() {
     auto* layout = new QVBoxLayout(dock);
     layout->addWidget(label(QStringLiteral("CHAT PREVIEW"), "pageTitle"));
     chatTabs_ = new QTabWidget;
+    chatTabs_->setIconSize(QSize(30, 30));
     const QList<QPair<QString, QString>> tabs{
-        {QStringLiteral("ALL"), QString()}, {QStringLiteral("Twitch"), QStringLiteral(":/icons/twitch.png")},
-        {QStringLiteral("YouTube"), QString()}, {QStringLiteral("Shorts"), QStringLiteral(":/brand/youtube_shorts.png")},
-        {QStringLiteral("TikTok"), QString()}};
+        {QStringLiteral("ALL"), QString()}, {QStringLiteral("Twitch"), QStringLiteral(":/brand/twitch.png")},
+        {QStringLiteral("YouTube"), QStringLiteral(":/brand/youtube.png")},
+        {QStringLiteral("Shorts"), QStringLiteral(":/brand/youtube_shorts.png")},
+        {QStringLiteral("TikTok"), QStringLiteral(":/brand/tiktok.png")}};
     const QStringList keys{QStringLiteral("combined"),QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok")};
     for (qsizetype index=0; index<tabs.size(); ++index) {
         const auto& tab=tabs.at(index);
@@ -199,13 +480,20 @@ QWidget* MainWindow::buildChatDock() {
         const QIcon icon(tab.second);
         if (!icon.isNull()) chatTabs_->addTab(chat, icon, QString());
         else chatTabs_->addTab(chat, tab.first);
+        chatTabs_->setTabToolTip(static_cast<int>(index), tab.first);
         chatViews_.insert(keys.at(index),chat);
     }
     layout->addWidget(chatTabs_, 1);
     auto* popout = new QPushButton(QStringLiteral("Open Pop-out Chat"));
     popout->setProperty("primary", true);
     layout->addWidget(popout);
-    connect(popout,&QPushButton::clicked,this,[this]{if(!popout_)popout_=new PopoutChat;popout_->show();popout_->raise();});
+    connect(popout,&QPushButton::clicked,this,[this]{
+        if(!popout_) popout_=new PopoutChat;
+        popout_->setStreamlabsAlertAudio(
+            controller_->settings()->preference(QStringLiteral("streamlabs_audio_enabled"),false).toBool(),
+            QUrl(controller_->settings()->preference(QStringLiteral("streamlabs_alert_box_url")).toString()));
+        popout_->show();popout_->raise();
+    });
     return dock;
 }
 
@@ -228,7 +516,7 @@ void MainWindow::applyTheme() {
         QPushButton[nav='true']:checked { background:#7667ef; color:white; }
         QPushButton[primary='true'] { background:#53cdf3; color:#071018; }
         QTabWidget::pane { border:1px solid #242b3d; border-radius:9px; }
-        QTabBar::tab { background:#171d2d; min-width:58px; padding:9px; margin-right:2px; }
+        QTabBar::tab { background:#171d2d; min-width:62px; min-height:38px; padding:5px 10px; margin-right:2px; }
         QTabBar::tab:selected { background:#7667ef; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }
         QSplitter::handle { background:#242b3d; width:2px; }

@@ -1,5 +1,5 @@
 #define AppName "Multi-Chat Studio"
-#define AppVersion "19.0.0"
+#define AppVersion "19.0.2"
 #define AppPublisher "Lefroge"
 #define BuildRoot "..\deploy"
 

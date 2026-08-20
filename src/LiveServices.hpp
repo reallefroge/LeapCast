@@ -3,6 +3,7 @@
 #include "Core.hpp"
 
 #include <QNetworkAccessManager>
+#include <QJsonArray>
 #include <QTimer>
 #include <QWebSocket>
 
@@ -37,6 +38,7 @@ public:
     explicit TwitchModerationService(QObject* parent = nullptr);
     void configure(QString clientId, QString accessToken, QString moderatorId);
     void resolveBroadcaster(const QString& login);
+    void listBans(const QString& broadcasterId);
     void ban(const QString& broadcasterId, const QString& userId,
              int seconds, const QString& reason);
     void unban(const QString& broadcasterId, const QString& userId);
@@ -45,6 +47,7 @@ public:
 signals:
     void broadcasterResolved(const QString& login, const QString& id);
     void actionFinished(const QString& action, bool success, const QString& detail);
+    void bansReceived(const QJsonArray& bans);
 private:
     QNetworkRequest request(const QUrl& url) const;
     void watch(QNetworkReply* reply, const QString& action);

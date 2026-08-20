@@ -11,12 +11,24 @@ public:
     void startConfiguredSources();
     void connectSource(const QString& platform,const QString& link);
     void disconnectSource(const QString& platform);
+    void configureTwitchModeration(const QString& clientId, const QString& token,
+                                   const QString& moderatorId);
+    void configureYouTubeModeration(const QString& token);
+    void configureTikTokModeration(const QString& token);
+    void connectStreamlabs(const QString& token);
+    void disconnectStreamlabs();
+    void refreshBans(const QString& platform);
+    void unbanTwitch(const QString& userId);
+    void unbanYouTube(const QString& banId);
+    QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
+    bool reloadAutoMod() { return automod_.reload(); }
 signals:
     void messageReady(const ChatMessage& message);
     void eventReady(const StreamEvent& event);
     void sourceStatus(const QString& platform,const QString& state,const QString& detail);
     void viewerCount(const QString& platform,int count);
     void moderationResult(const QString& platform,bool success,const QString& detail);
+    void bansUpdated(const QString& platform, const QJsonArray& bans);
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
@@ -33,5 +45,5 @@ private:
     TwitchModerationService twitchMod_;
     YouTubeModerationService youtubeMod_;
     TikTokModerationService tiktokMod_;
+    QJsonArray youtubeRestrictions_;
 };
-

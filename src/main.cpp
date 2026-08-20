@@ -42,6 +42,7 @@ public:
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Multi-Chat Studio"));
+    QApplication::setApplicationVersion(QStringLiteral("19.0.2"));
     QApplication::setOrganizationName(QStringLiteral("Lefroge"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
 
