@@ -2,6 +2,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QJsonArray>
@@ -13,16 +14,31 @@
 #include <QPushButton>
 #include <QStackedLayout>
 #include <QTcpSocket>
+#include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextBrowser>
 #include <QTextCursor>
+#include <QTextDocument>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
-namespace { constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1; }
+namespace {
+constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1;
+// Caps how many lines chat_'s QTextDocument keeps. Without this, a
+// multi-hour stream's chat/moderation-note history would grow the document
+// (and the cost of every future append/reflow) without bound.
+constexpr int kMaxChatBlocks = 300;
+void trimChatBlocks(QTextDocument* doc) {
+    while (doc->blockCount() > kMaxChatBlocks) {
+        QTextCursor cursor(doc->firstBlock());
+        cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+    }
+}
+}
 #ifdef Q_OS_WIN
 #include <windows.h>
 #ifndef MOD_NOREPEAT
@@ -126,6 +142,19 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     cursor.insertHtml(QString("<b style='color:%1'>%2</b> %3").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
+    trimChatBlocks(chat_->document());
+}
+void PopoutChat::appendModerationNote(const QString&user,const QString&reason){
+    QTextCursor cursor(chat_->document());
+    cursor.movePosition(QTextCursor::End);
+    QTextBlockFormat format;
+    if(!chat_->document()->isEmpty())cursor.insertBlock(format);
+    else cursor.setBlockFormat(format);
+    cursor.insertHtml(QStringLiteral("<span style='color:#7f8ba5;font-style:italic;font-size:9pt'>&#9888; %1's message was removed by AutoMod (%2)</span>")
+        .arg(user.toHtmlEscaped(),reason.toHtmlEscaped()));
+    chat_->moveCursor(QTextCursor::End);
+    chat_->ensureCursorVisible();
+    trimChatBlocks(chat_->document());
 }
 void PopoutChat::showChatContextMenu(const QPoint&pos){
     const qint64 id=chat_->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
@@ -135,16 +164,21 @@ void PopoutChat::showChatContextMenu(const QPoint&pos){
     connect(copyAction,&QAction::triggered,chat_,&QTextBrowser::copy);
     if(historyById_.contains(id)){
         const ChatMessage msg=historyById_.value(id);
+        const bool isTwitch=msg.platform==QStringLiteral("twitch");
+        const bool isYouTube=msg.platform==QStringLiteral("youtube")||msg.platform==QStringLiteral("yt_shorts");
         // Only Twitch and YouTube/Shorts have a working moderation API wired up
         // here; TikTok moderation happens in TikTok's own LIVE room (see the
         // "Open TikTok LIVE in browser" action), so no actions are offered for it.
-        if(msg.platform==QStringLiteral("twitch")||msg.platform==QStringLiteral("youtube")||msg.platform==QStringLiteral("yt_shorts")){
+        if(isTwitch||isYouTube){
             menu.addSeparator();
             auto*header=menu.addAction(QStringLiteral("Moderate %1").arg(msg.user));
             header->setEnabled(false);
             connect(menu.addAction(QStringLiteral("Delete message")),&QAction::triggered,this,[this,msg]{emit deleteMessageRequested(msg);});
-            connect(menu.addAction(QStringLiteral("Timeout 5 min")),&QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,300);});
-            connect(menu.addAction(QStringLiteral("Ban")),&QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,0);});
+            connect(menu.addAction(QStringLiteral("Timeout")),&QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,300);});
+            // Twitch calls this a "Ban"; YouTube Studio calls the same
+            // permanent action "Hide user on this channel".
+            connect(menu.addAction(isYouTube?QStringLiteral("Hide from channel"):QStringLiteral("Ban")),
+                    &QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,0);});
         }
     }
     menu.addSeparator();
@@ -294,4 +328,8 @@ void ClipEditorWindow::openUrl(const QUrl&url){
     show();
     raise();
     activateWindow();
+}
+void ClipEditorWindow::closeEvent(QCloseEvent*event){
+    view_->setUrl(QUrl(QStringLiteral("about:blank")));
+    QWidget::closeEvent(event);
 }

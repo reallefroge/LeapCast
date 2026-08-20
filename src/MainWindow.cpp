@@ -30,7 +30,10 @@
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTextBlock>
 #include <QTextBrowser>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -39,6 +42,21 @@ QLabel* label(const QString& text, const char* role = nullptr) {
     auto* value = new QLabel(text);
     if (role) value->setProperty("role", QString::fromLatin1(role));
     return value;
+}
+
+// Caps how many lines each dashboard chat view keeps, so a multi-hour stream
+// doesn't grow these documents (and every future append/reflow cost) without
+// bound. Chosen independently per view, mirroring PopoutChat's own cap.
+constexpr int kMaxChatBlocks = 300;
+void appendTrimmed(QTextBrowser* view, const QString& html) {
+    if (!view) return;
+    view->append(html);
+    auto* doc = view->document();
+    while (doc->blockCount() > kMaxChatBlocks) {
+        QTextCursor cursor(doc->firstBlock());
+        cursor.movePosition(QTextCursor::NextBlock, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+    }
 }
 
 QString friendlyTimestamp(const QString& value) {
@@ -86,10 +104,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const QString colour = m.color.isValid() ? m.color.name() : QStringLiteral("#53cdf3");
         const QString html = QStringLiteral("<div style='margin:4px 0'><b style='color:%1'>%2</b> %3</div>")
             .arg(colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
-        if (chatViews_.contains(QStringLiteral("combined"))) chatViews_[QStringLiteral("combined")]->append(html);
-        if (chatViews_.contains(m.platform)) chatViews_[m.platform]->append(html);
+        appendTrimmed(chatViews_.value(QStringLiteral("combined")), html);
+        appendTrimmed(chatViews_.value(m.platform), html);
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
+    });
+    connect(controller_, &AppController::messageModerated, this, [this](const ChatMessage& m, const QString& reason) {
+        // Deliberately never touches overlay_ — viewers never see this note,
+        // and since the original message was never ingested either, nothing
+        // is "skipped" in the overlay's own message list.
+        const QString note = QStringLiteral(
+            "<div style='margin:3px 0;color:#7f8ba5;font-style:italic;font-size:9pt'>"
+            "&#9888; %1's message was removed by AutoMod (%2)</div>")
+            .arg(m.user.toHtmlEscaped(), reason.toHtmlEscaped());
+        appendTrimmed(chatViews_.value(QStringLiteral("combined")), note);
+        appendTrimmed(chatViews_.value(m.platform), note);
+        if (popout_) popout_->appendModerationNote(m.user, reason);
     });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
@@ -100,8 +130,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             "<b style='color:#f8fbff'>%2</b> <span style='color:%1'>%3</span>%4</div>")
             .arg(colour,e.user.toHtmlEscaped(),eventAction(e).toHtmlEscaped(),
                  e.message.isEmpty()?QString():QStringLiteral("<br><span style='color:#c7cede'>%1</span>").arg(e.message.toHtmlEscaped()));
-        if(chatViews_.contains(QStringLiteral("combined")))chatViews_[QStringLiteral("combined")]->append(message);
-        if(chatViews_.contains(e.platform))chatViews_[e.platform]->append(message);
+        appendTrimmed(chatViews_.value(QStringLiteral("combined")), message);
+        appendTrimmed(chatViews_.value(e.platform), message);
         if(popout_)popout_->showEvent(e);
     });
     connect(controller_,&AppController::viewerCount,this,[this](const QString&p,int n){overlay_->setViewers(p,n);if(popout_)popout_->setViewers(p,n);});
@@ -142,10 +172,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             const QString reason = ban.value(QStringLiteral("reason")).toString();
             // Twitch marks a timed-out (as opposed to permanently banned) user
             // with a non-empty expires_at; YouTube restrictions recorded here
-            // are always the 5-minute AutoMod timeout (see autoModerate()).
+            // carry an explicit "Hide from channel" vs "Timeout (5 min)" type
+            // (see AppController's banCreated handler).
             const bool isTimeout = platform == QStringLiteral("twitch")
                 ? !ban.value(QStringLiteral("expires_at")).toString().isEmpty()
-                : true;
+                : ban.value(QStringLiteral("type")).toString() != QStringLiteral("Hide from channel");
             const QString type = ban.value(QStringLiteral("type")).toString(
                 isTimeout ? QStringLiteral("Timeout") : QStringLiteral("Ban"));
             const QString created = ban.value(QStringLiteral("created_at")).toString();
@@ -274,7 +305,9 @@ QWidget* MainWindow::buildDashboard() {
 
     auto* rail = new QFrame;
     rail->setObjectName(QStringLiteral("navigationRail"));
-    rail->setFixedWidth(116);
+    // Wide enough for the longest label ("Moderation") at the nav button's
+    // reduced padding/font without truncating.
+    rail->setFixedWidth(140);
     auto* railLayout = new QVBoxLayout(rail);
     auto* brand = new QLabel;
     brand->setPixmap(QPixmap(QStringLiteral(":/brand/lefroge_chat_icon.png"))
@@ -794,7 +827,7 @@ void MainWindow::applyTheme() {
         QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
         QPushButton { background:#20283a; border:0; border-radius:8px; padding:10px 12px; font-weight:700; }
         QPushButton:hover { background:#2b3650; }
-        QPushButton[nav='true'] { text-align:left; margin:2px 4px; }
+        QPushButton[nav='true'] { text-align:left; margin:2px 4px; padding:9px 8px; font-size:9pt; }
         QPushButton[nav='true']:checked { background:#7667ef; color:white; }
         QPushButton[primary='true'] { background:#53cdf3; color:#071018; }
         QPushButton[danger='true'] { background:#44202b; color:#ff91a4; }

@@ -32,7 +32,7 @@ AppController::AppController(QObject*p):QObject(p){
     for(const auto& item:settings_.preference("youtube_restrictions").toList())youtubeRestrictions_.append(QJsonObject::fromVariantMap(item.toMap()));
     connect(&twitchMod_,&TwitchModerationService::bansReceived,this,[this](const QJsonArray&a){emit bansUpdated("twitch",a);});
     connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);});
-    connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user){QJsonObject o{{"id",id},{"user_name",user},{"type","timeout / ban"},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
+    connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user,bool permanent){QJsonObject o{{"id",id},{"user_name",user},{"type",permanent?QStringLiteral("Hide from channel"):QStringLiteral("Timeout (5 min)")},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
     connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&action,bool ok,const QString&d){
         if(action=="clip"){if(!ok)emit twitchClipFailed(d);return;}
         emit moderationResult("twitch",ok,d);
@@ -96,8 +96,11 @@ void AppController::receive(const ChatMessage&m){
     QString reason;
     if(automod_.check(m,&reason)){
         // Hold the message back instead of showing it and moderating after the
-        // fact — the chat views, overlay, and pop-out never see it.
+        // fact — the chat views, overlay, and pop-out never see the original
+        // message. messageModerated lets the chat views (not the overlay) show
+        // a note that something was removed.
         autoModerate(m,reason);
+        emit messageModerated(m,reason);
         return;
     }
     emit messageReady(m);

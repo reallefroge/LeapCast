@@ -27,6 +27,9 @@ public:
     bool reloadAutoMod() { return automod_.reload(); }
 signals:
     void messageReady(const ChatMessage& message);
+    // AutoMod held a message back instead of showing it — for a note in the
+    // chat views/pop-out only, never the OBS overlay feed.
+    void messageModerated(const ChatMessage& message, const QString& reason);
     void eventReady(const StreamEvent& event);
     void sourceStatus(const QString& platform,const QString& state,const QString& detail);
     void viewerCount(const QString& platform,int count);
