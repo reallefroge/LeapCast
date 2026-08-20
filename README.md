@@ -46,7 +46,7 @@ Configure access for Twitch, YouTube, and TikTok, then manage the shared blocked
 
 ![Leapcast Studio Creator Safety Center with Twitch, YouTube, TikTok, and AutoMod cards](docs/images/first-look-moderation.svg)
 
-### Keep chat visible while you work
+### Keep chat visible while you stream
 
 The compact, always-on-top pop-out keeps the combined conversation and total viewer count within view without taking over the desktop.
 
