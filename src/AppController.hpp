@@ -19,6 +19,10 @@ public:
     void unbanTwitch(const QString& userId);
     void unbanYouTube(const QString& banId);
     void createTwitchClip();
+    // Manual moderation triggered from a chat message's context menu, for the
+    // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
+    void moderateMessage(const ChatMessage& message, int seconds);
+    void deleteChatMessage(const ChatMessage& message);
     QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
     bool reloadAutoMod() { return automod_.reload(); }
 signals:

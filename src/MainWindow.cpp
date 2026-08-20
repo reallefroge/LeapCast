@@ -3,6 +3,8 @@
 #include "Overlay.hpp"
 #include "UpdateService.hpp"
 
+#include <algorithm>
+
 #include <QApplication>
 #include <QButtonGroup>
 #include <QClipboard>
@@ -110,6 +112,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             auto* value=sourceStates_[platform]; value->setText(detail);
             value->setStyleSheet("color:"+colour);
         }
+        if(state==QStringLiteral("ok")&&sourcesWelcome_){sourcesWelcome_->hide();sourcesWelcome_=nullptr;}
         if(platform==QStringLiteral("twitch")&&twitchModerationStatus_){
             twitchModerationStatus_->setText(detail);
             twitchModerationStatus_->setStyleSheet("color:"+colour);
@@ -124,12 +127,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QListWidget* list = platform == QStringLiteral("twitch") ? twitchBans_ : youtubeBans_;
         if (!list) return;
         list->clear();
-        for (const auto& value : bans) {
-            const QJsonObject ban = value.toObject();
+        // Twitch's API doesn't guarantee ban order; sort most-recent-first so
+        // the list reads the same way regardless of the API's own ordering.
+        QList<QJsonObject> sorted;
+        sorted.reserve(bans.size());
+        for (const auto& value : bans) sorted << value.toObject();
+        std::sort(sorted.begin(), sorted.end(), [](const QJsonObject& a, const QJsonObject& b) {
+            return QDateTime::fromString(a.value(QStringLiteral("created_at")).toString(), Qt::ISODate)
+                 > QDateTime::fromString(b.value(QStringLiteral("created_at")).toString(), Qt::ISODate);
+        });
+        for (const auto& ban : sorted) {
             const QString user = ban.value(QStringLiteral("user_name")).toString(
                 ban.value(QStringLiteral("user_login")).toString(QStringLiteral("Unknown user")));
             const QString reason = ban.value(QStringLiteral("reason")).toString();
-            const QString type = ban.value(QStringLiteral("type")).toString(QStringLiteral("Active restriction"));
+            // Twitch marks a timed-out (as opposed to permanently banned) user
+            // with a non-empty expires_at; YouTube restrictions recorded here
+            // are always the 5-minute AutoMod timeout (see autoModerate()).
+            const bool isTimeout = platform == QStringLiteral("twitch")
+                ? !ban.value(QStringLiteral("expires_at")).toString().isEmpty()
+                : true;
+            const QString type = ban.value(QStringLiteral("type")).toString(
+                isTimeout ? QStringLiteral("Timeout") : QStringLiteral("Ban"));
             const QString created = ban.value(QStringLiteral("created_at")).toString();
             const QString summary = reason.isEmpty() ? type : reason;
             auto* item = new QListWidgetItem;
@@ -138,6 +156,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 : ban.value(QStringLiteral("id")).toString());
             item->setData(Qt::UserRole + 1, QStringLiteral("Account: %1\nReason: %2\nCreated: %3")
                 .arg(user, summary, created.isEmpty() ? QStringLiteral("Not recorded") : friendlyTimestamp(created)));
+            item->setData(Qt::UserRole + 2, isTimeout);
             auto* card = new QWidget;
             card->setProperty("restrictionCard", true);
             auto* cardLayout = new QVBoxLayout(card);
@@ -335,6 +354,27 @@ QWidget* MainWindow::buildSourcesPage() {
     layout->addWidget(label(QStringLiteral("CONNECTED COMMUNITIES"),"heroTitle"));
     layout->addWidget(label(QStringLiteral("Paste a channel or live-stream link. Each reader runs independently."),"muted"));
     const QList<QPair<QString,QString>> sources{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"}};
+    // A fresh install has every link blank (see SettingsStore::load()) — walk
+    // the reader through the first connection instead of leaving four empty
+    // cards with no explanation.
+    const bool freshInstall = std::all_of(sources.begin(), sources.end(), [this](const auto& source) {
+        return controller_->settings()->link(source.first).trimmed().isEmpty();
+    });
+    if (freshInstall) {
+        auto* welcome = new QFrame;
+        welcome->setObjectName(QStringLiteral("welcomeCard"));
+        sourcesWelcome_ = welcome;
+        auto* welcomeLayout = new QVBoxLayout(welcome);
+        welcomeLayout->addWidget(label(QStringLiteral("GETTING STARTED"), "cardTitle"));
+        auto* steps = label(QStringLiteral(
+            "1. Paste a channel or live link below for each community you want to read — leave the rest blank.\n"
+            "2. Select Connect on each one you filled in.\n"
+            "3. Open Moderation to connect Twitch/YouTube moderation access (optional).\n"
+            "4. Open OBS to copy the browser-source URL, or use Open Pop-out Chat in the chat preview."), "muted");
+        steps->setWordWrap(true);
+        welcomeLayout->addWidget(steps);
+        layout->addWidget(welcome);
+    }
     for(const auto& source:sources){
         auto* card=new QFrame;card->setProperty("card",true);auto* cardLayout=new QVBoxLayout(card);
         auto* head=new QHBoxLayout;head->addWidget(label(source.second,"cardTitle"));head->addStretch();
@@ -505,10 +545,17 @@ QWidget* MainWindow::buildBansPage() {
         auto* controls = new QHBoxLayout;
         auto* refresh = new QPushButton(QStringLiteral("Refresh list"));
         auto* details = new QPushButton(QStringLiteral("View details"));
-        auto* unban = new QPushButton(QStringLiteral("Remove selected"));
+        auto* unban = new QPushButton(QStringLiteral("Unban"));
         unban->setProperty("danger", true);
         controls->addWidget(refresh); controls->addWidget(details); controls->addStretch(); controls->addWidget(unban);
         hostLayout->addLayout(controls);
+        // The same button removes both permanent bans and timed-out restrictions;
+        // relabel it to match whichever kind is currently selected (isTimeout is
+        // stashed at UserRole+2 when the list is populated).
+        connect(list, &QListWidget::currentItemChanged, this, [unban](QListWidgetItem* current, QListWidgetItem*) {
+            unban->setText(current && current->data(Qt::UserRole + 2).toBool()
+                ? QStringLiteral("Untimeout") : QStringLiteral("Unban"));
+        });
         connect(refresh, &QPushButton::clicked, this, [this, platform] { controller_->refreshBans(platform); });
         connect(details, &QPushButton::clicked, this, [this, list] {
             if (auto* item = list->currentItem()) {
@@ -516,11 +563,12 @@ QWidget* MainWindow::buildBansPage() {
                 if (!details.isEmpty()) QMessageBox::information(this, QStringLiteral("Restriction details"), details);
             }
         });
-        connect(unban, &QPushButton::clicked, this, [this, list, platform] {
+        connect(unban, &QPushButton::clicked, this, [this, list, platform, unban] {
             auto* item = list->currentItem(); if (!item) return;
             const QString id = item->data(Qt::UserRole).toString(); if (id.isEmpty()) return;
-            if (QMessageBox::question(this, QStringLiteral("Remove restriction"),
-                    QStringLiteral("Remove the selected restriction?")) != QMessageBox::Yes) return;
+            const QString action = unban->text();
+            if (QMessageBox::question(this, action,
+                    QStringLiteral("%1 the selected restriction?").arg(action)) != QMessageBox::Yes) return;
             if (platform == QStringLiteral("twitch")) controller_->unbanTwitch(id);
             else controller_->unbanYouTube(id);
         });
@@ -680,6 +728,14 @@ QWidget* MainWindow::buildChatDock() {
             popoutClickThrough_->setChecked(enabled);
         });
         connect(popout_, &PopoutChat::clipRequested, this, [this] { controller_->createTwitchClip(); });
+        connect(popout_, &PopoutChat::openClipEditor, this, [this](const QUrl& url) {
+            if (!clipEditor_) clipEditor_ = new ClipEditorWindow;
+            clipEditor_->openUrl(url);
+        });
+        connect(popout_, &PopoutChat::deleteMessageRequested, this,
+                [this](const ChatMessage& message) { controller_->deleteChatMessage(message); });
+        connect(popout_, &PopoutChat::timeoutUserRequested, this,
+                [this](const ChatMessage& message, int seconds) { controller_->moderateMessage(message, seconds); });
         return popout_;
     };
 
@@ -733,6 +789,7 @@ void MainWindow::applyTheme() {
         QLabel[role='signal'] { color:#68e9d5; font-size:8pt; font-weight:700; }
         QLabel[role='cardTitle'] { font-size:12pt; font-weight:700; }
         QFrame#safetyHero { background:#171d2d; border-left:5px solid #53cdf3; border-radius:12px; }
+        QFrame#welcomeCard { background:#171d2d; border:1px solid #283149; border-left:5px solid #63e6be; border-radius:12px; padding:4px; }
         QFrame#bansHero { background:#141a29; border:1px solid #28334a; border-left:5px solid #7667ef; border-radius:12px; }
         QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
         QPushButton { background:#20283a; border:0; border-radius:8px; padding:10px 12px; font-weight:700; }

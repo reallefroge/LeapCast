@@ -64,7 +64,18 @@ QString AppController::twitchName(const QString&l){auto m=QRegularExpression("tw
 QString AppController::tiktokName(const QString&l){auto m=QRegularExpression("tiktok\\.com/@([A-Za-z0-9._]+)").match(l);if(m.hasMatch())return m.captured(1);return l.startsWith('@')?l.mid(1):QString();}
 void AppController::startConfiguredSources(){for(const auto&p:{"twitch","youtube","yt_shorts","tiktok"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
 void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty()){twitchMod_.configure(configuredTwitchClientId(settings_),settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));twitchMod_.resolveBroadcaster(name);}}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));}
-void AppController::disconnectSource(const QString&p){if(p=="twitch")twitch_.disconnectChannel();else if(p=="youtube")youtube_.disconnectService();else if(p=="yt_shorts")shorts_.disconnectService();else if(p=="tiktok")tiktok_.disconnectService();}
+void AppController::disconnectSource(const QString&p){
+    if(p=="twitch")twitch_.disconnectChannel();
+    else if(p=="youtube")youtube_.disconnectService();
+    else if(p=="yt_shorts")shorts_.disconnectService();
+    else if(p=="tiktok")tiktok_.disconnectService();
+    else return;
+    // The underlying services don't reliably emit a status change when torn
+    // down manually (e.g. Twitch only reports "reconnecting" on an
+    // *unexpected* drop, not a deliberate one), so Disconnect looked like it
+    // did nothing. Tell the UI directly instead.
+    emit sourceStatus(p,"warn","Disconnected");
+}
 void AppController::authorizeTwitch(){twitchAuthorizationRequested_=true;twitchAuth_.authorize(configuredTwitchClientId(settings_));}
 void AppController::configureYouTubeModeration(const QString&t){settings_.setSecret("youtube_access_token",t);youtubeMod_.setAccessToken(t);emit sourceStatus("youtube","ok","moderation configured");}
 void AppController::connectStreamlabs(const QString&t){settings_.setSecret("streamlabs_socket_token",t);streamlabs_.connectToken(t);}
@@ -80,5 +91,32 @@ void AppController::createTwitchClip(){
     twitchMod_.createClip(broadcaster);
 }
 void AppController::unbanYouTube(const QString&id){if(id.isEmpty())return;youtubeMod_.removeBan(id);for(int i=youtubeRestrictions_.size()-1;i>=0;--i)if(youtubeRestrictions_[i].toObject()["id"].toString()==id)youtubeRestrictions_.removeAt(i);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);}
-void AppController::receive(const ChatMessage&m){audit_.appendMessage(m);QString reason;if(automod_.check(m,&reason))autoModerate(m,reason);emit messageReady(m);}
+void AppController::receive(const ChatMessage&m){
+    audit_.appendMessage(m);
+    QString reason;
+    if(automod_.check(m,&reason)){
+        // Hold the message back instead of showing it and moderating after the
+        // fact — the chat views, overlay, and pop-out never see it.
+        autoModerate(m,reason);
+        return;
+    }
+    emit messageReady(m);
+}
 void AppController::autoModerate(const ChatMessage&m,const QString&r){if(m.platform=="twitch"){const auto broadcaster=m.metadata["room_id"].toString();if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,300,r);}else if(m.platform=="youtube"||m.platform=="yt_shorts"){const auto chat=m.metadata["live_chat_id"].toString();if(!chat.isEmpty()&&!m.userId.isEmpty())youtubeMod_.ban(chat,m.userId,300,m.user);}}
+void AppController::moderateMessage(const ChatMessage&m,int seconds){
+    if(m.platform=="twitch"){
+        const auto broadcaster=m.metadata["room_id"].toString();
+        if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,seconds,QStringLiteral("Manual moderation"));
+    }else if(m.platform=="youtube"||m.platform=="yt_shorts"){
+        const auto chat=m.metadata["live_chat_id"].toString();
+        if(!chat.isEmpty()&&!m.userId.isEmpty())youtubeMod_.ban(chat,m.userId,seconds,m.user);
+    }
+}
+void AppController::deleteChatMessage(const ChatMessage&m){
+    if(m.platform=="twitch"){
+        const auto broadcaster=m.metadata["room_id"].toString();
+        if(!broadcaster.isEmpty()&&!m.messageId.isEmpty())twitchMod_.deleteMessage(broadcaster,m.messageId);
+    }else if(m.platform=="youtube"||m.platform=="yt_shorts"){
+        if(!m.messageId.isEmpty())youtubeMod_.deleteMessage(m.messageId);
+    }
+}

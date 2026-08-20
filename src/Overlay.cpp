@@ -1,22 +1,28 @@
 #include "Overlay.hpp"
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QHBoxLayout>
 #include <QHostAddress>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QStackedLayout>
 #include <QTcpSocket>
+#include <QTextBlockFormat>
 #include <QTextBrowser>
+#include <QTextCursor>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
+namespace { constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1; }
 #ifdef Q_OS_WIN
 #include <windows.h>
 #ifndef MOD_NOREPEAT
@@ -83,12 +89,19 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     chatStack_->setContentsMargins(0,0,0,0);
     chatStack_->setStackingMode(QStackedLayout::StackAll);
     chat_=new QTextBrowser;
+    chat_->viewport()->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(chat_->viewport(),&QWidget::customContextMenuRequested,this,&PopoutChat::showChatContextMenu);
     chatStack_->addWidget(chat_);
     l->addWidget(chatHost,1);
 
     clipStatus_=new QLabel;
     clipStatus_->setWordWrap(true);
     clipStatus_->setAlignment(Qt::AlignCenter);
+    clipStatus_->setTextFormat(Qt::RichText);
+    // Opened in the embedded clip editor (see openClipEditor) rather than the
+    // user's external browser.
+    clipStatus_->setOpenExternalLinks(false);
+    connect(clipStatus_,&QLabel::linkActivated,this,[this](const QString&link){emit openClipEditor(QUrl(link));});
     clipStatus_->hide();
     l->addWidget(clipStatus_);
 
@@ -100,7 +113,44 @@ PopoutChat::~PopoutChat(){
     unregisterRestoreHotkeys();
     qApp->removeNativeEventFilter(this);
 }
-void PopoutChat::appendMessage(const ChatMessage&m){chat_->append(QString("<p><b style='color:%1'>%2</b> %3</p>").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));}
+void PopoutChat::appendMessage(const ChatMessage&m){
+    const qint64 id=++nextMessageSeq_;
+    historyById_.insert(id,m);
+    historyById_.remove(id-400);
+    QTextCursor cursor(chat_->document());
+    cursor.movePosition(QTextCursor::End);
+    QTextBlockFormat format;
+    format.setProperty(kMessageIdProperty,id);
+    if(!chat_->document()->isEmpty())cursor.insertBlock(format);
+    else cursor.setBlockFormat(format);
+    cursor.insertHtml(QString("<b style='color:%1'>%2</b> %3").arg(m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
+    chat_->moveCursor(QTextCursor::End);
+    chat_->ensureCursorVisible();
+}
+void PopoutChat::showChatContextMenu(const QPoint&pos){
+    const qint64 id=chat_->cursorForPosition(pos).blockFormat().property(kMessageIdProperty).toLongLong();
+    QMenu menu(this);
+    auto*copyAction=menu.addAction(QStringLiteral("Copy"));
+    copyAction->setEnabled(chat_->textCursor().hasSelection());
+    connect(copyAction,&QAction::triggered,chat_,&QTextBrowser::copy);
+    if(historyById_.contains(id)){
+        const ChatMessage msg=historyById_.value(id);
+        // Only Twitch and YouTube/Shorts have a working moderation API wired up
+        // here; TikTok moderation happens in TikTok's own LIVE room (see the
+        // "Open TikTok LIVE in browser" action), so no actions are offered for it.
+        if(msg.platform==QStringLiteral("twitch")||msg.platform==QStringLiteral("youtube")||msg.platform==QStringLiteral("yt_shorts")){
+            menu.addSeparator();
+            auto*header=menu.addAction(QStringLiteral("Moderate %1").arg(msg.user));
+            header->setEnabled(false);
+            connect(menu.addAction(QStringLiteral("Delete message")),&QAction::triggered,this,[this,msg]{emit deleteMessageRequested(msg);});
+            connect(menu.addAction(QStringLiteral("Timeout 5 min")),&QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,300);});
+            connect(menu.addAction(QStringLiteral("Ban")),&QAction::triggered,this,[this,msg]{emit timeoutUserRequested(msg,0);});
+        }
+    }
+    menu.addSeparator();
+    connect(menu.addAction(QStringLiteral("Select All")),&QAction::triggered,chat_,&QTextBrowser::selectAll);
+    menu.exec(chat_->viewport()->mapToGlobal(pos));
+}
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
 void PopoutChat::setViewers(const QString&p,int n){
     counts_[p]=n;
@@ -125,7 +175,7 @@ void PopoutChat::setViewers(const QString&p,int n){
     if(parts.size()>1)text+=QStringLiteral("  ·  ")+parts.join(QStringLiteral("  ·  "));
     viewers_->setText(text);
 }
-void PopoutChat::clearMessages(){chat_->clear();}
+void PopoutChat::clearMessages(){chat_->clear();historyById_.clear();}
 void PopoutChat::setGhostMode(bool on){
     if(ghostMode_==on)return;
     ghostMode_=on;
@@ -180,8 +230,6 @@ void PopoutChat::showClipResult(bool success,const QString&text,const QUrl&editU
         QApplication::clipboard()->setText(editUrl.toString());
         body+=QStringLiteral(" <a href='%1' style='color:inherit;text-decoration:underline'>Open editor &#8599;</a>").arg(editUrl.toString());
     }
-    clipStatus_->setTextFormat(Qt::RichText);
-    clipStatus_->setOpenExternalLinks(true);
     clipStatus_->setText(body);
     clipStatus_->setStyleSheet(success
         ?QStringLiteral("background:#12301fee;border:1px solid #63e6be;border-radius:10px;padding:8px;color:#9ff5d4;font-weight:700;")
@@ -209,4 +257,41 @@ void PopoutChat::setStreamlabsAlertAudio(bool enabled,const QUrl&url){
         chatStack_->setCurrentWidget(alertView_);
     }
     alertView_->setUrl(url);
+}
+ClipEditorWindow::ClipEditorWindow(QWidget*p):QWidget(p){
+    setWindowTitle(QStringLiteral("Leapcast Studio — Clip Editor"));
+    setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));
+    resize(1040,760);
+    auto*layout=new QVBoxLayout(this);
+    layout->setContentsMargins(6,6,6,6);
+    layout->setSpacing(6);
+    auto*toolbar=new QHBoxLayout;
+    auto*back=new QPushButton(QStringLiteral("←"));
+    auto*forward=new QPushButton(QStringLiteral("→"));
+    auto*reload=new QPushButton(QStringLiteral("↻"));
+    for(auto*button:{back,forward,reload})button->setFixedWidth(34);
+    toolbar->addWidget(back);
+    toolbar->addWidget(forward);
+    toolbar->addWidget(reload);
+    addressLabel_=new QLabel;
+    addressLabel_->setStyleSheet(QStringLiteral("color:#8f9bb5;font-size:9pt;"));
+    toolbar->addWidget(addressLabel_,1);
+    auto*openExternal=new QPushButton(QStringLiteral("Open in browser ↗"));
+    toolbar->addWidget(openExternal);
+    layout->addLayout(toolbar);
+    // Default (persistent) profile, same as TikTok's embedded view, so a
+    // Twitch web login made here is remembered the next time this opens.
+    view_=new QWebEngineView(this);
+    layout->addWidget(view_,1);
+    connect(back,&QPushButton::clicked,view_,&QWebEngineView::back);
+    connect(forward,&QPushButton::clicked,view_,&QWebEngineView::forward);
+    connect(reload,&QPushButton::clicked,view_,&QWebEngineView::reload);
+    connect(openExternal,&QPushButton::clicked,this,[this]{QDesktopServices::openUrl(view_->url());});
+    connect(view_,&QWebEngineView::urlChanged,this,[this](const QUrl&u){addressLabel_->setText(u.toString());});
+}
+void ClipEditorWindow::openUrl(const QUrl&url){
+    view_->setUrl(url);
+    show();
+    raise();
+    activateWindow();
 }
