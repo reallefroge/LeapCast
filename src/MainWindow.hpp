@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Core.hpp"
+
 #include <QHash>
 #include <QMainWindow>
+#include <QPoint>
 #include <QUrl>
 
 class QStackedWidget;
@@ -45,10 +48,20 @@ private:
     void configureYouTubeModeration();
     void openTikTokModeration();
     void editBlockedWords();
+    // Right-click moderation menu for the dashboard's own chat views — same
+    // idea as PopoutChat::showChatContextMenu, kept separate since it acts on
+    // a different QTextBrowser (and its own message-id history) per tab.
+    void showDashboardChatMenu(QTextBrowser* view, const QPoint& pos);
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
     QHash<QString,QTextBrowser*> chatViews_;
+    // Messages currently rendered in the dashboard chat views, keyed by an
+    // ever-increasing id stamped onto each message's paragraph as a block
+    // property (see appendChatMessage in MainWindow.cpp), so a right-click
+    // can be traced back to the ChatMessage it landed on.
+    QHash<qint64, ChatMessage> chatHistoryById_;
+    qint64 nextChatSeq_{};
     QHash<QString,QLabel*> sourceStates_;
     // Last moderation-failure detail shown per platform, so an unmoderated
     // channel that keeps tripping AutoMod doesn't reopen the same warning
