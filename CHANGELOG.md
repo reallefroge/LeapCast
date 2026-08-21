@@ -2,7 +2,7 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
-## Leapcast Studio 2.2.5
+## Leapcast Studio 2.2.6
 
 - Fixed the pop-out chat rendering as a solid white window instead of transparent. The pop-out kept its native Windows title bar, which relies on DWM glass composition for a translucent client area — when DWM composition or the system's "Transparency effects" setting isn't fully active, that composition silently fell back to an opaque white surface, and no amount of stylesheet/palette tuning could fix a compositor-level fallback. The pop-out is now a frameless, per-pixel-alpha window (the standard, compositor-independent approach), with its own small title bar (drag to move, ✕ to close) and a resize grip in the corner replacing the native ones.
 
