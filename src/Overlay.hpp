@@ -68,6 +68,11 @@ public:
     void setMobileToken(const QString& token);
     QString regenerateMobileToken();
     void ingest(const ChatMessage& message);
+    void ingestEvent(const StreamEvent& event);
+    void setMobileBans(const QString& platform, const QJsonArray& bans);
+    void setMobileAppeals(const QJsonArray& appeals);
+    void setMobileSettings(const QJsonObject& settings);
+    void setMobileUpdate(const QJsonObject& update);
     void setViewers(const QString& platform, int count);
     void setFadeSeconds(int seconds) { fadeSeconds_ = qMax(0, seconds); }
     void setAppearance(const QColor& background, int backgroundOpacityPercent,
@@ -78,6 +83,11 @@ public:
 signals:
     void mobileDeleteRequested(const ChatMessage& message);
     void mobileModerationRequested(const ChatMessage& message, int seconds, const QString& reason);
+    void mobileRefreshModerationRequested();
+    void mobileUnbanRequested(const QString& platform, const QString& id);
+    void mobileAppealRequested(const QString& id, bool approved);
+    void mobileSettingRequested(const QString& name, const QVariant& value);
+    void mobileInstallUpdateRequested();
 
 private:
     void accept();
@@ -85,6 +95,11 @@ private:
     QTcpServer server_;
     QList<QPair<quint64, ChatMessage>> messages_;
     QHash<QString, int> viewers_;
+    QJsonArray mobileEvents_;
+    QHash<QString,QJsonArray> mobileBans_;
+    QJsonArray mobileAppeals_;
+    QJsonObject mobileSettings_;
+    QJsonObject mobileUpdate_;
     quint64 cursor_{};
     int fadeSeconds_{};
     QColor backgroundColor_{Qt::black};

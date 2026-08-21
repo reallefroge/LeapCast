@@ -164,7 +164,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
     connect(overlay_,&OverlayServer::mobileDeleteRequested,controller_,&AppController::deleteChatMessage);
     connect(overlay_,&OverlayServer::mobileModerationRequested,controller_,&AppController::moderateMessage);
+    connect(overlay_,&OverlayServer::mobileRefreshModerationRequested,this,[this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
+    connect(overlay_,&OverlayServer::mobileUnbanRequested,this,[this](const QString&platform,const QString&id){if(platform==QStringLiteral("twitch"))controller_->unbanTwitch(id);else if(platform==QStringLiteral("youtube"))controller_->unbanYouTube(id);});
+    connect(overlay_,&OverlayServer::mobileAppealRequested,this,[this](const QString&id,bool approved){controller_->resolveTwitchAppeal(id,approved,approved?QStringLiteral("Approved from Phone Connect"):QStringLiteral("Rejected from Phone Connect"));});
+    connect(overlay_,&OverlayServer::mobileSettingRequested,this,[this](const QString&name,const QVariant&value){if(name==QStringLiteral("overlay_fade_seconds"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),3600));else if(name==QStringLiteral("overlay_background_opacity"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),100));else if(name==QStringLiteral("chat_outline_thickness"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),8));else if(name==QStringLiteral("automod_enabled")){auto moderation=controller_->settings()->moderation();moderation[QStringLiteral("enabled")]=value.toBool();controller_->settings()->setModeration(moderation);}overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt());overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",overlay_->fadeSeconds()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});});
+    overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",overlay_->fadeSeconds()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});
+    connect(controller_->settings(),&SettingsStore::changed,this,[this]{overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});});
     updater_ = new UpdateService(this);
+    connect(overlay_,&OverlayServer::mobileInstallUpdateRequested,this,[this]{if(mobileUpdateAsset_.isValid())updater_->downloadAndInstall(mobileUpdateAsset_,mobileUpdateName_,mobileUpdateDigest_);});
 
     auto* splitter = new QSplitter(Qt::Horizontal);
     splitter->setChildrenCollapsible(false);
@@ -202,6 +209,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (popout_) popout_->appendModerationNote(m.user, reason);
     });
     connect(controller_,&AppController::twitchAppealsUpdated,this,[this](const QJsonArray&appeals){
+        overlay_->setMobileAppeals(appeals);
         if(!twitchAppeals_)return;twitchAppeals_->clear();
         for(const auto&v:appeals){const auto a=v.toObject();auto*item=new QListWidgetItem;
             const QString user=a.value("user_name").toString(a.value("user_login").toString("Unknown user"));
@@ -215,6 +223,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         twitchAppealHistory_->setHtml(html.isEmpty()?QStringLiteral("<div style='color:#7f8ba5;text-align:center;margin-top:30px'>No stored chat messages were found for this user.</div>"):html);
     });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
+        overlay_->ingestEvent(e);
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
             e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):
             e.platform==QStringLiteral("rumble")?QStringLiteral("#85c742"):QStringLiteral("#63e6be");
@@ -248,6 +257,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(controller_, &AppController::bansUpdated, this,
         [this](const QString& platform, const QJsonArray& bans) {
+            overlay_->setMobileBans(platform,bans);
             if(platform==QStringLiteral("twitch"))twitchBansCache_=bans;
         QListWidget* list = platform == QStringLiteral("twitch") ? twitchBans_ : youtubeBans_;
         if (!list) return;
@@ -352,6 +362,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(updater_, &UpdateService::updateAvailable, this,
             [this](const QString& version, const QString& notes, const QUrl& asset,
                    const QString& name, const QString& digest) {
+        mobileUpdateAsset_=asset;mobileUpdateName_=name;mobileUpdateDigest_=digest;
+        overlay_->setMobileUpdate(QJsonObject{{"available",true},{"version",version},{"notes",notes.left(1200)}});
         if (showUpdateNotesDialog(this,version,notes)) {
             auto* progress = new QProgressDialog(
                 QStringLiteral("Downloading the update…\nLeapcast Studio will reopen automatically."),
@@ -387,6 +399,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
     QTimer::singleShot(350, this, &MainWindow::showPostUpdateConnectionCheck);
+    QTimer::singleShot(900, this, &MainWindow::showFirstLaunchUpdateLog);
+    QTimer::singleShot(1600, this, [this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
+    QTimer::singleShot(2400, updater_, [this]{updater_->check(false);});
 }
 
 bool MainWindow::event(QEvent* e) {
@@ -399,6 +414,18 @@ bool MainWindow::event(QEvent* e) {
 void MainWindow::closeEvent(QCloseEvent* e){
     controller_->settings()->save();
     QMainWindow::closeEvent(e);
+}
+
+void MainWindow::showFirstLaunchUpdateLog(){
+    const QString version=QString::fromLatin1(leapcast::Version);
+    if(controller_->settings()->preference(QStringLiteral("update_log_seen_version")).toString()==version)return;
+    controller_->settings()->setPreference(QStringLiteral("update_log_seen_version"),version);
+    QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
+    auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
+    auto* title=label(QStringLiteral("WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
+    auto* summary=label(QStringLiteral("A quick summary of this update. This appears once per installed version."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Phone Connect control center** with Chat, Events, Moderation, and Settings navigation.\n- **Live stream events** now appear on the connected iPhone.\n- **Mobile moderation** includes bans, unban requests, approvals, rejections, timeouts, and message removal.\n- **Private QR connection** can be regenerated to invalidate an older link.\n- **Release notifications** appear on mobile only when a newer published Windows release is available.\n- Connection and Safari compatibility improvements."));layout->addWidget(notes,1);
+    auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -661,30 +688,25 @@ QWidget* MainWindow::buildPhoneConnectPage(){
     layout->addWidget(label(QStringLiteral("PHONE CONNECT"),"heroTitle"));
     auto* intro=label(QStringLiteral("Optional iPhone companion for keeping combined chat, viewer counts, and essential moderation controls close while you stream."),"muted");intro->setWordWrap(true);layout->addWidget(intro);
 
-    auto* lockCard=new QFrame;lockCard->setProperty("card",true);auto* lockLayout=new QVBoxLayout(lockCard);
-    lockLayout->addWidget(label(QStringLiteral("PASSWORD-PROTECTED TEST"),"cardTitle"));
-    auto* lockHelp=label(QStringLiteral("This preview is locked while Phone Connect is being tested. Enter the test password to reveal the private connection link."),"muted");lockHelp->setWordWrap(true);lockLayout->addWidget(lockHelp);
-    auto* passwordRow=new QHBoxLayout;auto* password=new QLineEdit;password->setEchoMode(QLineEdit::Password);password->setPlaceholderText(QStringLiteral("Test password"));auto* unlock=new QPushButton(QStringLiteral("Unlock"));passwordRow->addWidget(password,1);passwordRow->addWidget(unlock);lockLayout->addLayout(passwordRow);auto* lockStatus=label(QString(),"status");lockLayout->addWidget(lockStatus);layout->addWidget(lockCard);
-
-    auto* content=new QWidget;auto* contentLayout=new QVBoxLayout(content);contentLayout->setContentsMargins(0,0,0,0);contentLayout->setSpacing(10);content->hide();
+    auto* content=new QWidget;auto* contentLayout=new QVBoxLayout(content);contentLayout->setContentsMargins(0,0,0,0);contentLayout->setSpacing(10);
     auto* connectCard=new QFrame;connectCard->setProperty("card",true);auto* connectLayout=new QVBoxLayout(connectCard);connectLayout->addWidget(label(QStringLiteral("CONNECT THIS IPHONE"),"cardTitle"));
-    auto* connectHelp=label(QStringLiteral("Keep Leapcast Studio open on this PC. Connect the iPhone to the same private Wi-Fi, copy the link below, and open it in Safari. The iPhone page will ask for the same test password."),"muted");connectHelp->setWordWrap(true);connectLayout->addWidget(connectHelp);
+    auto* connectHelp=label(QStringLiteral("Keep Leapcast Studio open on this PC. Connect the iPhone to the same private Wi-Fi, then scan the QR code or open the private link in Safari."),"muted");connectHelp->setWordWrap(true);connectLayout->addWidget(connectHelp);
+    auto* connectionStatus=label(QString(),"status");
     const QUrl mobileUrl=overlay_->mobileUrl();auto* link=new QLineEdit(mobileUrl.isValid()?mobileUrl.toString():QStringLiteral("Connect this PC to Wi-Fi or Ethernet, then restart Leapcast Studio."));link->setReadOnly(true);connectLayout->addWidget(link);
-    auto* qrRow=new QHBoxLayout;auto* qrImage=new QLabel;qrImage->setFixedSize(252,252);qrImage->setAlignment(Qt::AlignCenter);qrImage->setStyleSheet(QStringLiteral("background:white;border:8px solid white;border-radius:14px;"));qrImage->setPixmap(phoneQrCode(mobileUrl).scaled(236,236,Qt::KeepAspectRatio,Qt::FastTransformation));auto* qrText=new QVBoxLayout;qrText->addWidget(label(QStringLiteral("SCAN WITH IPHONE CAMERA"),"cardTitle"));auto* qrHelp=label(QStringLiteral("Point the iPhone Camera at this code and tap the Leapcast banner. The QR contains the same private local link shown above."),"muted");qrHelp->setWordWrap(true);qrText->addWidget(qrHelp);auto* rotate=new QPushButton(QStringLiteral("Generate New Private QR Code"));rotate->setToolTip(QStringLiteral("Creates a new private link and immediately invalidates the previous QR code."));qrText->addWidget(rotate);qrText->addStretch();qrRow->addWidget(qrImage);qrRow->addLayout(qrText,1);connectLayout->addLayout(qrRow);
-    auto* actions=new QHBoxLayout;auto* copy=new QPushButton(QStringLiteral("Copy iPhone Link"));auto* preview=new QPushButton(QStringLiteral("Open Phone Preview"));auto* install=new QPushButton(QStringLiteral("Copy Install Link"));copy->setEnabled(mobileUrl.isValid());preview->setEnabled(mobileUrl.isValid());install->setEnabled(mobileUrl.isValid());rotate->setEnabled(mobileUrl.isValid());actions->addWidget(copy);actions->addWidget(preview);actions->addWidget(install);actions->addStretch();connectLayout->addLayout(actions);
-    connect(copy,&QPushButton::clicked,this,[link,lockStatus]{QApplication::clipboard()->setText(link->text());lockStatus->setText(QStringLiteral("Private iPhone link copied."));});
-    connect(install,&QPushButton::clicked,this,[link,lockStatus]{QApplication::clipboard()->setText(link->text());lockStatus->setText(QStringLiteral("Install link copied. Open it in Safari, then use Add to Home Screen."));});
+    auto* qrRow=new QHBoxLayout;auto* qrImage=new QLabel;qrImage->setFixedSize(252,252);qrImage->setAlignment(Qt::AlignCenter);qrImage->setStyleSheet(QStringLiteral("background:white;border:8px solid white;border-radius:14px;"));qrImage->setPixmap(phoneQrCode(mobileUrl).scaled(236,236,Qt::KeepAspectRatio,Qt::FastTransformation));auto* qrText=new QVBoxLayout;qrText->addWidget(label(QStringLiteral("SCAN WITH IPHONE CAMERA"),"cardTitle"));auto* qrHelp=label(QStringLiteral("Point the iPhone Camera at this code and tap the Leapcast banner. Reset it before showcases or immediately if the link may have leaked."),"muted");qrHelp->setWordWrap(true);qrText->addWidget(qrHelp);auto* rotate=new QPushButton(QStringLiteral("Reset / Generate New QR Code"));rotate->setToolTip(QStringLiteral("Creates a new private link and immediately invalidates every previous QR code and copied link."));qrText->addWidget(rotate);qrText->addStretch();qrRow->addWidget(qrImage);qrRow->addLayout(qrText,1);connectLayout->addLayout(qrRow);
+    auto* actions=new QGridLayout;auto* copy=new QPushButton(QStringLiteral("Copy iPhone Link"));auto* preview=new QPushButton(QStringLiteral("Open Phone Preview"));auto* install=new QPushButton(QStringLiteral("Copy Install Link"));copy->setEnabled(mobileUrl.isValid());preview->setEnabled(mobileUrl.isValid());install->setEnabled(mobileUrl.isValid());rotate->setEnabled(mobileUrl.isValid());actions->addWidget(copy,0,0);actions->addWidget(preview,0,1);actions->addWidget(install,1,0,1,2);connectLayout->addLayout(actions);
+    connectLayout->addWidget(connectionStatus);
+    connect(copy,&QPushButton::clicked,this,[link,connectionStatus]{QApplication::clipboard()->setText(link->text());connectionStatus->setText(QStringLiteral("Private iPhone link copied."));});
+    connect(install,&QPushButton::clicked,this,[link,connectionStatus]{QApplication::clipboard()->setText(link->text());connectionStatus->setText(QStringLiteral("Install link copied. Open it in Safari, then use Add to Home Screen."));});
     connect(preview,&QPushButton::clicked,this,[link]{QDesktopServices::openUrl(QUrl(link->text()));});
-    connect(rotate,&QPushButton::clicked,this,[this,link,qrImage,lockStatus]{if(QMessageBox::question(this,QStringLiteral("Generate new QR code?"),QStringLiteral("The current Phone Connect link and any existing Home Screen icon will stop working. Continue?"))!=QMessageBox::Yes)return;controller_->settings()->setSecret(QStringLiteral("mobile_companion_token"),overlay_->regenerateMobileToken());const QUrl fresh=overlay_->mobileUrl();link->setText(fresh.toString());qrImage->setPixmap(phoneQrCode(fresh).scaled(236,236,Qt::KeepAspectRatio,Qt::FastTransformation));lockStatus->setText(QStringLiteral("New private QR code created. The previous link is no longer valid."));});contentLayout->addWidget(connectCard);
+    connect(rotate,&QPushButton::clicked,this,[this,link,qrImage,connectionStatus]{if(QMessageBox::question(this,QStringLiteral("Generate new QR code?"),QStringLiteral("The current Phone Connect link and any existing Home Screen icon will stop working. Continue?"))!=QMessageBox::Yes)return;controller_->settings()->setSecret(QStringLiteral("mobile_companion_token"),overlay_->regenerateMobileToken());const QUrl fresh=overlay_->mobileUrl();link->setText(fresh.toString());qrImage->setPixmap(phoneQrCode(fresh).scaled(236,236,Qt::KeepAspectRatio,Qt::FastTransformation));connectionStatus->setText(QStringLiteral("New private QR code created. The previous link is no longer valid."));});contentLayout->addWidget(connectCard);
 
-    auto* stepsCard=new QFrame;stepsCard->setProperty("card",true);auto* steps=new QVBoxLayout(stepsCard);steps->addWidget(label(QStringLiteral("INSTALL AS AN IPHONE APP"),"cardTitle"));auto* stepText=label(QStringLiteral("1. Open the copied link in Safari on the iPhone.\n2. Enter the test password: apple\n3. Confirm chat and viewer counts connect.\n4. Tap Safari's Share button.\n5. Choose Add to Home Screen.\n6. Keep Open as Web App enabled, then tap Add."),"muted");stepText->setWordWrap(true);steps->addWidget(stepText);contentLayout->addWidget(stepsCard);
+    auto* stepsCard=new QFrame;stepsCard->setProperty("card",true);auto* steps=new QVBoxLayout(stepsCard);steps->addWidget(label(QStringLiteral("INSTALL AS AN IPHONE APP"),"cardTitle"));auto* stepText=label(QStringLiteral("1. Scan the QR code or open the copied link in Safari.\n2. Confirm chat and viewer counts connect.\n3. Tap Safari's Share button.\n4. Choose Add to Home Screen.\n5. Keep Open as Web App enabled, then tap Add."),"muted");stepText->setWordWrap(true);steps->addWidget(stepText);contentLayout->addWidget(stepsCard);
 
     auto* requirementsCard=new QFrame;requirementsCard->setProperty("card",true);auto* requirements=new QVBoxLayout(requirementsCard);requirements->addWidget(label(QStringLiteral("IPHONE REQUIREMENTS"),"cardTitle"));auto* requirementsText=label(QStringLiteral("• iPhone only — iPad, Mac, Android, and Apple TV are not enabled for this test.\n• iOS 16.4 or newer recommended; iOS 17 or newer provides the best Home Screen web-app experience.\n• iPhone 8 / iPhone X generation or newer; fully optimized for iPhone 16 and Dynamic Island layouts.\n• Safari must be available to perform Add to Home Screen.\n• The iPhone and Windows 10/11 PC must use the same private Wi-Fi network.\n• Leapcast Studio must stay open on the PC while Phone Connect is used.\n• Allow Leapcast through Windows Firewall for Private networks.\n• Platform moderation must already be connected and authorized inside Leapcast Studio."),"muted");requirementsText->setWordWrap(true);requirements->addWidget(requirementsText);contentLayout->addWidget(requirementsCard);
 
-    auto* privacyCard=new QFrame;privacyCard->setProperty("card",true);auto* privacy=new QVBoxLayout(privacyCard);privacy->addWidget(label(QStringLiteral("LOCAL & OPTIONAL"),"cardTitle"));auto* privacyText=label(QStringLiteral("Phone Connect is optional. It does not upload the mobile page to a public host. The private link works only while Leapcast Studio is running and should not be shared outside your trusted local network."),"muted");privacyText->setWordWrap(true);privacy->addWidget(privacyText);contentLayout->addWidget(privacyCard);contentLayout->addStretch();layout->addWidget(content,1);
+    auto* privacyCard=new QFrame;privacyCard->setProperty("card",true);auto* privacy=new QVBoxLayout(privacyCard);privacy->addWidget(label(QStringLiteral("LOCAL & OPTIONAL"),"cardTitle"));auto* privacyText=label(QStringLiteral("Phone Connect is optional. It does not upload the mobile page to a public host. The private link works only while Leapcast Studio is running and should not be shared outside your trusted local network."),"muted");privacyText->setWordWrap(true);privacy->addWidget(privacyText);contentLayout->addWidget(privacyCard);contentLayout->addStretch();auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);scroll->setWidget(content);layout->addWidget(scroll,1);
 
-    const auto tryUnlock=[password,content,lockStatus]{if(password->text()==QStringLiteral("apple")){content->show();lockStatus->setText(QStringLiteral("Unlocked for testing."));lockStatus->setStyleSheet(QStringLiteral("color:#63e6be"));password->clear();}else{content->hide();lockStatus->setText(QStringLiteral("Incorrect test password."));lockStatus->setStyleSheet(QStringLiteral("color:#ff8292"));}};
-    connect(unlock,&QPushButton::clicked,this,tryUnlock);connect(password,&QLineEdit::returnPressed,this,tryUnlock);
     return page;
 }
 

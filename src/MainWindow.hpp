@@ -63,6 +63,7 @@ private:
     void showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos);
     void reviewTwitchAppeal(bool approve);
     void showPostUpdateConnectionCheck();
+    void showFirstLaunchUpdateLog();
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
@@ -104,4 +105,7 @@ private:
     PopoutChat* popout_{};
     ClipEditorWindow* clipEditor_{};
     UpdateService* updater_{};
+    QUrl mobileUpdateAsset_;
+    QString mobileUpdateName_;
+    QString mobileUpdateDigest_;
 };
