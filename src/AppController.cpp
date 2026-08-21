@@ -121,7 +121,10 @@ void AppController::receive(const ChatMessage&m){
         const int saturation=175+(index*23)%46;
         broadcastUserColours_.insert(identity,QColor::fromHsv(hue,saturation,245));
     }
-    coloured.color=broadcastUserColours_.value(identity);
+    const QString colourMode=settings_.preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")).toString();
+    QColor selected(settings_.preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());
+    if(!selected.isValid())selected=QColor(QStringLiteral("#53cdf3"));
+    coloured.color=colourMode==QStringLiteral("single")?selected:broadcastUserColours_.value(identity);
     audit_.appendMessage(coloured);
     QString reason;
     if(automod_.check(coloured,&reason)){

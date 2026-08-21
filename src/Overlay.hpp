@@ -80,6 +80,7 @@ private:
     QColor backgroundColor_{Qt::black};
     int backgroundOpacityPercent_{};
     int outlineThickness_{2};
+    quint64 clearGeneration_{};
 };
 
 class PopoutChat final : public QWidget, public QAbstractNativeEventFilter {
@@ -103,7 +104,9 @@ public:
     // Percent opacity of the chat/viewer panel backgrounds only; message text and
     // Streamlabs alerts always stay fully opaque so they remain readable.
     void setOpacityPercent(int percent);
-    void setAppearance(const QColor& background, int outlineThickness);
+    void setAppearance(const QColor& background, int outlineThickness,
+                       const QString& fontFamily = QStringLiteral("Segoe UI"),
+                       int fontSizePoints = 12);
     int opacityPercent() const { return opacityPercent_; }
     void clearMessages();
     void setStreamlabsAlertAudio(bool enabled, const QUrl& alertBoxUrl);
@@ -159,6 +162,8 @@ private:
     int opacityPercent_{0};
     QColor backgroundColor_{Qt::black};
     int outlineThickness_{2};
+    QString fontFamily_{QStringLiteral("Segoe UI")};
+    int fontSizePoints_{12};
     bool ghostMode_{};
     bool hotkeysRegistered_{};
     bool clearBackground_{};

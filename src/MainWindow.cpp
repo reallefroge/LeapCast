@@ -34,6 +34,7 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSplitter>
@@ -390,14 +391,14 @@ QWidget* MainWindow::buildDashboard() {
     railLayout->addWidget(label(QStringLiteral("LEAPCAST\nSTUDIO"), "brand"));
 
     pages_ = new QStackedWidget;
-    const QStringList keys{QStringLiteral("sources"),QStringLiteral("events"),QStringLiteral("moderation"),QStringLiteral("bans"),QStringLiteral("obs"),QStringLiteral("settings")};
-    const QHash<QString,QString> names{{"sources","Sources"},{"events","Events"},{"moderation","Moderation"},{"bans","Bans"},{"obs","OBS"},{"settings","Settings"}};
+    const QStringList keys{QStringLiteral("sources"),QStringLiteral("events"),QStringLiteral("keys"),QStringLiteral("moderation"),QStringLiteral("bans"),QStringLiteral("obs"),QStringLiteral("settings")};
+    const QHash<QString,QString> names{{"sources","Sources"},{"events","Events"},{"keys","Keys"},{"moderation","Moderation"},{"bans","Bans"},{"obs","Chat Overlay"},{"settings","Settings"}};
     const QStringList saved=controller_->settings()->preference(QStringLiteral("navigation_order"),keys).toStringList();
     navigationOrder_=saved;for(const auto&key:keys)if(!navigationOrder_.contains(key))navigationOrder_<<key;
     for(int i=navigationOrder_.size()-1;i>=0;--i)if(!keys.contains(navigationOrder_[i]))navigationOrder_.removeAt(i);
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
-    pages_->addWidget(buildSourcesPage());pages_->addWidget(buildEventsPage());pages_->addWidget(buildModerationPage());pages_->addWidget(buildBansPage());pages_->addWidget(buildObsPage());pages_->addWidget(buildSettingsPage());
+    pages_->addWidget(buildSourcesPage());pages_->addWidget(buildEventsPage());pages_->addWidget(buildKeysPage());pages_->addWidget(buildModerationPage());pages_->addWidget(buildBansPage());pages_->addWidget(buildObsPage());pages_->addWidget(buildSettingsPage());
     for (const auto&key:navigationOrder_) {
         const int i=keys.indexOf(key);
         auto* button = new QPushButton(names.value(key));
@@ -410,9 +411,11 @@ QWidget* MainWindow::buildDashboard() {
     railLayout->addStretch();
     auto* version = label(QStringLiteral("v%1").arg(QString::fromLatin1(leapcast::Version)), "version");
     version->setAlignment(Qt::AlignCenter);
+    version->setMinimumHeight(24);
+    version->setToolTip(QStringLiteral("Leapcast Studio version %1").arg(QString::fromLatin1(leapcast::Version)));
     railLayout->addWidget(version);
-    group->button(2)->setChecked(true);
-    pages_->setCurrentIndex(2);
+    group->button(keys.indexOf(QStringLiteral("moderation")))->setChecked(true);
+    pages_->setCurrentIndex(keys.indexOf(QStringLiteral("moderation")));
     connect(group, &QButtonGroup::idClicked, pages_, &QStackedWidget::setCurrentIndex);
     outer->addWidget(rail);
     outer->addWidget(pages_, 1);
@@ -471,8 +474,8 @@ QWidget* MainWindow::buildSourcesPage() {
         auto* steps = label(QStringLiteral(
             "1. Paste a channel or live link below for each community you want to read — leave the rest blank.\n"
             "2. Select Connect on each one you filled in.\n"
-            "3. Open Moderation to connect Twitch/YouTube moderation access (optional).\n"
-            "4. Open OBS to copy the browser-source URL, or use Open Pop-out Chat in the chat preview."), "muted");
+            "3. Open Keys to connect Twitch/YouTube moderation access (optional).\n"
+            "4. Open Chat Overlay to copy the browser-source URL, or use Open Pop-out Chat in the chat preview."), "muted");
         steps->setWordWrap(true);
         welcomeLayout->addWidget(steps);
         layout->addWidget(welcome);
@@ -559,7 +562,8 @@ QWidget* MainWindow::buildObsPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(8, 4, 8, 8);
-    layout->addWidget(label(QStringLiteral("OBS OVERLAY"), "heroTitle"));
+    layout->addWidget(label(QStringLiteral("CHAT OVERLAY"), "heroTitle"));
+    layout->addWidget(label(QStringLiteral("Customize and control the browser-source chat shown in OBS."), "muted"));
     const QString url = QStringLiteral("http://127.0.0.1:%1/").arg(overlay_->port());
     auto* urlCard = new QFrame; urlCard->setProperty("card", true);
     auto* urlLayout = new QVBoxLayout(urlCard);
@@ -580,9 +584,21 @@ QWidget* MainWindow::buildObsPage() {
     });
     connect(clear, &QPushButton::clicked, this, [this] {
         overlay_->clear();
-        if (popout_) popout_->clearMessages();
     });
     layout->addWidget(urlCard);
+
+    auto* overlayAppearance=new QFrame;overlayAppearance->setProperty("card",true);auto* overlayLayout=new QVBoxLayout(overlayAppearance);
+    overlayLayout->addWidget(label(QStringLiteral("OVERLAY APPEARANCE"),"cardTitle"));
+    overlayLayout->addWidget(label(QStringLiteral("Customize the browser-source background and outline around chat lettering."),"muted"));
+    QColor overlayColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());if(!overlayColor.isValid())overlayColor=Qt::black;
+    auto* colorRow=new QHBoxLayout;colorRow->addWidget(label(QStringLiteral("Background color")));auto* colorButton=new QPushButton(overlayColor.name());colorButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(overlayColor.name(),overlayColor.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));colorRow->addWidget(colorButton);overlayLayout->addLayout(colorRow);
+    auto* opacityRow=new QHBoxLayout;opacityRow->addWidget(label(QStringLiteral("Overlay background opacity")));auto* overlayOpacity=new QSlider(Qt::Horizontal);overlayOpacity->setRange(0,100);overlayOpacity->setValue(controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt());opacityRow->addWidget(overlayOpacity,1);auto* overlayOpacityValue=label(QString::number(overlayOpacity->value())+QStringLiteral("%"));opacityRow->addWidget(overlayOpacityValue);overlayLayout->addLayout(opacityRow);
+    auto* outlineRow=new QHBoxLayout;outlineRow->addWidget(label(QStringLiteral("Chat text outline thickness")));auto* outline=new QSlider(Qt::Horizontal);outline->setRange(0,8);outline->setValue(controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());outlineRow->addWidget(outline,1);auto* outlineValue=label(QString::number(outline->value())+QStringLiteral(" px"));outlineRow->addWidget(outlineValue);overlayLayout->addLayout(outlineRow);
+    const auto applyOverlayAppearance=[this,overlayOpacity,outline]{const QColor color(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());overlay_->setAppearance(color,overlayOpacity->value(),outline->value());};
+    connect(colorButton,&QPushButton::clicked,this,[this,colorButton,applyOverlayAppearance]{QColor current(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat overlay background color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("overlay_background_color"),chosen.name());colorButton->setText(chosen.name());colorButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));applyOverlayAppearance();});
+    connect(overlayOpacity,&QSlider::valueChanged,this,[this,overlayOpacityValue,applyOverlayAppearance](int value){overlayOpacityValue->setText(QString::number(value)+QStringLiteral("%"));controller_->settings()->setPreference(QStringLiteral("overlay_background_opacity"),value);applyOverlayAppearance();});
+    connect(outline,&QSlider::valueChanged,this,[this,outlineValue,applyOverlayAppearance](int value){outlineValue->setText(QString::number(value)+QStringLiteral(" px"));controller_->settings()->setPreference(QStringLiteral("chat_outline_thickness"),value);applyOverlayAppearance();});
+    layout->addWidget(overlayAppearance);
 
     auto* fadeCard = new QFrame; fadeCard->setProperty("card", true);
     auto* fadeLayout = new QHBoxLayout(fadeCard);
@@ -607,7 +623,7 @@ QWidget* MainWindow::buildObsPage() {
 }
 
 QWidget* MainWindow::buildSettingsPage(){
-    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(12);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(12);scroll->setWidget(body);outer->addWidget(scroll);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
     layout->addWidget(label(QStringLiteral("Personalize Leapcast Studio. Changes stay inside their existing areas and are saved automatically."),"muted"));
 
@@ -624,22 +640,27 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(controlScale,&QSlider::valueChanged,this,[this,scaleValue](int value){scaleValue->setText(QString::number(value)+"%");controller_->settings()->setPreference("ui_control_scale",value);applyTheme();});
     layout->addWidget(appearance);
 
-    auto* overlayAppearance=new QFrame;overlayAppearance->setProperty("card",true);auto* overlayLayout=new QVBoxLayout(overlayAppearance);
-    overlayLayout->addWidget(label(QStringLiteral("CHAT OVERLAY APPEARANCE"),"cardTitle"));
-    overlayLayout->addWidget(label(QStringLiteral("Customize the shared OBS/pop-out background and the outline around chat lettering."),"muted"));
-    QColor overlayColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());if(!overlayColor.isValid())overlayColor=Qt::black;
-    auto* colorRow=new QHBoxLayout;colorRow->addWidget(label(QStringLiteral("Background color")));auto* colorButton=new QPushButton(overlayColor.name());colorButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(overlayColor.name(),overlayColor.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));colorRow->addWidget(colorButton);overlayLayout->addLayout(colorRow);
-    auto* opacityRow=new QHBoxLayout;opacityRow->addWidget(label(QStringLiteral("OBS overlay background opacity")));auto* overlayOpacity=new QSlider(Qt::Horizontal);overlayOpacity->setRange(0,100);overlayOpacity->setValue(controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt());opacityRow->addWidget(overlayOpacity,1);auto* overlayOpacityValue=label(QString::number(overlayOpacity->value())+QStringLiteral("%"));opacityRow->addWidget(overlayOpacityValue);overlayLayout->addLayout(opacityRow);
-    auto* outlineRow=new QHBoxLayout;outlineRow->addWidget(label(QStringLiteral("Chat font outline thickness")));auto* outline=new QSpinBox;outline->setRange(0,8);outline->setSuffix(QStringLiteral(" px"));outline->setValue(controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());outlineRow->addWidget(outline);overlayLayout->addLayout(outlineRow);
-    const auto applyOverlayAppearance=[this,overlayOpacity,outline]{const QColor color(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());overlay_->setAppearance(color,overlayOpacity->value(),outline->value());if(popout_)popout_->setAppearance(color,outline->value());};
-    connect(colorButton,&QPushButton::clicked,this,[this,colorButton,applyOverlayAppearance]{QColor current(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat overlay background color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("overlay_background_color"),chosen.name());colorButton->setText(chosen.name());colorButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));applyOverlayAppearance();});
-    connect(overlayOpacity,&QSlider::valueChanged,this,[this,overlayOpacityValue,applyOverlayAppearance](int value){overlayOpacityValue->setText(QString::number(value)+QStringLiteral("%"));controller_->settings()->setPreference(QStringLiteral("overlay_background_opacity"),value);applyOverlayAppearance();});
-    connect(outline,qOverload<int>(&QSpinBox::valueChanged),this,[this,applyOverlayAppearance](int value){controller_->settings()->setPreference(QStringLiteral("chat_outline_thickness"),value);applyOverlayAppearance();});
-    layout->addWidget(overlayAppearance);
+    auto* popoutAppearance=new QFrame;popoutAppearance->setProperty("card",true);auto* popoutLayout=new QVBoxLayout(popoutAppearance);
+    popoutLayout->addWidget(label(QStringLiteral("POP-OUT CHAT APPEARANCE"),"cardTitle"));
+    popoutLayout->addWidget(label(QStringLiteral("Customize only the separate Pop-out Chat window. These settings do not change the OBS browser source."),"muted"));
+    const QString savedPopoutFont=controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString();
+    auto* popoutFontRow=new QHBoxLayout;popoutFontRow->addWidget(label(QStringLiteral("Chat message font")));auto* popoutFont=new QFontComboBox;popoutFont->setCurrentFont(QFont(savedPopoutFont));popoutFontRow->addWidget(popoutFont,1);popoutLayout->addLayout(popoutFontRow);
+    auto* popoutSizeRow=new QHBoxLayout;popoutSizeRow->addWidget(label(QStringLiteral("Chat text size")));auto* popoutSize=new QSlider(Qt::Horizontal);popoutSize->setRange(8,36);popoutSize->setValue(controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());popoutSizeRow->addWidget(popoutSize,1);auto* popoutSizeValue=label(QString::number(popoutSize->value())+QStringLiteral(" pt"));popoutSizeRow->addWidget(popoutSizeValue);popoutLayout->addLayout(popoutSizeRow);
+    auto* popoutOutlineRow=new QHBoxLayout;popoutOutlineRow->addWidget(label(QStringLiteral("Chat text outline thickness")));auto* popoutOutline=new QSlider(Qt::Horizontal);popoutOutline->setRange(0,8);popoutOutline->setValue(controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt());popoutOutlineRow->addWidget(popoutOutline,1);auto* popoutOutlineValue=label(QString::number(popoutOutline->value())+QStringLiteral(" px"));popoutOutlineRow->addWidget(popoutOutlineValue);popoutLayout->addLayout(popoutOutlineRow);
+    auto* colourModeRow=new QHBoxLayout;colourModeRow->addWidget(label(QStringLiteral("Name color scheme")));auto* colourMode=new QComboBox;colourMode->addItem(QStringLiteral("Random color per chatter"),QStringLiteral("random"));colourMode->addItem(QStringLiteral("One specific color"),QStringLiteral("single"));const int colourModeIndex=colourMode->findData(controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")));colourMode->setCurrentIndex(qMax(0,colourModeIndex));colourModeRow->addWidget(colourMode,1);popoutLayout->addLayout(colourModeRow);
+    QColor nameColour(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());if(!nameColour.isValid())nameColour=QColor(QStringLiteral("#53cdf3"));
+    auto* nameColourRow=new QHBoxLayout;nameColourRow->addWidget(label(QStringLiteral("Specific name color")));auto* nameColourButton=new QPushButton(nameColour.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(nameColour.name(),nameColour.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));nameColourButton->setEnabled(colourMode->currentData().toString()==QStringLiteral("single"));nameColourRow->addWidget(nameColourButton);popoutLayout->addLayout(nameColourRow);
+    const auto applyPopoutAppearance=[this,popoutFont,popoutSize,popoutOutline]{if(popout_)popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),popoutOutline->value(),popoutFont->currentFont().family(),popoutSize->value());};
+    connect(popoutFont,&QFontComboBox::currentFontChanged,this,[this,applyPopoutAppearance](const QFont&font){controller_->settings()->setPreference(QStringLiteral("popout_font_family"),font.family());applyPopoutAppearance();});
+    connect(popoutSize,&QSlider::valueChanged,this,[this,popoutSizeValue,applyPopoutAppearance](int value){popoutSizeValue->setText(QString::number(value)+QStringLiteral(" pt"));controller_->settings()->setPreference(QStringLiteral("popout_font_size"),value);applyPopoutAppearance();});
+    connect(popoutOutline,&QSlider::valueChanged,this,[this,popoutOutlineValue,applyPopoutAppearance](int value){popoutOutlineValue->setText(QString::number(value)+QStringLiteral(" px"));controller_->settings()->setPreference(QStringLiteral("popout_outline_thickness"),value);applyPopoutAppearance();});
+    connect(colourMode,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,colourMode,nameColourButton](int){const QString mode=colourMode->currentData().toString();controller_->settings()->setPreference(QStringLiteral("chat_colour_mode"),mode);nameColourButton->setEnabled(mode==QStringLiteral("single"));});
+    connect(nameColourButton,&QPushButton::clicked,this,[this,nameColourButton]{QColor current(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat name color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("chat_name_colour"),chosen.name());nameColourButton->setText(chosen.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});
+    layout->addWidget(popoutAppearance);
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     auto* navText=new QVBoxLayout;navText->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navText->addWidget(label(QStringLiteral("Move a tab within the sidebar. Tabs cannot be moved into unrelated areas."),"muted"));navSettings->addLayout(navText,1);
-    auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key=="yt_shorts"?"Shorts":key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
+    auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key==QStringLiteral("obs")?QStringLiteral("Chat Overlay"):key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
     auto* up=new QPushButton(QStringLiteral("Move up"));auto* down=new QPushButton(QStringLiteral("Move down"));navSettings->addWidget(up);navSettings->addWidget(down);
     connect(up,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),-1);});
     connect(down,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),1);});layout->addWidget(navigation);
@@ -811,6 +832,22 @@ void MainWindow::showPostUpdateConnectionCheck(){
     controller_->settings()->setPreference(QStringLiteral("connection_check_version"),version);
 }
 
+QWidget* MainWindow::buildKeysPage() {
+    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(12);
+    layout->addWidget(label(QStringLiteral("CONNECTION KEYS"),"heroTitle"));
+    auto* notice=new QFrame;notice->setObjectName(QStringLiteral("keyNotice"));auto* noticeLayout=new QVBoxLayout(notice);
+    noticeLayout->addWidget(label(QStringLiteral("IMPORTANT — RELOAD KEYS AFTER EVERY UPDATE"),"cardTitle"));
+    auto* noticeText=label(QStringLiteral("For every Leapcast Studio update—and before using the software again—reload or reconnect the necessary Twitch and YouTube keys here. This keeps chat and moderation permissions working correctly."),"muted");noticeText->setWordWrap(true);noticeLayout->addWidget(noticeText);layout->addWidget(notice);
+    auto* columns=new QHBoxLayout;
+    const bool twitchAuthorized=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
+    auto* twitchCard=makePlatformCard(QStringLiteral("Twitch"),twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),QColor("#9146ff"),twitchAuthorized?QStringLiteral("Reload Twitch Key"):QStringLiteral("Connect Twitch"));
+    twitchCard->setProperty("platform",QStringLiteral("twitch"));twitchModerationStatus_=twitchCard->findChild<QLabel*>(QStringLiteral("cardStatus"));twitchConnectButton_=twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction"));columns->addWidget(twitchCard,1);connect(twitchConnectButton_,&QPushButton::clicked,this,&MainWindow::authorizeTwitch);
+    const bool youtubeAuthorized=!controller_->settings()->secret(QStringLiteral("youtube_access_token")).isEmpty();
+    auto* youtubeCard=makePlatformCard(QStringLiteral("YouTube"),youtubeAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your YouTube account"),QColor("#ff334f"),youtubeAuthorized?QStringLiteral("Reload YouTube Key"):QStringLiteral("Connect YouTube"),QStringLiteral("Get YouTube keys ↗"),QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
+    youtubeCard->setProperty("platform",QStringLiteral("youtube"));youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));columns->addWidget(youtubeCard,1);connect(youtubeConnectButton_,&QPushButton::clicked,this,&MainWindow::configureYouTubeModeration);
+    layout->addLayout(columns);layout->addStretch();return page;
+}
+
 QWidget* MainWindow::buildModerationPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
@@ -826,33 +863,11 @@ QWidget* MainWindow::buildModerationPage() {
 
     auto* columns = new QHBoxLayout;
     auto* left = new QVBoxLayout;
-    const bool twitchAuthorized=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
-    auto* twitchCard = makePlatformCard(QStringLiteral("Twitch"),
-                                        twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),
-                                        QColor("#9146ff"), twitchAuthorized?QStringLiteral("Reconnect Twitch"):QStringLiteral("Connect Twitch"));
-    twitchCard->setProperty("platform",QStringLiteral("twitch"));
-    twitchModerationStatus_=twitchCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
-    twitchConnectButton_=twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction"));
-    left->addWidget(twitchCard);
-    connect(twitchConnectButton_, &QPushButton::clicked, this, &MainWindow::authorizeTwitch);
-    const bool youtubeAuthorized=!controller_->settings()->secret(QStringLiteral("youtube_access_token")).isEmpty();
-    auto* youtubeCard = makePlatformCard(QStringLiteral("YouTube"),
-                                         youtubeAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your YouTube account"),
-                                         QColor("#ff334f"), youtubeAuthorized?QStringLiteral("Reconnect YouTube"):QStringLiteral("Connect YouTube"),
-                                         QStringLiteral("Get YouTube keys ↗"),
-                                         QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
-    youtubeCard->setProperty("platform",QStringLiteral("youtube"));
-    youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));
-    youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));
-    left->addWidget(youtubeCard);
-    connect(youtubeConnectButton_, &QPushButton::clicked, this, &MainWindow::configureYouTubeModeration);
-    left->addStretch();
     auto* right = new QVBoxLayout;
     auto* tiktokCard = makePlatformCard(QStringLiteral("TikTok"),
                                         QStringLiteral("Moderate directly on TikTok"),
                                         QColor("#18e0d5"), QStringLiteral("Open TikTok LIVE in browser"));
     tiktokCard->setProperty("platform",QStringLiteral("tiktok"));
-    right->addWidget(tiktokCard);
     connect(tiktokCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::openTikTokModeration);
     auto* automodCard = makePlatformCard(QStringLiteral("AutoMod"), QStringLiteral("Ready"),
@@ -881,6 +896,7 @@ QWidget* MainWindow::buildModerationPage() {
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
     }
+    left->addWidget(tiktokCard);left->addStretch();
     right->addStretch();
     columns->addLayout(left, 1); columns->addLayout(right, 1);
     layout->addLayout(columns, 1);
@@ -1020,7 +1036,7 @@ QWidget* MainWindow::buildChatDock() {
         if (popout_) return popout_;
         popout_ = new PopoutChat;
         popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 0).toInt());
-        popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
+        popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt(),controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString(),controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;
@@ -1065,8 +1081,9 @@ QWidget* MainWindow::buildChatDock() {
     });
 
     auto* popout = new QPushButton(QStringLiteral("Open Pop-out Chat"));
+    auto* clearPopout = new QPushButton(QStringLiteral("Clear Pop-out Chat"));
     popout->setProperty("primary", true);
-    layout->addWidget(popout);
+    auto* popoutButtons=new QHBoxLayout;popoutButtons->addWidget(popout,1);popoutButtons->addWidget(clearPopout);layout->addLayout(popoutButtons);
     connect(popout,&QPushButton::clicked,this,[this,ensurePopout]{
         auto* view = ensurePopout();
         view->setStreamlabsAlertAudio(
@@ -1074,6 +1091,7 @@ QWidget* MainWindow::buildChatDock() {
             QUrl(controller_->settings()->preference(QStringLiteral("streamlabs_alert_box_url")).toString()));
         view->show();view->raise();
     });
+    connect(clearPopout,&QPushButton::clicked,this,[ensurePopout]{ensurePopout()->clearMessages();});
     return dock;
 }
 
@@ -1086,7 +1104,7 @@ void MainWindow::applyTheme() {
         QMainWindow, QWidget { background:#0b0d15; }
         QFrame#navigationRail, QFrame#chatDock { background:#111522; border:1px solid #242b3d; border-radius:14px; }
         QLabel[role='brand'] { font-size:11pt; font-weight:800; color:#f8fbff; qproperty-alignment:AlignCenter; }
-        QLabel[role='version'] { font-size:7pt; color:#565f78; }
+        QLabel[role='version'] { background:#0b0e17; border-radius:5px; padding:4px; font-size:10pt; font-weight:700; color:#aeb8d0; }
         QLabel[role='pageTitle'] { font-size:11pt; font-weight:800; color:#f8fbff; }
         QLabel[role='heroTitle'] { font-size:17pt; font-weight:800; }
         QLabel[role='muted'], QLabel[role='status'] { color:#9ca7bf; }
@@ -1094,6 +1112,7 @@ void MainWindow::applyTheme() {
         QLabel[role='cardTitle'] { font-size:12pt; font-weight:700; }
         QFrame#safetyHero { background:#171d2d; border-left:5px solid #53cdf3; border-radius:12px; }
         QFrame#welcomeCard { background:#171d2d; border:1px solid #283149; border-left:5px solid #63e6be; border-radius:12px; padding:4px; }
+        QFrame#keyNotice { background:#2a2010; border:1px solid #775a20; border-left:5px solid #f6c85f; border-radius:12px; padding:4px; }
         QFrame#bansHero { background:#141a29; border:1px solid #28334a; border-left:5px solid #7667ef; border-radius:12px; }
         QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
         QPushButton { background:#20283a; border:0; border-radius:8px; padding:__VPAD__px __HPAD__px; font-weight:700; }

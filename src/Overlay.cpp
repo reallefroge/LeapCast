@@ -70,15 +70,15 @@ html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI'
 .m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}
 </style><main id=c></main><script>
 const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
-let n=0;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
+let n=0,clearGeneration=-1;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();if(clearGeneration<0)clearGeneration=d.clear_generation;else if(clearGeneration!==d.clear_generation){c.replaceChildren();clearGeneration=d.clear_generation}document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
 </script>)HTML";
 }
 OverlayServer::OverlayServer(QObject*p):QObject(p){connect(&server_,&QTcpServer::newConnection,this,&OverlayServer::accept);}
 bool OverlayServer::start(quint16 p){for(int i=0;i<20;++i)if(server_.listen(QHostAddress::LocalHost,p+i))return true;return false;} void OverlayServer::stop(){server_.close();}
-void OverlayServer::ingest(const ChatMessage&m){messages_.append({++cursor_,m});while(messages_.size()>400)messages_.removeFirst();} void OverlayServer::setViewers(const QString&p,int n){viewers_[p]=n;} void OverlayServer::clear(){messages_.clear();++cursor_;}
+void OverlayServer::ingest(const ChatMessage&m){messages_.append({++cursor_,m});while(messages_.size()>400)messages_.removeFirst();} void OverlayServer::setViewers(const QString&p,int n){viewers_[p]=n;} void OverlayServer::clear(){messages_.clear();++cursor_;++clearGeneration_;}
 void OverlayServer::setAppearance(const QColor&background,int opacity,int outline){backgroundColor_=background.isValid()?background:QColor(Qt::black);backgroundOpacityPercent_=qBound(0,opacity,100);outlineThickness_=qBound(0,outline,8);}
 void OverlayServer::accept(){while(auto*s=server_.nextPendingConnection()){connect(s,&QTcpSocket::readyRead,this,[this,s]{const QByteArray first=s->readAll().split('\n').value(0);s->write(responseFor(first.split(' ').value(1)));s->disconnectFromHost();});connect(s,&QTcpSocket::disconnected,s,&QObject::deleteLater);}}
-QByteArray OverlayServer::responseFor(const QByteArray&t){if(t=="/"||t.startsWith("/?"))return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith("/api/messages")){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}const QString bg=QStringLiteral("rgba(%1,%2,%3,%4)").arg(backgroundColor_.red()).arg(backgroundColor_.green()).arg(backgroundColor_.blue()).arg(QString::number(backgroundOpacityPercent_/100.0,'f',2));return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"fade_seconds",fadeSeconds_},{"background",bg},{"outline_thickness",outlineThickness_}}).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/viewers")){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}return reply(404,"text/plain","Not found");}
+QByteArray OverlayServer::responseFor(const QByteArray&t){if(t=="/"||t.startsWith("/?"))return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith("/api/messages")){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}const QString bg=QStringLiteral("rgba(%1,%2,%3,%4)").arg(backgroundColor_.red()).arg(backgroundColor_.green()).arg(backgroundColor_.blue()).arg(QString::number(backgroundOpacityPercent_/100.0,'f',2));return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"clear_generation",static_cast<qint64>(clearGeneration_)},{"fade_seconds",fadeSeconds_},{"background",bg},{"outline_thickness",outlineThickness_}}).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/viewers")){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}return reply(404,"text/plain","Not found");}
 PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     setObjectName(QStringLiteral("popoutWindow"));
     // The application theme gives every QWidget an opaque background.  A
@@ -220,13 +220,16 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     cursor.setCharFormat(messageFormat);
     const QString badges=badgeGlyphs(m.badges);
     // Chat lines remain unfilled so the game/stream is visible between and
-    // behind every message in both the pop-out and OBS overlay. Unlike the
-    // OBS overlay (a CSS text-shadow outline, which reads fine), a
-    // QTextDocument text-outline pen reads worse than plain white text at
-    // chat sizes — confirmed unreadable in testing — so the pop-out just
-    // skips it.
+    // behind every message. Font, size, and outline are applied after the
+    // rich-text colors so the user's Pop-out Chat settings win consistently.
+    const int messageStart=cursor.position();
     cursor.insertHtml(QString("<span style='background-color:transparent;color:#ffffff'>%1<b style='color:%2'>%3</b> <span style='color:#ffffff;font-weight:600'>%4</span></span>")
         .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
+    const int messageEnd=cursor.position();
+    cursor.setPosition(messageStart);cursor.setPosition(messageEnd,QTextCursor::KeepAnchor);
+    QTextCharFormat appearance;appearance.setFontFamily(fontFamily_);appearance.setFontPointSize(fontSizePoints_);
+    appearance.setTextOutline(outlineThickness_>0?QPen(QColor(QStringLiteral("#000000")),outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
+    cursor.mergeCharFormat(appearance);cursor.clearSelection();cursor.setPosition(messageEnd);
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
     trimChatBlocks(chat_->document());
@@ -323,17 +326,14 @@ void PopoutChat::setGhostMode(bool on){
 }
 void PopoutChat::setClearBackground(bool on){clearBackground_=on;applyOpacity();}
 void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(0,n,100);applyOpacity();}
-void PopoutChat::setAppearance(const QColor&background,int outline){backgroundColor_=background.isValid()?background:QColor(Qt::black);outlineThickness_=qBound(0,outline,8);applyOpacity();applyTextOutline();}
+void PopoutChat::setAppearance(const QColor&background,int outline,const QString&fontFamily,int fontSizePoints){backgroundColor_=background.isValid()?background:QColor(Qt::black);outlineThickness_=qBound(0,outline,8);fontFamily_=fontFamily.trimmed().isEmpty()?QStringLiteral("Segoe UI"):fontFamily;fontSizePoints_=qBound(8,fontSizePoints,36);applyOpacity();applyTextOutline();}
 void PopoutChat::applyTextOutline(){
-    // The "Chat font outline thickness" setting (outlineThickness_) still
-    // applies to the OBS overlay, but a QTextDocument text-outline pen reads
-    // worse than plain text at chat sizes here, so the pop-out never shows
-    // one regardless of that setting — just make sure any outline/margin
-    // formatting from before this change is cleared off the document.
     if(!chat_)return;
+    QFont font(fontFamily_);font.setPointSize(fontSizePoints_);chat_->setFont(font);chat_->document()->setDefaultFont(font);
     QTextCursor cursor(chat_->document());cursor.select(QTextCursor::Document);
     QTextCharFormat format;
-    format.setTextOutline(QPen(Qt::NoPen));
+    format.setFontFamily(fontFamily_);format.setFontPointSize(fontSizePoints_);
+    format.setTextOutline(outlineThickness_>0?QPen(QColor(QStringLiteral("#000000")),outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
     cursor.mergeCharFormat(format);
     QTextBlock block=chat_->document()->firstBlock();
     while(block.isValid()){

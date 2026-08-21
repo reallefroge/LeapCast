@@ -2,7 +2,7 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
-## Leapcast Studio 2.2.9
+## Leapcast Studio 2.2.10
 
 - Fixed AutoMod's blocked-word list not taking effect after editing it. "Edit blocked words" opens the list in your text editor and reloaded it immediately afterward — before you'd actually changed and saved anything — so edits only ever took effect after restarting the app. The list now reloads automatically the moment the file is saved.
 - AutoMod on Twitch now escalates repeat offenders within a broadcast instead of always issuing the same 300s timeout: a 300s timeout for offenses 1–5, a single 600s timeout for offense 6, then a permanent ban for anything after that. The count resets each time the channel goes live; AutoMod keeps moderating normally while the channel is offline in between.
