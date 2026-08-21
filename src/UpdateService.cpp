@@ -10,15 +10,46 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QVersionNumber>
 #include <QDir>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 constexpr auto OfficialReleaseApi =
     "https://api.github.com/repos/reallefroge/MultiStreamChat/releases/latest";
+
+QString quoteInstallerArgument(QString value){
+    value.replace(QLatin1Char('"'),QStringLiteral("\\\""));
+    return QStringLiteral("\"")+value+QStringLiteral("\"");
 }
 
-UpdateService::UpdateService(QObject* parent) : QObject(parent) {}
+bool launchInstallerElevated(const QString&path,const QStringList&arguments){
+#ifdef Q_OS_WIN
+    const QString parameters=[&]{QStringList quoted;for(const auto&arg:arguments)quoted<<quoteInstallerArgument(arg);return quoted.join(QLatin1Char(' '));}();
+    SHELLEXECUTEINFOW info{};info.cbSize=sizeof(info);info.fMask=SEE_MASK_NOCLOSEPROCESS;
+    info.lpVerb=L"runas";const std::wstring file=QDir::toNativeSeparators(path).toStdWString();const std::wstring params=parameters.toStdWString();
+    info.lpFile=file.c_str();info.lpParameters=params.c_str();info.nShow=SW_SHOWNORMAL;
+    const bool launched=ShellExecuteExW(&info)!=FALSE;
+    if(info.hProcess)CloseHandle(info.hProcess);
+    return launched;
+#else
+    return QProcess::startDetached(path,arguments);
+#endif
+}
+}
+
+UpdateService::UpdateService(QObject* parent) : QObject(parent) {
+    downloadTimeout_.setSingleShot(true);
+    downloadTimeout_.setInterval(180000);
+    connect(&downloadTimeout_,&QTimer::timeout,this,[this]{
+        if(activeDownload_)activeDownload_->abort();
+    });
+}
 
 void UpdateService::check(bool userInitiated) {
     userInitiated_ = userInitiated;
@@ -73,11 +104,16 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setRawHeader("User-Agent", "LeapcastStudio-Updater");
     auto* reply = network_.get(request);
+    activeDownload_=reply;
+    downloadTimeout_.start();
     connect(reply, &QNetworkReply::downloadProgress, this, &UpdateService::progress);
     connect(reply, &QNetworkReply::finished, this, [this, reply, name, expectedDigest] {
+        const bool timedOut=!downloadTimeout_.isActive();
+        downloadTimeout_.stop();
+        if(activeDownload_==reply)activeDownload_=nullptr;
         const QByteArray data = reply->readAll();
         if (reply->error() != QNetworkReply::NoError) {
-            emit failed(reply->errorString()); reply->deleteLater(); return;
+            emit failed(timedOut?QStringLiteral("The update download timed out. Leapcast Studio will open normally so you can try again."):reply->errorString()); reply->deleteLater(); return;
         }
         if (expectedDigest.startsWith(QStringLiteral("sha256:"), Qt::CaseInsensitive)) {
             const QString actual = QString::fromLatin1(
@@ -110,42 +146,22 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
             QStringLiteral("/CLOSEAPPLICATIONS"),
             QStringLiteral("/SP-"),
             QStringLiteral("/UPDATE"),
+            QStringLiteral("/DIR=%1").arg(QDir::toNativeSeparators(QCoreApplication::applicationDirPath())),
             QStringLiteral("/LOG=%1").arg(QDir::toNativeSeparators(logPath))
         };
-        // Do not let the installer race the still-running application. A tiny
-        // detached handoff waits for this exact process to exit, installs in
-        // place, then explicitly relaunches the installed executable. The
-        // fallback relaunch also runs when Setup returns a non-zero code, so a
-        // failed update does not leave the streamer wondering where the app went.
-        const qint64 pid=QCoreApplication::applicationPid();
-        const QString installedExe=QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-        const QString helperPath=tempDirectory.filePath(QStringLiteral("LeapcastStudio-Update.cmd"));
         // Keep a recovery copy of account settings outside the install folder.
         // Normal upgrades never touch AppData, but this also protects against a
         // damaged installer or an over-aggressive older uninstaller.
         const QString settingsPath=QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("settings.json"));
         const QString settingsBackup=settingsPath+QStringLiteral(".update-backup");
         if(QFile::exists(settingsPath)){QFile::remove(settingsBackup);QFile::copy(settingsPath,settingsBackup);}
-        QFile helper(helperPath);
-        if(!helper.open(QIODevice::WriteOnly|QIODevice::Truncate|QIODevice::Text)){
-            emit failed(QStringLiteral("Could not create the update handoff."));reply->deleteLater();return;
-        }
-        auto quote=[](QString value){value.replace(QLatin1Char('"'),QStringLiteral("\"\""));return QStringLiteral("\"")+value+QStringLiteral("\"");};
-        QStringList quotedArgs;for(const auto&argument:arguments)quotedArgs<<quote(argument);
-        const QString script=QStringLiteral(
-            "@echo off\r\n"
-            "setlocal\r\n"
-            ":wait_for_app\r\n"
-            "tasklist /FI \"PID eq %1\" /NH 2>NUL | find \"%1\" >NUL\r\n"
-            "if not errorlevel 1 (ping 127.0.0.1 -n 2 >NUL & goto wait_for_app)\r\n"
-            "start \"\" /wait %2 %3\r\n"
-            "if exist %4 start \"\" %4\r\n"
-            "del \"%%~f0\"\r\n")
-            .arg(pid).arg(quote(QDir::toNativeSeparators(path)),quotedArgs.join(QLatin1Char(' ')),quote(installedExe));
-        helper.write(script.toLocal8Bit());helper.close();
-        if (!QProcess::startDetached(QStringLiteral("cmd.exe"),
-                {QStringLiteral("/D"),QStringLiteral("/S"),QStringLiteral("/C"),QDir::toNativeSeparators(helperPath)})) {
-            emit failed(QStringLiteral("Could not launch the update handoff."));
+        // Launch the verified installer directly. This avoids the old .cmd
+        // handoff, whose quoting/UAC boundary could leave the splash screen at
+        // 100% or close the app without ever running Setup. Inno Setup waits
+        // for this process to release its files, and its [Run] entry relaunches
+        // Leapcast Studio after either an automatic or manual installation.
+        if (!launchInstallerElevated(path,arguments)) {
+            emit failed(QStringLiteral("Windows could not launch the downloaded installer. Leapcast Studio will remain open."));
             reply->deleteLater(); return;
         }
         reply->deleteLater();

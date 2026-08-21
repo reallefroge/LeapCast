@@ -6,6 +6,7 @@
 #include <QMainWindow>
 #include <QPoint>
 #include <QUrl>
+#include <QJsonArray>
 
 class QStackedWidget;
 class QTabWidget;
@@ -58,6 +59,8 @@ private:
     // idea as PopoutChat::showChatContextMenu, kept separate since it acts on
     // a different QTextBrowser (and its own message-id history) per tab.
     void showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos);
+    void reviewTwitchAppeal(bool approve);
+    void showPostUpdateConnectionCheck();
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
@@ -83,6 +86,7 @@ private:
     QListWidget* youtubeBans_{};
     QListWidget* twitchAppeals_{};
     QTextBrowser* twitchAppealHistory_{};
+    QJsonArray twitchBansCache_;
     // Getting-started card shown on the Sources page only while every link is
     // still blank (a fresh install). Hidden for good after the first source
     // connects successfully.

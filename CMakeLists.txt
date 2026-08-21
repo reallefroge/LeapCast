@@ -49,7 +49,7 @@ qt_add_executable(LeapcastStudio WIN32
 
 if(WIN32)
     target_sources(LeapcastStudio PRIVATE resources/LeapcastStudio.rc)
-    target_link_libraries(LeapcastStudio PRIVATE user32)
+    target_link_libraries(LeapcastStudio PRIVATE user32 shell32)
 endif()
 
 target_include_directories(LeapcastStudio PRIVATE

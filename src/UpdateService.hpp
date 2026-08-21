@@ -2,6 +2,7 @@
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 
 class QNetworkReply;
@@ -24,5 +25,7 @@ signals:
     void failed(const QString& detail);
 private:
     QNetworkAccessManager network_;
+    QNetworkReply* activeDownload_{};
+    QTimer downloadTimeout_;
     bool userInitiated_{};
 };

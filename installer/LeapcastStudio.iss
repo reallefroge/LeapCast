@@ -15,7 +15,7 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 UninstallDisplayName={#AppName}
-DefaultDirName={autopf}\Leapcast Studio
+DefaultDirName={pf64}\Leapcast Studio
 DefaultGroupName={#AppName}
 OutputBaseFilename=LeapcastStudio-Setup-{#AppVersion}
 VersionInfoVersion={#AppVersion}
@@ -23,7 +23,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 WizardStyle=modern
 WizardResizable=no
 DisableProgramGroupPage=yes
@@ -52,4 +52,4 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\LeapcastStudio.exe"; IconFile
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Run]
-Filename: "{app}\LeapcastStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\LeapcastStudio.exe"; Description: "Launch {#AppName}"; Flags: nowait runasoriginaluser
