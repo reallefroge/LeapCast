@@ -98,6 +98,8 @@ void TwitchAuthService::validateToken(const QString&accessToken,const QString&re
         const auto object=QJsonDocument::fromJson(payload).object();
         const QString userId=object.value("user_id").toString();
         if(userId.isEmpty()){finishWithError(QStringLiteral("Twitch did not identify the authorized account."));reply->deleteLater();return;}
+        QStringList grantedScopes;for(const auto&value:object.value("scopes").toArray())grantedScopes<<value.toString();
+        emit scopesValidated(grantedScopes);
         accessToken_=accessToken;refreshToken_=refreshTokenValue;
         const int expiresIn=object.value("expires_in").toInt();
         if(!refreshToken_.isEmpty()&&expiresIn>0)

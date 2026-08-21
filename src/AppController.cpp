@@ -42,6 +42,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&twitchMod_,&TwitchModerationService::clipCreated,this,[this](const QString&,const QUrl&editUrl){emit twitchClipCreated(editUrl);});
     connect(&youtubeMod_,&YouTubeModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("youtube",ok,d);});
     connect(&twitchAuth_,&TwitchAuthService::browserAuthorizationReady,this,&AppController::twitchAuthorizationUrl);
+    connect(&twitchAuth_,&TwitchAuthService::scopesValidated,this,[this](const QStringList&scopes){settings_.setPreference(QStringLiteral("twitch_authorized_scopes"),scopes);});
     connect(&twitchAuth_,&TwitchAuthService::authorizationPending,this,[this]{emit sourceStatus("twitch","connecting","Waiting for Twitch approval…");});
     connect(&twitchAuth_,&TwitchAuthService::authorizationFailed,this,[this](const QString&detail){
         emit sourceStatus("twitch","error",detail);
@@ -84,7 +85,15 @@ void AppController::connectStreamlabs(const QString&t){settings_.setSecret("stre
 void AppController::disconnectStreamlabs(){streamlabs_.disconnectService();settings_.setSecret("streamlabs_socket_token",QString());}
 void AppController::refreshBans(const QString&p){if(p=="twitch"){const QString id=settings_.secret("twitch_broadcaster_id");if(id.isEmpty()){emit moderationResult("twitch",false,"Connect Twitch and configure moderation first.");return;}twitchMod_.listBans(id);}else if(p=="youtube")emit bansUpdated("youtube",youtubeRestrictions_);}
 void AppController::unbanTwitch(const QString&u){const QString id=settings_.secret("twitch_broadcaster_id");if(!id.isEmpty()&&!u.isEmpty()){twitchMod_.unban(id,u);QTimer::singleShot(800,this,[this]{refreshBans("twitch");});}}
-void AppController::resolveTwitchAppeal(const QString&requestId,bool approved,const QString&resolutionText){const QString broadcaster=settings_.secret("twitch_broadcaster_id");if(!broadcaster.isEmpty()&&!requestId.isEmpty())twitchMod_.resolveUnbanRequest(broadcaster,requestId,approved,resolutionText);}
+void AppController::resolveTwitchAppeal(const QString&requestId,bool approved,const QString&resolutionText){
+    const QStringList scopes=settings_.preference(QStringLiteral("twitch_authorized_scopes")).toStringList();
+    if(!scopes.contains(QStringLiteral("moderator:manage:unban_requests"))){
+        emit moderationResult(QStringLiteral("twitch"),false,QStringLiteral("TWITCH_SCOPE_UPGRADE_REQUIRED"));
+        return;
+    }
+    const QString broadcaster=settings_.secret("twitch_broadcaster_id");
+    if(!broadcaster.isEmpty()&&!requestId.isEmpty())twitchMod_.resolveUnbanRequest(broadcaster,requestId,approved,resolutionText);
+}
 void AppController::createTwitchClip(){
     const QString broadcaster=settings_.secret("twitch_broadcaster_id");
     if(settings_.secret("twitch_access_token").isEmpty()||broadcaster.isEmpty()){

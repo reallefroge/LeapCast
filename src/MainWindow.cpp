@@ -266,6 +266,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(controller_, &AppController::moderationResult, this,
             [this](const QString& platform, bool success, const QString& detail) {
         if (success) { lastModerationWarning_.remove(platform); return; }
+        const bool appealScopeMissing=platform==QStringLiteral("twitch")&&
+            (detail==QStringLiteral("TWITCH_SCOPE_UPGRADE_REQUIRED")||
+             detail.contains(QStringLiteral("moderator:manage:unban_requests"),Qt::CaseInsensitive));
+        if(appealScopeMissing){
+            lastModerationWarning_.remove(platform);
+            const auto answer=QMessageBox::question(this,QStringLiteral("Twitch permission needed"),
+                QStringLiteral("Twitch has not granted Leapcast Studio permission to approve or deny appeals yet.\n\nReconnect Twitch once to add the Appeals permission. Your channel and local settings will stay saved.\n\nReconnect Twitch now?"),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::Yes);
+            if(answer==QMessageBox::Yes)authorizeTwitch();
+            return;
+        }
         // AutoMod retries a moderation action on every matching chat message;
         // once we've told the user about a given failure (e.g. "not a moderator
         // on that channel"), don't reopen the same dialog for every repeat.
