@@ -64,6 +64,12 @@ public:
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;
+    // AutoMod's Twitch timeout escalation, keyed by Twitch user id: offenses
+    // 1-5 in a broadcast are a 300s timeout, offense 6 is a single 600s
+    // timeout, and offense 7+ is a permanent ban. Reset when the channel
+    // transitions from offline to live (see TwitchChatService::broadcastWentLive) —
+    // AutoMod itself keeps moderating while offline, only the ladder resets.
+    QHash<QString,int> twitchAutoModOffenses_;
     // Per-broadcast name colours. Assigned on a chatter's first message and
     // reused for every later message from that same platform account.
     QHash<QString,QColor> broadcastUserColours_;

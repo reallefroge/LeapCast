@@ -2,6 +2,12 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 2.2.9
+
+- Fixed AutoMod's blocked-word list not taking effect after editing it. "Edit blocked words" opens the list in your text editor and reloaded it immediately afterward — before you'd actually changed and saved anything — so edits only ever took effect after restarting the app. The list now reloads automatically the moment the file is saved.
+- AutoMod on Twitch now escalates repeat offenders within a broadcast instead of always issuing the same 300s timeout: a 300s timeout for offenses 1–5, a single 600s timeout for offense 6, then a permanent ban for anything after that. The count resets each time the channel goes live; AutoMod keeps moderating normally while the channel is offline in between.
+- Added a "YouTube AutoMod timeout" setting (Moderation page) so moderators can choose how long AutoMod times a YouTube/Shorts chatter out for, from 300 to 86400 seconds (24 hours), instead of a fixed 300s.
+
 ## Leapcast Studio 2.2.8
 
 - Removed the pop-out chat's text outline entirely — testing showed it rendering worse (chopped/unreadable) than plain text, unlike the OBS overlay's CSS outline, which is unaffected and unchanged. The "Chat font outline thickness" setting still applies to the OBS overlay only.

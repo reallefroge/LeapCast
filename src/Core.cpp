@@ -99,7 +99,12 @@ void SettingsStore::setModeration(const QJsonObject&v){root_["moderation"]=v;sav
 QString SettingsStore::dataDirectory()const{return directory_;}
 bool SettingsStore::save(){QSaveFile f(path_);if(!f.open(QIODevice::WriteOnly))return false;f.write(QJsonDocument(root_).toJson(QJsonDocument::Indented));if(!f.commit())return false;emit changed();return true;}
 
-AutoMod::AutoMod(SettingsStore*s,QObject*p):QObject(p),settings_(s){path_=s->dataDirectory()+"/blocked_words.txt";if(!QFile::exists(path_)){QFile f(path_);if(f.open(QIODevice::WriteOnly))f.write("# Add one word or phrase per line.\n# Leetspeak, separators, repeated letters and Unicode bypasses are checked.\n");}reload();}
+AutoMod::AutoMod(SettingsStore*s,QObject*p):QObject(p),settings_(s){path_=s->dataDirectory()+"/blocked_words.txt";if(!QFile::exists(path_)){QFile f(path_);if(f.open(QIODevice::WriteOnly))f.write("# Add one word or phrase per line.\n# Leetspeak, separators, repeated letters and Unicode bypasses are checked.\n");}reload();watcher_.addPath(path_);connect(&watcher_,&QFileSystemWatcher::fileChanged,this,[this](const QString&changedPath){
+    reload();
+    // Most editors (Notepad included) save by replacing the file, which drops
+    // it from the watch list — re-add it so further edits keep reloading.
+    if(!watcher_.files().contains(changedPath)&&QFile::exists(changedPath))watcher_.addPath(changedPath);
+});}
 
 QString AutoMod::latinize(const QString& input){
     static const QHash<QChar,QChar> map{{'@','a'},{'4','a'},{'3','e'},{'1','i'},{'!','i'},{'0','o'},{'$','s'},{'5','s'},{'7','t'},{'+','t'},{'8','b'},{'9','g'},

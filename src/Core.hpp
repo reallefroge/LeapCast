@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QDateTime>
+#include <QFileSystemWatcher>
 #include <QHash>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -96,6 +97,11 @@ private:
     QList<Term> terms_;
     QHash<QString, QQueue<QPair<qint64, QString>>> recentByUser_;
     QMutex mutex_;
+    // Watches blocked_words.txt so edits made in the external editor opened by
+    // "Edit blocked words" take effect immediately, instead of only on the
+    // next app restart — previously reload() only ran once, right when the
+    // file was opened and before the user had changed anything in it.
+    QFileSystemWatcher watcher_;
 };
 
 class AuditStore final : public QObject {
