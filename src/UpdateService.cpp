@@ -28,19 +28,22 @@ QString quoteInstallerArgument(QString value){
     return QStringLiteral("\"")+value+QStringLiteral("\"");
 }
 
-bool launchInstallerElevated(const QString&path,const QStringList&arguments){
 #ifdef Q_OS_WIN
+bool launchInstallerElevated(const QString&path,const QStringList&arguments,DWORD*outPid=nullptr){
     const QString parameters=[&]{QStringList quoted;for(const auto&arg:arguments)quoted<<quoteInstallerArgument(arg);return quoted.join(QLatin1Char(' '));}();
     SHELLEXECUTEINFOW info{};info.cbSize=sizeof(info);info.fMask=SEE_MASK_NOCLOSEPROCESS;
     info.lpVerb=L"runas";const std::wstring file=QDir::toNativeSeparators(path).toStdWString();const std::wstring params=parameters.toStdWString();
     info.lpFile=file.c_str();info.lpParameters=params.c_str();info.nShow=SW_SHOWNORMAL;
     const bool launched=ShellExecuteExW(&info)!=FALSE;
+    if(launched&&outPid)*outPid=GetProcessId(info.hProcess);
     if(info.hProcess)CloseHandle(info.hProcess);
     return launched;
-#else
-    return QProcess::startDetached(path,arguments);
-#endif
 }
+#else
+bool launchInstallerElevated(const QString&path,const QStringList&arguments){
+    return QProcess::startDetached(path,arguments);
+}
+#endif
 }
 
 UpdateService::UpdateService(QObject* parent) : QObject(parent) {
@@ -157,13 +160,40 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
         if(QFile::exists(settingsPath)){QFile::remove(settingsBackup);QFile::copy(settingsPath,settingsBackup);}
         // Launch the verified installer directly. This avoids the old .cmd
         // handoff, whose quoting/UAC boundary could leave the splash screen at
-        // 100% or close the app without ever running Setup. Inno Setup waits
-        // for this process to release its files, and its [Run] entry relaunches
-        // Leapcast Studio after either an automatic or manual installation.
+        // 100% or close the app without ever running Setup. Inno Setup's own
+        // [Run] entry (runasoriginaluser) is meant to relaunch Leapcast Studio
+        // afterward, but that depends on Windows correctly recovering "the
+        // original user" from our elevated installer process, which isn't
+        // always reliable — when it silently fails, nothing reopens after a
+        // silent auto-update.
+#ifdef Q_OS_WIN
+        DWORD installerPid=0;
+        const bool launched=launchInstallerElevated(path,arguments,&installerPid);
+        if (!launched) {
+            emit failed(QStringLiteral("Windows could not launch the downloaded installer. Leapcast Studio will remain open."));
+            reply->deleteLater(); return;
+        }
+        // Belt-and-suspenders fallback: wait for the installer process to
+        // exit, then relaunch the app ourselves from a detached, unelevated
+        // helper if Inno's own relaunch didn't already do it. This runs as
+        // the current (non-elevated) user, same as this process.
+        if (installerPid!=0) {
+            const QString exePath=QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+            QProcess::startDetached(QStringLiteral("powershell.exe"),{
+                QStringLiteral("-NoProfile"),QStringLiteral("-WindowStyle"),QStringLiteral("Hidden"),
+                QStringLiteral("-Command"),
+                QStringLiteral(
+                    "Wait-Process -Id %1 -Timeout 300 -ErrorAction SilentlyContinue; "
+                    "Start-Sleep -Seconds 1; "
+                    "if (-not (Get-Process -Name LeapcastStudio -ErrorAction SilentlyContinue)) { Start-Process -FilePath '%2' }"
+                ).arg(installerPid).arg(exePath)});
+        }
+#else
         if (!launchInstallerElevated(path,arguments)) {
             emit failed(QStringLiteral("Windows could not launch the downloaded installer. Leapcast Studio will remain open."));
             reply->deleteLater(); return;
         }
+#endif
         reply->deleteLater();
         QCoreApplication::quit();
     });
