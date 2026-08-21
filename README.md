@@ -32,19 +32,19 @@ Everything stays inside one focused Windows app, so you can watch the conversati
 
 Add each channel independently and switch between the combined feed or branded platform tabs.
 
-![Leapcast Studio Sources page](https://raw.githubusercontent.com/reallefroge/LeapCast/main/leapcast-sources.png)
+![Leapcast Studio Sources page](https://raw.githubusercontent.com/reallefroge/LeapCast/58ceeb2656c2760ce9bd74fcd695b6a57805a501/leapcast-sources.png)
 
 ### Bring alerts into the conversation
 
 Streamlabs and Rumble activity appears in the preview and pop-out without entering the OBS chat feed.
 
-![Leapcast Studio Events page](https://raw.githubusercontent.com/reallefroge/LeapCast/main/leapcast-events.png)
+![Leapcast Studio Events page](https://raw.githubusercontent.com/reallefroge/LeapCast/58ceeb2656c2760ce9bd74fcd695b6a57805a501/leapcast-events.png)
 
 ### Moderate from one safety center
 
 Manage blocked words, Twitch AutoMod timing, TikTok LIVE controls, and supported moderation shortcuts.
 
-![Leapcast Studio Creator Safety Center](https://raw.githubusercontent.com/reallefroge/LeapCast/main/leapcast-moderation.png)
+![Leapcast Studio Creator Safety Center](https://raw.githubusercontent.com/reallefroge/LeapCast/58ceeb2656c2760ce9bd74fcd695b6a57805a501/leapcast-moderation.png)
 
 > [!NOTE]
 > Rumble currently opens its own live-chat moderation page because Rumble does not provide the required moderation API. Kick moderation remains hidden until authenticated API support is available.
@@ -53,19 +53,19 @@ Manage blocked words, Twitch AutoMod timing, TikTok LIVE controls, and supported
 
 Inspect supported restrictions, view details, refresh the list, and remove bans from a focused workspace.
 
-![Leapcast Studio Bans and Timeouts page](https://raw.githubusercontent.com/reallefroge/LeapCast/main/leapcast-bans.png)
+![Leapcast Studio Bans and Timeouts page](https://raw.githubusercontent.com/reallefroge/LeapCast/58ceeb2656c2760ce9bd74fcd695b6a57805a501/leapcast-bans.png)
 
 ### Shape the overlay around your stream
 
 Copy the browser-source URL, send a test message, clear the feed, change opacity, adjust text outlines, and control message fading.
 
-![Leapcast Studio Chat Overlay page](https://raw.githubusercontent.com/reallefroge/LeapCast/main/leapcast-chat-overlay.png)
+![Leapcast Studio Chat Overlay page](https://raw.githubusercontent.com/reallefroge/LeapCast/58ceeb2656c2760ce9bd74fcd695b6a57805a501/leapcast-chat-overlay.png)
 
 ### Make it yours
 
 Adjust app scaling, pop-out fonts, name colors, outline thickness, platform visibility, and sidebar order.
 
-![Leapcast Studio Settings page](https://raw.githubusercontent.com/reallefroge/LeapCast/main/leapcast-settings.png)
+![Leapcast Studio Settings page](https://raw.githubusercontent.com/reallefroge/LeapCast/58ceeb2656c2760ce9bd74fcd695b6a57805a501/leapcast-settings.png)
 
 ## 🚀 Quick start
 
