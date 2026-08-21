@@ -12,6 +12,7 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QColorDialog>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTime>
@@ -125,6 +126,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     overlay_ = new OverlayServer(this);
     overlay_->start(static_cast<quint16>(controller_->settings()->preference(QStringLiteral("port"),8080).toInt()));
     overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"), 0).toInt());
+    overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
     updater_ = new UpdateService(this);
 
     auto* splitter = new QSplitter(Qt::Horizontal);
@@ -622,6 +624,19 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(controlScale,&QSlider::valueChanged,this,[this,scaleValue](int value){scaleValue->setText(QString::number(value)+"%");controller_->settings()->setPreference("ui_control_scale",value);applyTheme();});
     layout->addWidget(appearance);
 
+    auto* overlayAppearance=new QFrame;overlayAppearance->setProperty("card",true);auto* overlayLayout=new QVBoxLayout(overlayAppearance);
+    overlayLayout->addWidget(label(QStringLiteral("CHAT OVERLAY APPEARANCE"),"cardTitle"));
+    overlayLayout->addWidget(label(QStringLiteral("Customize the shared OBS/pop-out background and the outline around chat lettering."),"muted"));
+    QColor overlayColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());if(!overlayColor.isValid())overlayColor=Qt::black;
+    auto* colorRow=new QHBoxLayout;colorRow->addWidget(label(QStringLiteral("Background color")));auto* colorButton=new QPushButton(overlayColor.name());colorButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(overlayColor.name(),overlayColor.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));colorRow->addWidget(colorButton);overlayLayout->addLayout(colorRow);
+    auto* opacityRow=new QHBoxLayout;opacityRow->addWidget(label(QStringLiteral("OBS overlay background opacity")));auto* overlayOpacity=new QSlider(Qt::Horizontal);overlayOpacity->setRange(0,100);overlayOpacity->setValue(controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt());opacityRow->addWidget(overlayOpacity,1);auto* overlayOpacityValue=label(QString::number(overlayOpacity->value())+QStringLiteral("%"));opacityRow->addWidget(overlayOpacityValue);overlayLayout->addLayout(opacityRow);
+    auto* outlineRow=new QHBoxLayout;outlineRow->addWidget(label(QStringLiteral("Chat font outline thickness")));auto* outline=new QSpinBox;outline->setRange(0,8);outline->setSuffix(QStringLiteral(" px"));outline->setValue(controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());outlineRow->addWidget(outline);overlayLayout->addLayout(outlineRow);
+    const auto applyOverlayAppearance=[this,overlayOpacity,outline]{const QColor color(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());overlay_->setAppearance(color,overlayOpacity->value(),outline->value());if(popout_)popout_->setAppearance(color,outline->value());};
+    connect(colorButton,&QPushButton::clicked,this,[this,colorButton,applyOverlayAppearance]{QColor current(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat overlay background color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("overlay_background_color"),chosen.name());colorButton->setText(chosen.name());colorButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));applyOverlayAppearance();});
+    connect(overlayOpacity,&QSlider::valueChanged,this,[this,overlayOpacityValue,applyOverlayAppearance](int value){overlayOpacityValue->setText(QString::number(value)+QStringLiteral("%"));controller_->settings()->setPreference(QStringLiteral("overlay_background_opacity"),value);applyOverlayAppearance();});
+    connect(outline,qOverload<int>(&QSpinBox::valueChanged),this,[this,applyOverlayAppearance](int value){controller_->settings()->setPreference(QStringLiteral("chat_outline_thickness"),value);applyOverlayAppearance();});
+    layout->addWidget(overlayAppearance);
+
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     auto* navText=new QVBoxLayout;navText->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navText->addWidget(label(QStringLiteral("Move a tab within the sidebar. Tabs cannot be moved into unrelated areas."),"muted"));navSettings->addLayout(navText,1);
     auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key=="yt_shorts"?"Shorts":key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
@@ -983,7 +998,8 @@ QWidget* MainWindow::buildChatDock() {
     const auto ensurePopout = [this] {
         if (popout_) return popout_;
         popout_ = new PopoutChat;
-        popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 80).toInt());
+        popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 0).toInt());
+        popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;
@@ -1002,7 +1018,7 @@ QWidget* MainWindow::buildChatDock() {
         return popout_;
     };
 
-    const int savedOpacity = controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 80).toInt();
+    const int savedOpacity = controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 0).toInt();
     auto* opacityRow = new QHBoxLayout;
     opacityRow->addWidget(label(QStringLiteral("Pop-out opacity")));
     popoutOpacity_ = new QSlider(Qt::Horizontal);

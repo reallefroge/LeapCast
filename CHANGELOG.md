@@ -2,10 +2,12 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
-## Leapcast Studio 2.2.5
+## Leapcast Studio 2.2.3
 
 - Fixed pop-out chat messages becoming unreadable over white or bright backgrounds.
-- Added a compact high-contrast backing behind each chat line while preserving persistent random username colors.
+- Removed forced message backing boxes from the OBS overlay and pop-out.
+- Added persistent background color, OBS background opacity, and 0–8 px chat-font outline controls under Settings.
+- Made new pop-outs start at 0% opacity and remain correctly transparent through repeated resizing.
 
 ---
 

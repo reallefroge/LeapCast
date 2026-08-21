@@ -7,6 +7,7 @@
 #include <QTcpServer>
 #include <QTextBrowser>
 #include <QWidget>
+class QResizeEvent;
 class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
@@ -60,6 +61,8 @@ public:
     void ingest(const ChatMessage& message);
     void setViewers(const QString& platform, int count);
     void setFadeSeconds(int seconds) { fadeSeconds_ = qMax(0, seconds); }
+    void setAppearance(const QColor& background, int backgroundOpacityPercent,
+                       int outlineThickness);
     int fadeSeconds() const { return fadeSeconds_; }
     void clear();
 
@@ -71,6 +74,9 @@ private:
     QHash<QString, int> viewers_;
     quint64 cursor_{};
     int fadeSeconds_{};
+    QColor backgroundColor_{Qt::black};
+    int backgroundOpacityPercent_{};
+    int outlineThickness_{2};
 };
 
 class PopoutChat final : public QWidget, public QAbstractNativeEventFilter {
@@ -94,6 +100,7 @@ public:
     // Percent opacity of the chat/viewer panel backgrounds only; message text and
     // Streamlabs alerts always stay fully opaque so they remain readable.
     void setOpacityPercent(int percent);
+    void setAppearance(const QColor& background, int outlineThickness);
     int opacityPercent() const { return opacityPercent_; }
     void clearMessages();
     void setStreamlabsAlertAudio(bool enabled, const QUrl& alertBoxUrl);
@@ -114,9 +121,11 @@ signals:
 
 protected:
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void applyOpacity();
+    void applyTextOutline();
     void registerRestoreHotkeys();
     void unregisterRestoreHotkeys();
     void showChatContextMenu(const QPoint& globalPos);
@@ -136,7 +145,11 @@ private:
     qint64 nextMessageSeq_{};
     QStackedLayout* chatStack_{};
     QWebEngineView* alertView_{};
-    int opacityPercent_{80};
+    // A new installation opens as a true transparent chat overlay. Existing
+    // users who deliberately saved another value still keep that preference.
+    int opacityPercent_{0};
+    QColor backgroundColor_{Qt::black};
+    int outlineThickness_{2};
     bool ghostMode_{};
     bool hotkeysRegistered_{};
     bool clearBackground_{};

@@ -5,6 +5,7 @@
 #include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QFrame>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QHBoxLayout>
@@ -13,7 +14,9 @@
 #include <QInputDialog>
 #include <QMenu>
 #include <QPalette>
+#include <QPen>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QStackedLayout>
 #include <QTcpSocket>
 #include <QTextBlock>
@@ -22,6 +25,8 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextFrame>
+#include <QTextFrameFormat>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -56,21 +61,29 @@ constexpr int kRestoreHotkeyAltC = 0xC202;
 QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "HTTP/1.1 "+QByteArray::number(code)+(code==200?" OK\r\n":" Not Found\r\n")+"Content-Type: "+type+"\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: "+QByteArray::number(body.size())+"\r\nConnection: close\r\n\r\n"+body;}
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
 html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif;color:white}
-.m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:#101522d9;text-shadow:0 1px 3px #000;opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}
+.m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}
 .m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}
 </style><main id=c></main><script>
-const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}
-let n=0;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
+const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
+let n=0;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
 </script>)HTML";
 }
 OverlayServer::OverlayServer(QObject*p):QObject(p){connect(&server_,&QTcpServer::newConnection,this,&OverlayServer::accept);}
 bool OverlayServer::start(quint16 p){for(int i=0;i<20;++i)if(server_.listen(QHostAddress::LocalHost,p+i))return true;return false;} void OverlayServer::stop(){server_.close();}
 void OverlayServer::ingest(const ChatMessage&m){messages_.append({++cursor_,m});while(messages_.size()>400)messages_.removeFirst();} void OverlayServer::setViewers(const QString&p,int n){viewers_[p]=n;} void OverlayServer::clear(){messages_.clear();++cursor_;}
+void OverlayServer::setAppearance(const QColor&background,int opacity,int outline){backgroundColor_=background.isValid()?background:QColor(Qt::black);backgroundOpacityPercent_=qBound(0,opacity,100);outlineThickness_=qBound(0,outline,8);}
 void OverlayServer::accept(){while(auto*s=server_.nextPendingConnection()){connect(s,&QTcpSocket::readyRead,this,[this,s]{const QByteArray first=s->readAll().split('\n').value(0);s->write(responseFor(first.split(' ').value(1)));s->disconnectFromHost();});connect(s,&QTcpSocket::disconnected,s,&QObject::deleteLater);}}
-QByteArray OverlayServer::responseFor(const QByteArray&t){if(t=="/"||t.startsWith("/?"))return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith("/api/messages")){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"fade_seconds",fadeSeconds_}}).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/viewers")){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}return reply(404,"text/plain","Not found");}
+QByteArray OverlayServer::responseFor(const QByteArray&t){if(t=="/"||t.startsWith("/?"))return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith("/api/messages")){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}const QString bg=QStringLiteral("rgba(%1,%2,%3,%4)").arg(backgroundColor_.red()).arg(backgroundColor_.green()).arg(backgroundColor_.blue()).arg(QString::number(backgroundOpacityPercent_/100.0,'f',2));return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"fade_seconds",fadeSeconds_},{"background",bg},{"outline_thickness",outlineThickness_}}).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/viewers")){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}return reply(404,"text/plain","Not found");}
 PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     setObjectName(QStringLiteral("popoutWindow"));
-    setStyleSheet(QStringLiteral("QWidget#popoutWindow{background:transparent;border:0;}"));
+    // The application theme gives every QWidget an opaque background.  A
+    // QTextBrowser owns child widgets (most importantly its viewport and the
+    // scroll-area corner), so styling only this top-level widget still allowed
+    // one of those children to paint the large white/opaque rectangle seen in
+    // the pop-out.  Keep the entire pop-out subtree transparent; controls that
+    // need a background provide their own more-specific styles below.
+    setStyleSheet(QStringLiteral(
+        "QWidget#popoutWindow, QWidget#popoutWindow QWidget{background-color:transparent;border:0;}"));
     setWindowTitle("Leapcast Studio Pop-out");
     setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));
     resize(460,720);
@@ -117,9 +130,14 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     chatStack_->setContentsMargins(0,0,0,0);
     chatStack_->setStackingMode(QStackedLayout::StackAll);
     chat_=new ChatBrowser;
+    chat_->setObjectName(QStringLiteral("popoutChat"));
+    chat_->setFrameShape(QFrame::NoFrame);
     chat_->setAttribute(Qt::WA_TranslucentBackground,true);
+    chat_->setAttribute(Qt::WA_OpaquePaintEvent,false);
     chat_->setAutoFillBackground(false);
     chat_->viewport()->setAttribute(Qt::WA_TranslucentBackground,true);
+    chat_->viewport()->setAttribute(Qt::WA_OpaquePaintEvent,false);
+    chat_->viewport()->setAttribute(Qt::WA_NoSystemBackground,true);
     chat_->viewport()->setAutoFillBackground(false);
     connect(chat_,&ChatBrowser::chatContextMenuRequested,this,&PopoutChat::showChatContextMenu);
     chatStack_->addWidget(chat_);
@@ -158,12 +176,16 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     messageFormat.setProperty(kMessageIdProperty,id);
     cursor.setCharFormat(messageFormat);
     const QString badges=badgeGlyphs(m.badges);
-    // Keep every line readable even when Clear Background is enabled over a
-    // white browser, document, or game scene. QTextBrowser does not provide a
-    // reliable text outline on Windows, so each line carries its own compact
-    // dark backing instead of depending on the pop-out panel colour.
-    cursor.insertHtml(QString("<span style='background-color:#111827;color:#ffffff'>%1<b style='color:%2'>%3</b> <span style='color:#ffffff;font-weight:600'>%4</span></span>")
+    // Chat lines remain unfilled so the game/stream is visible between and
+    // behind every message in both the pop-out and OBS overlay.
+    const int messageStart=cursor.position();
+    cursor.insertHtml(QString("<span style='background-color:transparent;color:#ffffff'>%1<b style='color:%2'>%3</b> <span style='color:#ffffff;font-weight:600'>%4</span></span>")
         .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
+    const int messageEnd=cursor.position();
+    cursor.setPosition(messageStart);cursor.setPosition(messageEnd,QTextCursor::KeepAnchor);
+    QTextCharFormat outlineFormat;
+    outlineFormat.setTextOutline(outlineThickness_>0?QPen(Qt::black,outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
+    cursor.mergeCharFormat(outlineFormat);
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
     trimChatBlocks(chat_->document());
@@ -260,21 +282,57 @@ void PopoutChat::setGhostMode(bool on){
 }
 void PopoutChat::setClearBackground(bool on){clearBackground_=on;applyOpacity();}
 void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(0,n,100);applyOpacity();}
+void PopoutChat::setAppearance(const QColor&background,int outline){backgroundColor_=background.isValid()?background:QColor(Qt::black);outlineThickness_=qBound(0,outline,8);applyOpacity();applyTextOutline();}
+void PopoutChat::applyTextOutline(){
+    if(!chat_)return;
+    QTextCursor cursor(chat_->document());cursor.select(QTextCursor::Document);
+    QTextCharFormat format;
+    format.setTextOutline(outlineThickness_>0?QPen(Qt::black,outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
+    cursor.mergeCharFormat(format);chat_->viewport()->update();
+}
+void PopoutChat::resizeEvent(QResizeEvent* event){
+    QWidget::resizeEvent(event);
+    // On Windows, QTextBrowser can retain an opaque backing-store tile for the
+    // portion of its viewport exposed by a resize. Reassert the alpha and
+    // invalidate both surfaces so every newly exposed pixel is repainted.
+    applyOpacity();
+    if(chat_){
+        chat_->update();
+        chat_->viewport()->update();
+    }
+}
 void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
-    const QString panel=QStringLiteral("rgba(16,19,29,%1)").arg(alpha);
+    // The slider has one simple visual range: transparent -> translucent black
+    // -> solid black. Never blend toward the platform's default white base.
+    const QString panel=QStringLiteral("rgba(%1,%2,%3,%4)").arg(backgroundColor_.red()).arg(backgroundColor_.green()).arg(backgroundColor_.blue()).arg(alpha);
     // QTextBrowser uses a separate viewport widget. Styling only the outer
     // control lets Windows/Qt paint that viewport with its default white base,
     // which is why the chat became a white sheet after native transparency was
     // enabled. Style both surfaces explicitly and set a readable text palette.
-    chat_->setStyleSheet(QStringLiteral("QTextBrowser{background:%1;color:#f6f8ff;border:0;border-radius:12px;font-size:12pt;}").arg(panel));
-    chat_->viewport()->setStyleSheet(QStringLiteral("background:%1;color:#f6f8ff;border:0;border-radius:12px;").arg(panel));
-    viewers_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(alpha));
-    QPalette chatPalette=chat_->palette();const QColor panelColor(16,19,29,alpha);
+    chat_->setStyleSheet(QStringLiteral(
+        "QTextBrowser#popoutChat{background-color:%1;color:#f6f8ff;border:0;border-radius:12px;font-size:12pt;}"
+        "QTextBrowser#popoutChat QWidget{background-color:transparent;border:0;}"
+        "QTextBrowser#popoutChat QScrollBar{background-color:transparent;}").arg(panel));
+    // The viewport is the surface that actually fills the text area on
+    // Windows.  Give it the selected alpha directly rather than relying on
+    // stylesheet inheritance from QAbstractScrollArea.
+    chat_->viewport()->setStyleSheet(QStringLiteral(
+        "background-color:%1;color:#f6f8ff;border:0;border-radius:12px;").arg(panel));
+    viewers_->setStyleSheet(QStringLiteral("background:%1;padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(panel));
+    QPalette chatPalette=chat_->palette();const QColor panelColor(backgroundColor_.red(),backgroundColor_.green(),backgroundColor_.blue(),alpha);
     chatPalette.setColor(QPalette::Base,panelColor);chatPalette.setColor(QPalette::Window,panelColor);
+    chatPalette.setColor(QPalette::AlternateBase,panelColor);
     chatPalette.setColor(QPalette::Text,QColor(QStringLiteral("#f6f8ff")));
     chatPalette.setColor(QPalette::WindowText,QColor(QStringLiteral("#f6f8ff")));
     chat_->setPalette(chatPalette);chat_->viewport()->setPalette(chatPalette);
+    chat_->setAutoFillBackground(false);chat_->viewport()->setAutoFillBackground(false);
+    // QTextDocument also owns a root-frame background brush. Leaving that at
+    // the platform default can resurrect the old white tile when the viewport
+    // backing store is reused after growing and then shrinking the window.
+    QTextFrameFormat rootFormat=chat_->document()->rootFrame()->frameFormat();
+    rootFormat.setBackground(panelColor);
+    chat_->document()->rootFrame()->setFrameFormat(rootFormat);
     chat_->document()->setDefaultStyleSheet(QStringLiteral(
         "body{background:transparent;color:#ffffff;}"
         "span{color:#ffffff;}"));
