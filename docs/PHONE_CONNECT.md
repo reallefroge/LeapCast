@@ -15,6 +15,8 @@ Ban controls on an iPhone.
 3. Open **Phone Connect** in Leapcast Studio.
 4. Unlock the test tab with `apple`.
 5. Select **Copy Install Link** and send the private link to the iPhone.
+   Alternatively, point the iPhone Camera at the QR code and tap the Leapcast
+   banner.
 6. Open the link in Safari and unlock it with `apple`.
 7. Tap **Share → Add to Home Screen**.
 8. Keep **Open as Web App** enabled and tap **Add**.
@@ -33,3 +35,7 @@ Ban controls on an iPhone.
 
 The app is served locally by Leapcast Studio. It is not publicly hosted and
 does not require an Apple Developer account, IPA signing, or the App Store.
+
+Use **Generate New Private QR Code** to rotate the private connection token.
+This immediately invalidates the previous QR code, copied link, and any Home
+Screen icon created from it.

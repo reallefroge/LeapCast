@@ -66,6 +66,7 @@ public:
     QUrl mobileUrl() const;
     QString mobileToken() const { return QString::fromLatin1(mobileToken_); }
     void setMobileToken(const QString& token);
+    QString regenerateMobileToken();
     void ingest(const ChatMessage& message);
     void setViewers(const QString& platform, int count);
     void setFadeSeconds(int seconds) { fadeSeconds_ = qMax(0, seconds); }

@@ -11,6 +11,15 @@ endif()
 
 project(LeapcastStudio VERSION ${LEAPCAST_VERSION} LANGUAGES CXX)
 
+include(FetchContent)
+FetchContent_Declare(
+    qrcodegen
+    GIT_REPOSITORY https://github.com/nayuki/QR-Code-generator.git
+    GIT_TAG v1.8.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(qrcodegen)
+
 set(LEAPCAST_TWITCH_CLIENT_ID "" CACHE STRING
     "Public Twitch application Client ID used by the built-in device authorization flow")
 
@@ -44,6 +53,7 @@ qt_add_executable(LeapcastStudio WIN32
     src/Overlay.hpp
     src/UpdateService.cpp
     src/UpdateService.hpp
+    ${qrcodegen_SOURCE_DIR}/cpp/qrcodegen.cpp
     resources/resources.qrc
 )
 
@@ -54,6 +64,7 @@ endif()
 
 target_include_directories(LeapcastStudio PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    "${qrcodegen_SOURCE_DIR}/cpp"
 )
 
 target_link_libraries(LeapcastStudio PRIVATE

@@ -3,6 +3,7 @@
 #include "BuildInfo.hpp"
 #include "Overlay.hpp"
 #include "UpdateService.hpp"
+#include "qrcodegen.hpp"
 
 #include <algorithm>
 
@@ -26,6 +27,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QImage>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -35,6 +37,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -54,6 +57,14 @@
 #include <QVBoxLayout>
 
 namespace {
+QPixmap phoneQrCode(const QUrl& url,int pixels=236){
+    if(!url.isValid())return {};
+    const auto qr=qrcodegen::QrCode::encodeText(url.toString(QUrl::FullyEncoded).toUtf8().constData(),qrcodegen::QrCode::Ecc::MEDIUM);
+    constexpr int quiet=4;const int modules=qr.getSize()+quiet*2;const int scale=qMax(1,pixels/modules);const int side=modules*scale;
+    QImage image(side,side,QImage::Format_RGB32);image.fill(Qt::white);QPainter painter(&image);painter.setPen(Qt::NoPen);painter.setBrush(Qt::black);
+    for(int y=0;y<qr.getSize();++y)for(int x=0;x<qr.getSize();++x)if(qr.getModule(x,y))painter.drawRect((x+quiet)*scale,(y+quiet)*scale,scale,scale);
+    return QPixmap::fromImage(image);
+}
 QLabel* label(const QString& text, const char* role = nullptr) {
     auto* value = new QLabel(text);
     if (role) {
@@ -659,10 +670,12 @@ QWidget* MainWindow::buildPhoneConnectPage(){
     auto* connectCard=new QFrame;connectCard->setProperty("card",true);auto* connectLayout=new QVBoxLayout(connectCard);connectLayout->addWidget(label(QStringLiteral("CONNECT THIS IPHONE"),"cardTitle"));
     auto* connectHelp=label(QStringLiteral("Keep Leapcast Studio open on this PC. Connect the iPhone to the same private Wi-Fi, copy the link below, and open it in Safari. The iPhone page will ask for the same test password."),"muted");connectHelp->setWordWrap(true);connectLayout->addWidget(connectHelp);
     const QUrl mobileUrl=overlay_->mobileUrl();auto* link=new QLineEdit(mobileUrl.isValid()?mobileUrl.toString():QStringLiteral("Connect this PC to Wi-Fi or Ethernet, then restart Leapcast Studio."));link->setReadOnly(true);connectLayout->addWidget(link);
-    auto* actions=new QHBoxLayout;auto* copy=new QPushButton(QStringLiteral("Copy iPhone Link"));auto* preview=new QPushButton(QStringLiteral("Open Phone Preview"));auto* install=new QPushButton(QStringLiteral("Copy Install Link"));copy->setEnabled(mobileUrl.isValid());preview->setEnabled(mobileUrl.isValid());install->setEnabled(mobileUrl.isValid());actions->addWidget(copy);actions->addWidget(preview);actions->addWidget(install);actions->addStretch();connectLayout->addLayout(actions);
-    connect(copy,&QPushButton::clicked,this,[mobileUrl,lockStatus]{QApplication::clipboard()->setText(mobileUrl.toString());lockStatus->setText(QStringLiteral("Private iPhone link copied."));});
-    connect(install,&QPushButton::clicked,this,[mobileUrl,lockStatus]{QApplication::clipboard()->setText(mobileUrl.toString());lockStatus->setText(QStringLiteral("Install link copied. Open it in Safari, then use Add to Home Screen."));});
-    connect(preview,&QPushButton::clicked,this,[mobileUrl]{QDesktopServices::openUrl(mobileUrl);});contentLayout->addWidget(connectCard);
+    auto* qrRow=new QHBoxLayout;auto* qrImage=new QLabel;qrImage->setFixedSize(252,252);qrImage->setAlignment(Qt::AlignCenter);qrImage->setStyleSheet(QStringLiteral("background:white;border:8px solid white;border-radius:14px;"));qrImage->setPixmap(phoneQrCode(mobileUrl).scaled(236,236,Qt::KeepAspectRatio,Qt::FastTransformation));auto* qrText=new QVBoxLayout;qrText->addWidget(label(QStringLiteral("SCAN WITH IPHONE CAMERA"),"cardTitle"));auto* qrHelp=label(QStringLiteral("Point the iPhone Camera at this code and tap the Leapcast banner. The QR contains the same private local link shown above."),"muted");qrHelp->setWordWrap(true);qrText->addWidget(qrHelp);auto* rotate=new QPushButton(QStringLiteral("Generate New Private QR Code"));rotate->setToolTip(QStringLiteral("Creates a new private link and immediately invalidates the previous QR code."));qrText->addWidget(rotate);qrText->addStretch();qrRow->addWidget(qrImage);qrRow->addLayout(qrText,1);connectLayout->addLayout(qrRow);
+    auto* actions=new QHBoxLayout;auto* copy=new QPushButton(QStringLiteral("Copy iPhone Link"));auto* preview=new QPushButton(QStringLiteral("Open Phone Preview"));auto* install=new QPushButton(QStringLiteral("Copy Install Link"));copy->setEnabled(mobileUrl.isValid());preview->setEnabled(mobileUrl.isValid());install->setEnabled(mobileUrl.isValid());rotate->setEnabled(mobileUrl.isValid());actions->addWidget(copy);actions->addWidget(preview);actions->addWidget(install);actions->addStretch();connectLayout->addLayout(actions);
+    connect(copy,&QPushButton::clicked,this,[link,lockStatus]{QApplication::clipboard()->setText(link->text());lockStatus->setText(QStringLiteral("Private iPhone link copied."));});
+    connect(install,&QPushButton::clicked,this,[link,lockStatus]{QApplication::clipboard()->setText(link->text());lockStatus->setText(QStringLiteral("Install link copied. Open it in Safari, then use Add to Home Screen."));});
+    connect(preview,&QPushButton::clicked,this,[link]{QDesktopServices::openUrl(QUrl(link->text()));});
+    connect(rotate,&QPushButton::clicked,this,[this,link,qrImage,lockStatus]{if(QMessageBox::question(this,QStringLiteral("Generate new QR code?"),QStringLiteral("The current Phone Connect link and any existing Home Screen icon will stop working. Continue?"))!=QMessageBox::Yes)return;controller_->settings()->setSecret(QStringLiteral("mobile_companion_token"),overlay_->regenerateMobileToken());const QUrl fresh=overlay_->mobileUrl();link->setText(fresh.toString());qrImage->setPixmap(phoneQrCode(fresh).scaled(236,236,Qt::KeepAspectRatio,Qt::FastTransformation));lockStatus->setText(QStringLiteral("New private QR code created. The previous link is no longer valid."));});contentLayout->addWidget(connectCard);
 
     auto* stepsCard=new QFrame;stepsCard->setProperty("card",true);auto* steps=new QVBoxLayout(stepsCard);steps->addWidget(label(QStringLiteral("INSTALL AS AN IPHONE APP"),"cardTitle"));auto* stepText=label(QStringLiteral("1. Open the copied link in Safari on the iPhone.\n2. Enter the test password: apple\n3. Confirm chat and viewer counts connect.\n4. Tap Safari's Share button.\n5. Choose Add to Home Screen.\n6. Keep Open as Web App enabled, then tap Add."),"muted");stepText->setWordWrap(true);steps->addWidget(stepText);contentLayout->addWidget(stepsCard);
 
