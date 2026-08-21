@@ -8,6 +8,8 @@
 - Removed forced message backing boxes from the OBS overlay and pop-out.
 - Added persistent background color, OBS background opacity, and 0–8 px chat-font outline controls under Settings.
 - Made new pop-outs start at 0% opacity and remain correctly transparent through repeated resizing.
+- Kept chat messages and the viewer count visible at 0% opacity; the slider now affects backgrounds only.
+- Prevented Windows from exposing a white backing-store strip when a transparent pop-out is enlarged or resized back down.
 
 ---
 

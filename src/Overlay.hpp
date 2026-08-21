@@ -8,6 +8,7 @@
 #include <QTextBrowser>
 #include <QWidget>
 class QResizeEvent;
+class QPaintEvent;
 class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
@@ -27,6 +28,7 @@ public:
 signals:
     void chatContextMenuRequested(const QPoint& globalPos);
 protected:
+    void paintEvent(QPaintEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override {
         emit chatContextMenuRequested(event->globalPos());
         event->accept();
@@ -121,6 +123,7 @@ signals:
 
 protected:
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;
+    void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
 private:

@@ -14,6 +14,8 @@
 #include <QInputDialog>
 #include <QMenu>
 #include <QPalette>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QPen>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -290,6 +292,17 @@ void PopoutChat::applyTextOutline(){
     format.setTextOutline(outlineThickness_>0?QPen(Qt::black,outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
     cursor.mergeCharFormat(format);chat_->viewport()->update();
 }
+
+void ChatBrowser::paintEvent(QPaintEvent* event){
+    // QTextEdit paints through its viewport. Clear the complete damaged region
+    // to alpha first so Windows cannot reuse an opaque (white) backing-store
+    // tile when the pop-out grows and is then made smaller again.
+    QPainter clearPainter(viewport());
+    clearPainter.setCompositionMode(QPainter::CompositionMode_Source);
+    clearPainter.fillRect(event->rect(),Qt::transparent);
+    clearPainter.end();
+    QTextBrowser::paintEvent(event);
+}
 void PopoutChat::resizeEvent(QResizeEvent* event){
     QWidget::resizeEvent(event);
     // On Windows, QTextBrowser can retain an opaque backing-store tile for the
@@ -300,6 +313,14 @@ void PopoutChat::resizeEvent(QResizeEvent* event){
         chat_->update();
         chat_->viewport()->update();
     }
+}
+void PopoutChat::paintEvent(QPaintEvent* event){
+    // A translucent top-level window must explicitly clear newly exposed
+    // pixels. Otherwise the Windows backing store can reveal its default white
+    // surface after a resize even though every child widget is transparent.
+    QPainter painter(this);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.fillRect(event->rect(),Qt::transparent);
 }
 void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
@@ -336,12 +357,12 @@ void PopoutChat::applyOpacity(){
     chat_->document()->setDefaultStyleSheet(QStringLiteral(
         "body{background:transparent;color:#ffffff;}"
         "span{color:#ffffff;}"));
-    const bool chromeVisible=opacityPercent_>0;
-    if(toolbarTitle_)toolbarTitle_->setVisible(chromeVisible);
-    if(clipButton_)clipButton_->setVisible(chromeVisible);
-    if(viewers_)viewers_->setVisible(chromeVisible);
-    if(event_)event_->setVisible(chromeVisible&&event_->isVisible());
-    if(clipStatus_)clipStatus_->setVisible(chromeVisible&&clipStatus_->isVisible());
+    const bool backgroundVisible=opacityPercent_>0;
+    // Opacity controls backgrounds only. Chat and the live viewer count must
+    // remain visible at 0%; hiding them made the slider behave backwards.
+    if(toolbarTitle_)toolbarTitle_->setVisible(backgroundVisible);
+    if(clipButton_)clipButton_->setVisible(backgroundVisible);
+    if(viewers_)viewers_->show();
 }
 void PopoutChat::registerRestoreHotkeys(){
 #ifdef Q_OS_WIN
