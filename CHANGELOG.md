@@ -2,6 +2,11 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 2.2.8
+
+- Removed the pop-out chat's text outline entirely — testing showed it rendering worse (chopped/unreadable) than plain text, unlike the OBS overlay's CSS outline, which is unaffected and unchanged. The "Chat font outline thickness" setting still applies to the OBS overlay only.
+- Fixed the app not reopening after a silent auto-update. Inno Setup's own post-install relaunch depends on Windows correctly recovering the original (unelevated) user from our elevated installer process, which isn't always reliable; the app now also waits for the installer to finish and relaunches itself as a fallback if that didn't already happen.
+
 ## Leapcast Studio 2.2.7
 
 - Fixed the pop-out window showing a distorted, stretched frame with duplicated text after being resized. The new frameless (v2.2.5) window has no automatic double-buffering safety net during a resize the way a normal composited window does, and clearing only the "damaged" rectangle on each paint could leave Windows compositing a stretched copy of the previous frame into the newly exposed area. Every paint now clears the full window instead, and a resize forces an immediate synchronous repaint.

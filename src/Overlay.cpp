@@ -64,17 +64,6 @@ constexpr int kRestoreHotkeyEscape = 0xC201;
 constexpr int kRestoreHotkeyAltC = 0xC202;
 #endif
 QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "HTTP/1.1 "+QByteArray::number(code)+(code==200?" OK\r\n":" Not Found\r\n")+"Content-Type: "+type+"\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: "+QByteArray::number(body.size())+"\r\nConnection: close\r\n\r\n"+body;}
-// A plain (non-cosmetic) QPen's width scales with whatever transform the
-// painter happens to have active, so the same "N px" outline setting could
-// render at a different on-screen thickness depending on the document's
-// internal scale — the outline stops matching the number in Settings.
-// Cosmetic pens are always exactly N device pixels regardless of transform.
-QPen chatOutlinePen(int thicknessPx){
-    if(thicknessPx<=0)return QPen(Qt::NoPen);
-    QPen pen(Qt::black,thicknessPx,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
-    pen.setCosmetic(true);
-    return pen;
-}
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
 html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif;color:white}
 .m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}
@@ -224,14 +213,6 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     cursor.movePosition(QTextCursor::End);
     QTextBlockFormat format;
     format.setProperty(kMessageIdProperty,id);
-    // QTextDocument lays out line spacing purely from font metrics; it has no
-    // idea a char format also carries a text-outline pen, so a thick outline
-    // gets its top/bottom clipped by the neighboring line. Pad the block by
-    // the outline width so the stroke has room to render in full.
-    if(outlineThickness_>0){
-        format.setTopMargin(outlineThickness_);
-        format.setBottomMargin(outlineThickness_);
-    }
     if(!chat_->document()->isEmpty())cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
     QTextCharFormat messageFormat=cursor.charFormat();
@@ -239,15 +220,13 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     cursor.setCharFormat(messageFormat);
     const QString badges=badgeGlyphs(m.badges);
     // Chat lines remain unfilled so the game/stream is visible between and
-    // behind every message in both the pop-out and OBS overlay.
-    const int messageStart=cursor.position();
+    // behind every message in both the pop-out and OBS overlay. Unlike the
+    // OBS overlay (a CSS text-shadow outline, which reads fine), a
+    // QTextDocument text-outline pen reads worse than plain white text at
+    // chat sizes — confirmed unreadable in testing — so the pop-out just
+    // skips it.
     cursor.insertHtml(QString("<span style='background-color:transparent;color:#ffffff'>%1<b style='color:%2'>%3</b> <span style='color:#ffffff;font-weight:600'>%4</span></span>")
         .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
-    const int messageEnd=cursor.position();
-    cursor.setPosition(messageStart);cursor.setPosition(messageEnd,QTextCursor::KeepAnchor);
-    QTextCharFormat outlineFormat;
-    outlineFormat.setTextOutline(chatOutlinePen(outlineThickness_));
-    cursor.mergeCharFormat(outlineFormat);
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
     trimChatBlocks(chat_->document());
@@ -346,19 +325,21 @@ void PopoutChat::setClearBackground(bool on){clearBackground_=on;applyOpacity();
 void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(0,n,100);applyOpacity();}
 void PopoutChat::setAppearance(const QColor&background,int outline){backgroundColor_=background.isValid()?background:QColor(Qt::black);outlineThickness_=qBound(0,outline,8);applyOpacity();applyTextOutline();}
 void PopoutChat::applyTextOutline(){
+    // The "Chat font outline thickness" setting (outlineThickness_) still
+    // applies to the OBS overlay, but a QTextDocument text-outline pen reads
+    // worse than plain text at chat sizes here, so the pop-out never shows
+    // one regardless of that setting — just make sure any outline/margin
+    // formatting from before this change is cleared off the document.
     if(!chat_)return;
     QTextCursor cursor(chat_->document());cursor.select(QTextCursor::Document);
     QTextCharFormat format;
-    format.setTextOutline(chatOutlinePen(outlineThickness_));
+    format.setTextOutline(QPen(Qt::NoPen));
     cursor.mergeCharFormat(format);
-    // Re-pad every existing block for the new outline width too, not just
-    // messages appended after the change — otherwise older lines already in
-    // the document keep getting clipped by their neighbors.
     QTextBlock block=chat_->document()->firstBlock();
     while(block.isValid()){
         QTextBlockFormat blockFormat=block.blockFormat();
-        blockFormat.setTopMargin(outlineThickness_>0?outlineThickness_:0);
-        blockFormat.setBottomMargin(outlineThickness_>0?outlineThickness_:0);
+        blockFormat.setTopMargin(0);
+        blockFormat.setBottomMargin(0);
         QTextCursor(block).setBlockFormat(blockFormat);
         block=block.next();
     }
