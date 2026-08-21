@@ -33,6 +33,11 @@ The pushed tag starts the **Windows build and release** workflow. GitHub:
 The application's update checker reads that Release and offers the new
 installer the next time an older version starts.
 
+Before publishing, format the GitHub Release body using
+[`docs/UPDATE_NOTES_STYLE.md`](docs/UPDATE_NOTES_STYLE.md). The application
+uses the first non-empty line as the compact summary and displays the complete
+Markdown notes in the update dialog.
+
 ## Review before publishing
 
 Omit `-Push` to create the release commit and tag locally:

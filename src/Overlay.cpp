@@ -285,17 +285,16 @@ void PopoutChat::showChatContextMenu(const QPoint&globalPos){
             // permanent action "Hide user on this channel".
             connect(menu.addAction(isYouTube?QStringLiteral("Hide from channel"):QStringLiteral("Ban")),
                     &QAction::triggered,this,[this,msg]{bool ok=false;const QString reason=QInputDialog::getMultiLineText(this,"Ban reason","Why is this user being banned?",QString(),&ok).trimmed();if(ok&&!reason.isEmpty())emit timeoutUserRequested(msg,0,reason);});
-        }else if(msg.platform==QStringLiteral("kick")||msg.platform==QStringLiteral("rumble")){
+        }else if(msg.platform==QStringLiteral("rumble")){
             menu.addSeparator();
-            const bool kick=msg.platform==QStringLiteral("kick");
-            connect(menu.addAction(kick?QStringLiteral("Open Kick moderation"):QStringLiteral("Open Rumble moderation")),&QAction::triggered,this,[msg,kick]{const QString channel=msg.metadata.value("channel").toString();QDesktopServices::openUrl(kick?QUrl(QStringLiteral("https://kick.com/")+channel):QUrl(QStringLiteral("https://rumble.com/account/livestreams")));});
+            connect(menu.addAction(QStringLiteral("Open Rumble moderation")),&QAction::triggered,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://rumble.com/account/livestreams")));});
         }
     }
     menu.addSeparator();
     connect(menu.addAction(QStringLiteral("Select All")),&QAction::triggered,chat_,&QTextBrowser::selectAll);
     menu.exec(globalPos);
 }
-void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));if(opacityPercent_>0)event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
+void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":e.kind.contains("gifted_sub")?QStringLiteral("gifted %1 subscription%2").arg(e.amount.isEmpty()?QStringLiteral("1"):e.amount,e.amount==QStringLiteral("1")?QString():QStringLiteral("s")):"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":e.platform=="rumble"?"#85c742":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped()));if(opacityPercent_>0)event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
 void PopoutChat::setViewers(const QString&p,int n){
     counts_[p]=n;
     int total=0;

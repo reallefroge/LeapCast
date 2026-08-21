@@ -6,8 +6,12 @@
 
 - Added Kick and Rumble sources, chat preview tabs, overlay routing, viewer counts, and settings toggles.
 - Added native Rumble Live Stream API chat support with private API URL storage under Keys.
-- Added Kick live web-chat capture and direct Kick/Rumble moderation launch actions.
+- Added Kick live web-chat capture and Rumble moderation launch actions; Kick moderation stays hidden until authenticated API support is implemented.
 - Added branded Kick and Rumble chat tab artwork; both platforms are enabled by default.
+- Added Rumble follower, subscriber, and gifted-subscription alerts through the same Leapcast alert pipeline as Streamlabs, without replaying old API history at startup.
+- Kick and Rumble blocked-word messages are rejected before every visible chat surface and omitted from the stored chat log.
+- Corrected the AutoMod control to Twitch, made its base timeout configurable, and retained per-broadcast escalation tracking.
+- Condensed Settings into a non-scrolling layout and improved wrapping/spacing across pages to prevent clipped text.
 
 - Fixed AutoMod's blocked-word list not taking effect after editing it. "Edit blocked words" opens the list in your text editor and reloaded it immediately afterward — before you'd actually changed and saved anything — so edits only ever took effect after restarting the app. The list now reloads automatically the moment the file is saved.
 - AutoMod on Twitch now escalates repeat offenders within a broadcast instead of always issuing the same 300s timeout: a 300s timeout for offenses 1–5, a single 600s timeout for offense 6, then a permanent ban for anything after that. The count resets each time the channel goes live; AutoMod keeps moderating normally while the channel is offline in between.

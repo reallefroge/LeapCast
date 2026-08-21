@@ -92,10 +92,11 @@ public:
     void connectApi(const QUrl& apiUrl); void disconnectService();
 signals:
     void messageReceived(const ChatMessage& message);
+    void eventReceived(const StreamEvent& event);
     void statusChanged(const QString& state,const QString& detail);
     void viewerCountChanged(int viewers);
 private:
-    void poll(); QNetworkAccessManager network_; QTimer timer_; QUrl apiUrl_; QSet<QString> seen_;
+    void poll(); QNetworkAccessManager network_; QTimer timer_; QUrl apiUrl_; QSet<QString> seen_,eventSeen_; bool eventsBaselined_{};
 };
 
 class TikTokModerationService final : public QObject {

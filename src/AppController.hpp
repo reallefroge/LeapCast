@@ -68,8 +68,8 @@ public:
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;
     // AutoMod's Twitch timeout escalation, keyed by Twitch user id: offenses
-    // 1-5 in a broadcast are a 300s timeout, offense 6 is a single 600s
-    // timeout, and offense 7+ is a permanent ban. Reset when the channel
+    // 1-5 use the configured base timeout, offense 6 doubles it, and offense
+    // 7+ is a permanent ban. Reset when the channel
     // transitions from offline to live (see TwitchChatService::broadcastWentLive) —
     // AutoMod itself keeps moderating while offline, only the ladder resets.
     QHash<QString,int> twitchAutoModOffenses_;

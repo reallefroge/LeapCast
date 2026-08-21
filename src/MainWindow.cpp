@@ -17,11 +17,13 @@
 #include <QDesktopServices>
 #include <QDateTime>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QEvent>
 #include <QFrame>
 #include <QFontComboBox>
 #include <QComboBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QInputDialog>
@@ -41,6 +43,7 @@
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTabBar>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
@@ -53,8 +56,23 @@
 namespace {
 QLabel* label(const QString& text, const char* role = nullptr) {
     auto* value = new QLabel(text);
-    if (role) value->setProperty("role", QString::fromLatin1(role));
+    if (role) {
+        const QString roleName=QString::fromLatin1(role);value->setProperty("role",roleName);
+        if(roleName==QStringLiteral("muted")){value->setWordWrap(true);value->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);value->setMinimumWidth(0);}
+    }
     return value;
+}
+
+bool showUpdateNotesDialog(QWidget* parent,const QString&version,const QString&notes){
+    QDialog dialog(parent);dialog.setWindowTitle(QStringLiteral("Leapcast Studio update"));dialog.setModal(true);dialog.resize(480,360);dialog.setMinimumSize(420,300);
+    auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
+    auto* title=label(QStringLiteral("✨ WHAT'S NEW IN %1").arg(version),"heroTitle");layout->addWidget(title);
+    QString summary;for(const auto&line:notes.split(QLatin1Char('\n'))){QString clean=line.trimmed();clean.remove(QRegularExpression(QStringLiteral("^[#*\\-\\s]+")));if(!clean.isEmpty()){summary=clean;break;}}
+    auto* summaryLabel=label(QStringLiteral("🚀 %1").arg(summary.isEmpty()?QStringLiteral("A new update is ready."):summary),"muted");summaryLabel->setWordWrap(true);layout->addWidget(summaryLabel);
+    auto* patchNotes=new QTextBrowser;patchNotes->setOpenExternalLinks(true);patchNotes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.45} h1,h2,h3{margin:8px 0 5px} p{margin:5px 0} li{margin:0 0 7px 0}"));patchNotes->setMarkdown(notes.trimmed().isEmpty()?QStringLiteral("- ✅ Performance improvements\n- 🛠️ Bug fixes"):notes.left(12000));patchNotes->setMinimumHeight(150);layout->addWidget(patchNotes,1);
+    auto* hint=label(QStringLiteral("🔄 Installs the patch, then reopens Leapcast automatically."),"muted");hint->setWordWrap(true);layout->addWidget(hint);
+    auto* buttons=new QDialogButtonBox;auto* later=buttons->addButton(QStringLiteral("Later"),QDialogButtonBox::RejectRole);auto* install=buttons->addButton(QStringLiteral("⬇ Update now"),QDialogButtonBox::AcceptRole);install->setProperty("primary",true);connect(later,&QPushButton::clicked,&dialog,&QDialog::reject);connect(install,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(buttons);
+    return dialog.exec()==QDialog::Accepted;
 }
 
 // Caps how many lines each dashboard chat view keeps, so a multi-hour stream
@@ -103,6 +121,8 @@ QString friendlyTimestamp(const QString& value) {
 }
 
 QString eventAction(const StreamEvent& event) {
+    if (event.kind.contains(QStringLiteral("gifted_sub")))
+        return QStringLiteral("gifted %1 subscription%2").arg(event.amount.isEmpty()?QStringLiteral("1"):event.amount,event.amount==QStringLiteral("1")?QString():QStringLiteral("s"));
     if (event.kind.contains(QStringLiteral("donation")))
         return event.amount.isEmpty() ? QStringLiteral("sent a donation")
                                       : QStringLiteral("donated %1").arg(event.amount);
@@ -180,7 +200,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
-            e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):QStringLiteral("#63e6be");
+            e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):
+            e.platform==QStringLiteral("rumble")?QStringLiteral("#85c742"):QStringLiteral("#63e6be");
         const QString message=QStringLiteral(
             "<div style='margin:7px 0;padding:9px 11px;background:#171d2d;border-left:3px solid %1;border-radius:7px'>"
             "<span style='color:#8f9bb5;font-size:9pt;font-weight:700'>STREAM ALERT</span><br>"
@@ -315,12 +336,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(updater_, &UpdateService::updateAvailable, this,
             [this](const QString& version, const QString& notes, const QUrl& asset,
                    const QString& name, const QString& digest) {
-        const QString detail = notes.trimmed().isEmpty()
-            ? QStringLiteral("A new version is ready.")
-            : notes.left(1200);
-        if (QMessageBox::question(this, QStringLiteral("Leapcast Studio update"),
-                QStringLiteral("Version %1 is available.\n\n%2\n\nInstall it now? Leapcast Studio will replace its old program files and reopen automatically.")
-                    .arg(version, detail)) == QMessageBox::Yes) {
+        if (showUpdateNotesDialog(this,version,notes)) {
             auto* progress = new QProgressDialog(
                 QStringLiteral("Downloading the update…\nLeapcast Studio will reopen automatically."),
                 QString(), 0, 100, this);
@@ -495,9 +511,9 @@ QWidget* MainWindow::buildSourcesPage() {
 
 QWidget* MainWindow::buildEventsPage() {
     auto* page = new QWidget;
-    auto* layout = new QVBoxLayout(page);
+    auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);auto* body=new QWidget;auto* layout = new QVBoxLayout(body);scroll->setWidget(body);outer->addWidget(scroll);
     layout->setContentsMargins(8, 4, 8, 8);
-    layout->addWidget(label(QStringLiteral("STREAMLABS EVENTS"), "heroTitle"));
+    layout->addWidget(label(QStringLiteral("STREAM ALERTS"), "heroTitle"));
     layout->addWidget(label(QStringLiteral("Alerts appear in your chat preview and pop-out without entering the OBS overlay feed."), "muted"));
     auto* card = new QFrame;
     card->setProperty("card", true);
@@ -554,6 +570,7 @@ QWidget* MainWindow::buildEventsPage() {
     connect(saveAudio, &QPushButton::clicked, this, applyAudio);
     connect(audioEnabled, &QCheckBox::toggled, this, [applyAudio](bool) { applyAudio(); });
     layout->addWidget(card);
+    auto* rumbleAlerts=new QFrame;rumbleAlerts->setProperty("card",true);auto* rumbleAlertsLayout=new QVBoxLayout(rumbleAlerts);rumbleAlertsLayout->addWidget(label(QStringLiteral("RUMBLE FOLLOW & SUB ALERTS"),"cardTitle"));auto* rumbleAlertHelp=label(QStringLiteral("Rumble followers, subscribers, and gifted subscriptions automatically use the same Leapcast alert display as Streamlabs after you save the Rumble Live Stream API URL under Keys. Existing history is ignored when connecting, so only genuinely new activity creates an alert."),"muted");rumbleAlertHelp->setWordWrap(true);rumbleAlertsLayout->addWidget(rumbleAlertHelp);auto* rumbleAlertState=label(controller_->settings()->secret(QStringLiteral("rumble_api_url")).isEmpty()?QStringLiteral("Not connected — finish Rumble setup under Keys"):QStringLiteral("Ready — Rumble alerts are connected"),"status");rumbleAlertState->setStyleSheet(controller_->settings()->secret(QStringLiteral("rumble_api_url")).isEmpty()?QStringLiteral("color:#f6c85f"):QStringLiteral("color:#85c742"));rumbleAlertsLayout->addWidget(rumbleAlertState);layout->addWidget(rumbleAlerts);
     layout->addStretch();
     return page;
 }
@@ -623,9 +640,8 @@ QWidget* MainWindow::buildObsPage() {
 }
 
 QWidget* MainWindow::buildSettingsPage(){
-    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(12);scroll->setWidget(body);outer->addWidget(scroll);
+    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(7);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
-    layout->addWidget(label(QStringLiteral("Personalize Leapcast Studio. Changes stay inside their existing areas and are saved automatically."),"muted"));
 
     auto* appearance=new QFrame;appearance->setProperty("card",true);auto* appearanceLayout=new QVBoxLayout(appearance);
     appearanceLayout->addWidget(label(QStringLiteral("APPEARANCE"),"cardTitle"));
@@ -642,12 +658,9 @@ QWidget* MainWindow::buildSettingsPage(){
 
     auto* popoutAppearance=new QFrame;popoutAppearance->setProperty("card",true);auto* popoutLayout=new QVBoxLayout(popoutAppearance);
     popoutLayout->addWidget(label(QStringLiteral("POP-OUT CHAT APPEARANCE"),"cardTitle"));
-    popoutLayout->addWidget(label(QStringLiteral("Customize only the separate Pop-out Chat window. These settings do not change the OBS browser source."),"muted"));
     const QString savedPopoutFont=controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString();
-    auto* popoutFontRow=new QHBoxLayout;popoutFontRow->addWidget(label(QStringLiteral("Chat message font")));auto* popoutFont=new QFontComboBox;popoutFont->setCurrentFont(QFont(savedPopoutFont));popoutFontRow->addWidget(popoutFont,1);popoutLayout->addLayout(popoutFontRow);
-    auto* popoutSizeRow=new QHBoxLayout;popoutSizeRow->addWidget(label(QStringLiteral("Chat text size")));auto* popoutSize=new QSlider(Qt::Horizontal);popoutSize->setRange(8,36);popoutSize->setValue(controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());popoutSizeRow->addWidget(popoutSize,1);auto* popoutSizeValue=label(QString::number(popoutSize->value())+QStringLiteral(" pt"));popoutSizeRow->addWidget(popoutSizeValue);popoutLayout->addLayout(popoutSizeRow);
-    auto* popoutOutlineRow=new QHBoxLayout;popoutOutlineRow->addWidget(label(QStringLiteral("Chat text outline thickness")));auto* popoutOutline=new QSlider(Qt::Horizontal);popoutOutline->setRange(0,8);popoutOutline->setValue(controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt());popoutOutlineRow->addWidget(popoutOutline,1);auto* popoutOutlineValue=label(QString::number(popoutOutline->value())+QStringLiteral(" px"));popoutOutlineRow->addWidget(popoutOutlineValue);popoutLayout->addLayout(popoutOutlineRow);
-    auto* colourModeRow=new QHBoxLayout;colourModeRow->addWidget(label(QStringLiteral("Name color scheme")));auto* colourMode=new QComboBox;colourMode->addItem(QStringLiteral("Random color per chatter"),QStringLiteral("random"));colourMode->addItem(QStringLiteral("One specific color"),QStringLiteral("single"));const int colourModeIndex=colourMode->findData(controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")));colourMode->setCurrentIndex(qMax(0,colourModeIndex));colourModeRow->addWidget(colourMode,1);popoutLayout->addLayout(colourModeRow);
+    auto* popoutFontRow=new QHBoxLayout;popoutFontRow->addWidget(label(QStringLiteral("Font")));auto* popoutFont=new QFontComboBox;popoutFont->setCurrentFont(QFont(savedPopoutFont));popoutFontRow->addWidget(popoutFont,1);popoutFontRow->addWidget(label(QStringLiteral("Size")));auto* popoutSize=new QSlider(Qt::Horizontal);popoutSize->setRange(8,36);popoutSize->setValue(controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());popoutFontRow->addWidget(popoutSize,1);auto* popoutSizeValue=label(QString::number(popoutSize->value())+QStringLiteral(" pt"));popoutFontRow->addWidget(popoutSizeValue);popoutLayout->addLayout(popoutFontRow);
+    auto* popoutOutlineRow=new QHBoxLayout;popoutOutlineRow->addWidget(label(QStringLiteral("Outline")));auto* popoutOutline=new QSlider(Qt::Horizontal);popoutOutline->setRange(0,8);popoutOutline->setValue(controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt());popoutOutlineRow->addWidget(popoutOutline,1);auto* popoutOutlineValue=label(QString::number(popoutOutline->value())+QStringLiteral(" px"));popoutOutlineRow->addWidget(popoutOutlineValue);popoutOutlineRow->addWidget(label(QStringLiteral("Name colors")));auto* colourMode=new QComboBox;colourMode->addItem(QStringLiteral("Random"),QStringLiteral("random"));colourMode->addItem(QStringLiteral("One color"),QStringLiteral("single"));const int colourModeIndex=colourMode->findData(controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")));colourMode->setCurrentIndex(qMax(0,colourModeIndex));popoutOutlineRow->addWidget(colourMode,1);popoutLayout->addLayout(popoutOutlineRow);
     QColor nameColour(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());if(!nameColour.isValid())nameColour=QColor(QStringLiteral("#53cdf3"));
     auto* nameColourRow=new QHBoxLayout;nameColourRow->addWidget(label(QStringLiteral("Specific name color")));auto* nameColourButton=new QPushButton(nameColour.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(nameColour.name(),nameColour.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));nameColourButton->setEnabled(colourMode->currentData().toString()==QStringLiteral("single"));nameColourRow->addWidget(nameColourButton);popoutLayout->addLayout(nameColourRow);
     const auto applyPopoutAppearance=[this,popoutFont,popoutSize,popoutOutline]{if(popout_)popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),popoutOutline->value(),popoutFont->currentFont().family(),popoutSize->value());};
@@ -659,23 +672,21 @@ QWidget* MainWindow::buildSettingsPage(){
     layout->addWidget(popoutAppearance);
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
-    auto* navText=new QVBoxLayout;navText->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navText->addWidget(label(QStringLiteral("Move a tab within the sidebar. Tabs cannot be moved into unrelated areas."),"muted"));navSettings->addLayout(navText,1);
+    navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();
     auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key==QStringLiteral("obs")?QStringLiteral("Chat Overlay"):key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
     auto* up=new QPushButton(QStringLiteral("Move up"));auto* down=new QPushButton(QStringLiteral("Move down"));navSettings->addWidget(up);navSettings->addWidget(down);
     connect(up,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),-1);});
     connect(down,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),1);});layout->addWidget(navigation);
 
-    auto* platforms=new QFrame;platforms->setProperty("card",true);auto* platformLayout=new QVBoxLayout(platforms);platformLayout->addWidget(label(QStringLiteral("VISIBLE PLATFORMS"),"cardTitle"));
-    platformLayout->addWidget(label(QStringLiteral("Disable platforms you do not use. Saved links and authorization are retained."),"muted"));
+    auto* platforms=new QFrame;platforms->setProperty("card",true);auto* platformLayout=new QGridLayout(platforms);platformLayout->addWidget(label(QStringLiteral("VISIBLE PLATFORMS"),"cardTitle"),0,0,1,3);
     const QList<QPair<QString,QString>> options{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"},{"kick","Kick"},{"rumble","Rumble"}};
-    for(const auto&option:options){auto*box=new QCheckBox(option.second);box->setChecked(controller_->settings()->enabled(option.first));platformLayout->addWidget(box);connect(box,&QCheckBox::toggled,this,[this,key=option.first](bool enabled){controller_->settings()->setEnabled(key,enabled);if(enabled){const QString link=controller_->settings()->link(key);if(!link.isEmpty())controller_->connectSource(key,link);}else controller_->disconnectSource(key);applyPlatformVisibility();});}
+    int platformIndex=0;for(const auto&option:options){auto*box=new QCheckBox(option.second);box->setChecked(controller_->settings()->enabled(option.first));platformLayout->addWidget(box,1+platformIndex/3,platformIndex%3);++platformIndex;connect(box,&QCheckBox::toggled,this,[this,key=option.first](bool enabled){controller_->settings()->setEnabled(key,enabled);if(enabled){const QString link=controller_->settings()->link(key);if(!link.isEmpty())controller_->connectSource(key,link);}else controller_->disconnectSource(key);applyPlatformVisibility();});}
     layout->addWidget(platforms);
 
     auto* updateCard = new QFrame; updateCard->setProperty("card", true);
     auto* updateLayout = new QHBoxLayout(updateCard);
     auto* updateText = new QVBoxLayout;
     updateText->addWidget(label(QStringLiteral("AUTOMATIC UPDATES"), "cardTitle"));
-    updateText->addWidget(label(QStringLiteral("Checks github.com/reallefroge/MultiStreamChat Releases whenever the app starts."), "muted"));
     updateLayout->addLayout(updateText, 1);
     auto* releases = new QPushButton(QStringLiteral("Open Releases"));
     auto* checkNow = new QPushButton(QStringLiteral("Check now"));
@@ -833,28 +844,28 @@ void MainWindow::showPostUpdateConnectionCheck(){
 }
 
 QWidget* MainWindow::buildKeysPage() {
-    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(12);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);scroll->setWidget(body);outer->addWidget(scroll);layout->setContentsMargins(8,4,8,8);layout->setSpacing(9);
     layout->addWidget(label(QStringLiteral("CONNECTION KEYS"),"heroTitle"));
     auto* notice=new QFrame;notice->setObjectName(QStringLiteral("keyNotice"));auto* noticeLayout=new QVBoxLayout(notice);
     noticeLayout->addWidget(label(QStringLiteral("IMPORTANT — RELOAD KEYS AFTER EVERY UPDATE"),"cardTitle"));
     auto* noticeText=label(QStringLiteral("For every Leapcast Studio update—and before using the software again—reload or reconnect the necessary Twitch and YouTube keys here. This keeps chat and moderation permissions working correctly."),"muted");noticeText->setWordWrap(true);noticeLayout->addWidget(noticeText);layout->addWidget(notice);
     auto* columns=new QHBoxLayout;
     const bool twitchAuthorized=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
-    auto* twitchCard=makePlatformCard(QStringLiteral("Twitch"),twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),QColor("#9146ff"),twitchAuthorized?QStringLiteral("Reload Twitch Key"):QStringLiteral("Connect Twitch"));
+    auto* twitchCard=makePlatformCard(QStringLiteral("Twitch"),twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),QColor("#9146ff"),twitchAuthorized?QStringLiteral("Reload Twitch"):QStringLiteral("Connect Twitch"));
     twitchCard->setProperty("platform",QStringLiteral("twitch"));twitchModerationStatus_=twitchCard->findChild<QLabel*>(QStringLiteral("cardStatus"));twitchConnectButton_=twitchCard->findChild<QPushButton*>(QStringLiteral("cardAction"));columns->addWidget(twitchCard,1);connect(twitchConnectButton_,&QPushButton::clicked,this,&MainWindow::authorizeTwitch);
     const bool youtubeAuthorized=!controller_->settings()->secret(QStringLiteral("youtube_access_token")).isEmpty();
-    auto* youtubeCard=makePlatformCard(QStringLiteral("YouTube"),youtubeAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your YouTube account"),QColor("#ff334f"),youtubeAuthorized?QStringLiteral("Reload YouTube Key"):QStringLiteral("Connect YouTube"),QStringLiteral("Get YouTube keys ↗"),QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
+    auto* youtubeCard=makePlatformCard(QStringLiteral("YouTube"),youtubeAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your YouTube account"),QColor("#ff334f"),youtubeAuthorized?QStringLiteral("Reload YouTube"):QStringLiteral("Connect YouTube"),QStringLiteral("Get keys ↗"),QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
     youtubeCard->setProperty("platform",QStringLiteral("youtube"));youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));columns->addWidget(youtubeCard,1);connect(youtubeConnectButton_,&QPushButton::clicked,this,&MainWindow::configureYouTubeModeration);
     layout->addLayout(columns);
     auto* additional=new QHBoxLayout;
-    auto* kickCard=new QFrame;kickCard->setProperty("card",true);auto* kickLayout=new QVBoxLayout(kickCard);kickLayout->addWidget(label(QStringLiteral("KICK"),"cardTitle"));auto* kickHelp=label(QStringLiteral("Kick chat uses the signed-in web session. Open Kick Developer if you want to register an OAuth app for future API features."),"muted");kickHelp->setWordWrap(true);kickLayout->addWidget(kickHelp);auto* kickDev=new QPushButton(QStringLiteral("Open Kick Developer ↗"));kickLayout->addWidget(kickDev);connect(kickDev,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://dev.kick.com/")));});additional->addWidget(kickCard,1);
-    auto* rumbleCard=new QFrame;rumbleCard->setProperty("card",true);auto* rumbleLayout=new QVBoxLayout(rumbleCard);rumbleLayout->addWidget(label(QStringLiteral("RUMBLE LIVE STREAM API"),"cardTitle"));auto* rumbleHelp=label(QStringLiteral("Paste your private Rumble Live Stream API URL. Keep it secret; resetting it in Rumble revokes access."),"muted");rumbleHelp->setWordWrap(true);rumbleLayout->addWidget(rumbleHelp);auto* rumbleUrl=new QLineEdit(controller_->settings()->secret(QStringLiteral("rumble_api_url")));rumbleUrl->setEchoMode(QLineEdit::Password);rumbleUrl->setPlaceholderText(QStringLiteral("https://rumble.com/-livestream-api/..."));rumbleLayout->addWidget(rumbleUrl);auto* rumbleButtons=new QHBoxLayout;auto* getRumble=new QPushButton(QStringLiteral("Get Rumble API URL ↗"));auto* saveRumble=new QPushButton(QStringLiteral("Save Rumble Key"));rumbleButtons->addWidget(getRumble);rumbleButtons->addWidget(saveRumble);rumbleLayout->addLayout(rumbleButtons);connect(getRumble,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://rumble.com/account/livestream-api")));});connect(saveRumble,&QPushButton::clicked,this,[this,rumbleUrl]{const QString value=rumbleUrl->text().trimmed();if(!QUrl(value).isValid()||!QUrl(value).host().endsWith(QStringLiteral("rumble.com"))){QMessageBox::warning(this,QStringLiteral("Rumble API"),QStringLiteral("Paste the private Rumble Live Stream API URL from your Rumble account."));return;}controller_->settings()->setSecret(QStringLiteral("rumble_api_url"),value);const QString link=controller_->settings()->link(QStringLiteral("rumble"));if(!link.isEmpty())controller_->connectSource(QStringLiteral("rumble"),link);QMessageBox::information(this,QStringLiteral("Rumble API"),QStringLiteral("Rumble chat key saved and connected."));});additional->addWidget(rumbleCard,1);
+    auto* kickCard=new QFrame;kickCard->setProperty("card",true);auto* kickLayout=new QVBoxLayout(kickCard);kickLayout->addWidget(label(QStringLiteral("KICK CHAT"),"cardTitle"));auto* kickHelp=label(QStringLiteral("No key is needed for Kick chat. Add your Kick channel under Sources and select Connect. Kick moderation is hidden until Leapcast supports Kick's authenticated moderation API safely."),"muted");kickHelp->setWordWrap(true);kickLayout->addWidget(kickHelp);additional->addWidget(kickCard,1);
+    auto* rumbleCard=new QFrame;rumbleCard->setProperty("card",true);auto* rumbleLayout=new QVBoxLayout(rumbleCard);rumbleLayout->addWidget(label(QStringLiteral("RUMBLE LIVE STREAM API"),"cardTitle"));auto* rumbleHelp=label(QStringLiteral("1. Select Get Rumble API URL below.\n2. Sign in to Rumble if asked.\n3. On Rumble's Live Stream API page, create or copy your private API URL.\n4. Return to Leapcast and paste the entire URL into the box below.\n5. Select Save & Connect Rumble.\n\nKeep this URL private. If it is ever shared accidentally, reset it on Rumble and paste the new URL here."),"muted");rumbleHelp->setWordWrap(true);rumbleLayout->addWidget(rumbleHelp);auto* rumbleUrl=new QLineEdit(controller_->settings()->secret(QStringLiteral("rumble_api_url")));rumbleUrl->setEchoMode(QLineEdit::Password);rumbleUrl->setPlaceholderText(QStringLiteral("Paste the full private Rumble API URL here"));rumbleLayout->addWidget(rumbleUrl);auto* rumbleButtons=new QHBoxLayout;auto* getRumble=new QPushButton(QStringLiteral("Get Rumble API URL ↗"));auto* saveRumble=new QPushButton(QStringLiteral("Save & Connect Rumble"));rumbleButtons->addWidget(getRumble);rumbleButtons->addWidget(saveRumble);rumbleLayout->addLayout(rumbleButtons);connect(getRumble,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://rumble.com/account/livestream-api")));});connect(saveRumble,&QPushButton::clicked,this,[this,rumbleUrl]{const QString value=rumbleUrl->text().trimmed();const QUrl url(value);const bool rumbleHost=url.host()==QStringLiteral("rumble.com")||url.host().endsWith(QStringLiteral(".rumble.com"));if(!url.isValid()||!rumbleHost){QMessageBox::warning(this,QStringLiteral("Rumble API"),QStringLiteral("That does not look like a Rumble API URL. Select Get Rumble API URL, copy the entire private URL from Rumble, then paste it here."));return;}controller_->settings()->setSecret(QStringLiteral("rumble_api_url"),value);const QString link=controller_->settings()->link(QStringLiteral("rumble"));if(!link.isEmpty())controller_->connectSource(QStringLiteral("rumble"),link);QMessageBox::information(this,QStringLiteral("Rumble connected"),link.isEmpty()?QStringLiteral("Your Rumble API URL is saved. Next, open Sources, enter your Rumble channel URL, and select Connect."):QStringLiteral("Rumble chat is saved and connecting now."));});additional->addWidget(rumbleCard,1);
     layout->addLayout(additional);layout->addStretch();return page;
 }
 
 QWidget* MainWindow::buildModerationPage() {
     auto* page = new QWidget;
-    auto* layout = new QVBoxLayout(page);
+    auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);auto* body=new QWidget;auto* layout = new QVBoxLayout(body);scroll->setWidget(body);outer->addWidget(scroll);
     layout->setContentsMargins(8, 4, 8, 8);
     auto* hero = new QFrame; hero->setObjectName(QStringLiteral("safetyHero"));
     auto* heroLayout = new QHBoxLayout(hero);
@@ -880,28 +891,26 @@ QWidget* MainWindow::buildModerationPage() {
     connect(automodCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::editBlockedWords);
     if (auto* automodLayout = qobject_cast<QVBoxLayout*>(automodCard->layout())) {
-        auto* youtubeTimeoutRow = new QHBoxLayout;
-        youtubeTimeoutRow->addWidget(label(QStringLiteral("YouTube AutoMod timeout")));
-        auto* youtubeTimeout = new QSpinBox;
-        youtubeTimeout->setRange(300, 86400);
-        youtubeTimeout->setSuffix(QStringLiteral(" sec"));
-        youtubeTimeout->setToolTip(QStringLiteral(
-            "How long AutoMod times out a YouTube/Shorts chatter for. Max is 86400 seconds (24 hours)."));
-        youtubeTimeout->setValue(controller_->settings()->preference(
-            QStringLiteral("youtube_automod_timeout_seconds"), 300).toInt());
-        youtubeTimeoutRow->addWidget(youtubeTimeout, 1);
-        connect(youtubeTimeout, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
-            controller_->settings()->setPreference(QStringLiteral("youtube_automod_timeout_seconds"), value);
+        auto* twitchTimeoutRow = new QHBoxLayout;
+        twitchTimeoutRow->addWidget(label(QStringLiteral("Twitch AutoMod timeout")));
+        auto* twitchTimeout = new QSpinBox;
+        twitchTimeout->setRange(30, 86400);
+        twitchTimeout->setSuffix(QStringLiteral(" sec"));
+        twitchTimeout->setToolTip(QStringLiteral("Base Twitch timeout for AutoMod violations."));
+        twitchTimeout->setValue(controller_->settings()->preference(
+            QStringLiteral("twitch_automod_timeout_seconds"), 300).toInt());
+        twitchTimeoutRow->addWidget(twitchTimeout, 1);
+        automodLayout->addLayout(twitchTimeoutRow);
+        auto* twitchLadderNote = label(QString(), "muted");
+        const auto updateTwitchNote=[twitchLadderNote](int seconds){twitchLadderNote->setText(QStringLiteral("Twitch tracks violations per broadcast: %1s for violations 1–5, %2s for violation 6, then a permanent ban.").arg(seconds).arg(qMin(seconds*2,86400)));};
+        updateTwitchNote(twitchTimeout->value());
+        connect(twitchTimeout, qOverload<int>(&QSpinBox::valueChanged), this, [this,updateTwitchNote](int value) {
+            controller_->settings()->setPreference(QStringLiteral("twitch_automod_timeout_seconds"), value);updateTwitchNote(value);
         });
-        automodLayout->addLayout(youtubeTimeoutRow);
-        auto* twitchLadderNote = label(QStringLiteral(
-            "Twitch: 300s timeout for offenses 1–5 in a broadcast, 600s for offense 6, "
-            "then a permanent ban. Resets each time you go live."), "muted");
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
     }
     left->addWidget(tiktokCard);
-    auto* kickCard=makePlatformCard(QStringLiteral("Kick"),QStringLiteral("Chat connected under Sources"),QColor("#53fc18"),QStringLiteral("Open Kick moderation"));kickCard->setProperty("platform",QStringLiteral("kick"));left->addWidget(kickCard);connect(kickCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{QString link=controller_->settings()->link(QStringLiteral("kick"));if(!link.startsWith(QStringLiteral("http")))link=QStringLiteral("https://kick.com/")+link;QDesktopServices::openUrl(QUrl::fromUserInput(link));});
     auto* rumbleCard=makePlatformCard(QStringLiteral("Rumble"),QStringLiteral("Moderate in the Rumble live chat"),QColor("#85c742"),QStringLiteral("Open Rumble moderation"));rumbleCard->setProperty("platform",QStringLiteral("rumble"));left->addWidget(rumbleCard);connect(rumbleCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{const QString link=controller_->settings()->link(QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?QStringLiteral("https://rumble.com/account/livestreams"):link));});left->addStretch();
     right->addStretch();
     columns->addLayout(left, 1); columns->addLayout(right, 1);
@@ -991,10 +1000,9 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
                     this, [this, msg] {bool ok=false;const QString r=QInputDialog::getMultiLineText(this,"Timeout reason","Why is this user being timed out?",QString(),&ok).trimmed();if(ok&&!r.isEmpty()){controller_->moderateMessage(msg,300,r);const QString n="<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>";appendTrimmed(chatViews_.value("combined"),n);appendTrimmed(chatViews_.value(msg.platform),n);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated");}});
             connect(menu.addAction(isYouTube ? QStringLiteral("Hide from channel") : QStringLiteral("Ban")),
                     &QAction::triggered, this, [this, msg] {bool ok=false;const QString r=QInputDialog::getMultiLineText(this,"Ban reason","Why is this user being banned?",QString(),&ok).trimmed();if(ok&&!r.isEmpty()){controller_->moderateMessage(msg,0,r);const QString n="<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>";appendTrimmed(chatViews_.value("combined"),n);appendTrimmed(chatViews_.value(msg.platform),n);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated");}});
-        } else if (msg.platform==QStringLiteral("kick") || msg.platform==QStringLiteral("rumble")) {
+        } else if (msg.platform==QStringLiteral("rumble")) {
             menu.addSeparator();
-            const bool kick=msg.platform==QStringLiteral("kick");
-            connect(menu.addAction(kick?QStringLiteral("Open Kick moderation"):QStringLiteral("Open Rumble moderation")),&QAction::triggered,this,[this,kick]{const QString link=controller_->settings()->link(kick?QStringLiteral("kick"):QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?(kick?QStringLiteral("https://kick.com/"):QStringLiteral("https://rumble.com/account/livestreams")):link));});
+            connect(menu.addAction(QStringLiteral("Open Rumble moderation")),&QAction::triggered,this,[this]{const QString link=controller_->settings()->link(QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?QStringLiteral("https://rumble.com/account/livestreams"):link));});
         }
     }
     menu.addSeparator();
@@ -1007,7 +1015,7 @@ QWidget* MainWindow::buildChatDock() {
     auto* layout = new QVBoxLayout(dock);
     layout->addWidget(label(QStringLiteral("CHAT PREVIEW"), "pageTitle"));
     chatTabs_ = new QTabWidget;
-    chatTabs_->setIconSize(QSize(30, 30));
+    chatTabs_->setIconSize(QSize(44, 26));
     const QList<QPair<QString, QString>> tabs{
         {QStringLiteral("ALL"), QString()}, {QStringLiteral("Twitch"), QStringLiteral(":/brand/twitch.png")},
         {QStringLiteral("YouTube"), QStringLiteral(":/brand/youtube.png")},
@@ -1021,9 +1029,20 @@ QWidget* MainWindow::buildChatDock() {
         auto* chat = new ChatBrowser;
         chat->setPlaceholderText(QStringLiteral("Connected messages appear here."));
         const QIcon icon(tab.second);
-        if (!icon.isNull()) chatTabs_->addTab(chat, icon, QString());
-        else chatTabs_->addTab(chat, tab.first);
-        chatTabs_->setTabToolTip(static_cast<int>(index), tab.first);
+        int tabIndex=-1;
+        if (!icon.isNull()) {
+            tabIndex=chatTabs_->addTab(chat, QString());
+            auto* iconHost=new QLabel;
+            iconHost->setFixedSize(46,30);
+            iconHost->setAlignment(Qt::AlignCenter);
+            iconHost->setAttribute(Qt::WA_TransparentForMouseEvents);
+            iconHost->setStyleSheet(QStringLiteral("background:transparent;border:0;padding:0;margin:0;"));
+            const QPixmap source(tab.second);
+            iconHost->setPixmap(source.scaled(QSize(42,24),Qt::KeepAspectRatio,Qt::SmoothTransformation));
+            chatTabs_->tabBar()->setTabButton(tabIndex,QTabBar::LeftSide,iconHost);
+            chatTabs_->tabBar()->setTabButton(tabIndex,QTabBar::RightSide,nullptr);
+        } else tabIndex=chatTabs_->addTab(chat, tab.first);
+        chatTabs_->setTabToolTip(tabIndex, tab.first);
         chatViews_.insert(keys.at(index),chat);
         if(keys.at(index)!=QStringLiteral("combined"))platformChatWidgets_[keys.at(index)]=chat;
         connect(chat, &ChatBrowser::chatContextMenuRequested, this,
@@ -1124,7 +1143,7 @@ void MainWindow::applyTheme() {
         QPushButton[danger='true'] { background:#44202b; color:#ff91a4; }
         QPushButton[danger='true']:hover { background:#5a2635; color:#ffd3da; }
         QTabWidget::pane { border:1px solid #242b3d; border-radius:9px; }
-        QTabBar::tab { background:#171d2d; min-width:62px; min-height:38px; padding:5px 10px; margin-right:2px; }
+        QTabBar::tab { background:#171d2d; min-width:44px; min-height:38px; padding:4px 3px; margin-right:1px; }
         QTabBar::tab:selected { background:#7667ef; }
         QTabBar::tab:disabled { color:#565f78; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }

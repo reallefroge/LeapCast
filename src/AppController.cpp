@@ -32,6 +32,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("tiktok",n);});
     connect(&kick_,&KickLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("kick",n);});
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("rumble",n);});
+    connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("streamlabs",s,d);});
     const QString twitchClientId=configuredTwitchClientId(settings_);
@@ -134,7 +135,8 @@ void AppController::receive(const ChatMessage&m){
     QColor selected(settings_.preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());
     if(!selected.isValid())selected=QColor(QStringLiteral("#53cdf3"));
     coloured.color=colourMode==QStringLiteral("single")?selected:broadcastUserColours_.value(identity);
-    audit_.appendMessage(coloured);
+    const bool omitBlockedFromLog=coloured.platform==QStringLiteral("kick")||coloured.platform==QStringLiteral("rumble");
+    if(!omitBlockedFromLog)audit_.appendMessage(coloured);
     QString reason;
     if(automod_.check(coloured,&reason)){
         // Hold the message back instead of showing it and moderating after the
@@ -145,6 +147,7 @@ void AppController::receive(const ChatMessage&m){
         emit messageModerated(coloured,reason);
         return;
     }
+    if(omitBlockedFromLog)audit_.appendMessage(coloured);
     emit messageReady(coloured);
 }
 void AppController::autoModerate(const ChatMessage&m,const QString&r){
@@ -152,13 +155,14 @@ void AppController::autoModerate(const ChatMessage&m,const QString&r){
         const auto broadcaster=m.metadata["room_id"].toString();
         if(broadcaster.isEmpty()||m.userId.isEmpty())return;
         // Escalating penalty for repeat offenders within one broadcast:
-        // offenses 1-5 are a 300s timeout, offense 6 is a single 600s
-        // timeout, and offense 7+ is a permanent ban. The count resets when
+        // offenses 1-5 use the configured base timeout, offense 6 doubles it,
+        // and offense 7+ is a permanent ban. The count resets when
         // the channel goes live again (see the broadcastWentLive connection
         // in the constructor); AutoMod otherwise keeps moderating even while
         // the channel is offline.
         const int offense=++twitchAutoModOffenses_[m.userId];
-        const int seconds=offense<=5?300:offense==6?600:0;
+        const int base=qBound(30,settings_.preference(QStringLiteral("twitch_automod_timeout_seconds"),300).toInt(),86400);
+        const int seconds=offense<=5?base:offense==6?qMin(base*2,86400):0;
         twitchMod_.ban(broadcaster,m.userId,seconds,r);
     }else if(m.platform=="youtube"||m.platform=="yt_shorts"){
         const auto chat=m.metadata["live_chat_id"].toString();
