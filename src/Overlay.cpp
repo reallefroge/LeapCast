@@ -158,7 +158,11 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     messageFormat.setProperty(kMessageIdProperty,id);
     cursor.setCharFormat(messageFormat);
     const QString badges=badgeGlyphs(m.badges);
-    cursor.insertHtml(QString("%1<b style='color:%2'>%3</b> <span style='color:#f6f8ff'>%4</span>")
+    // Keep every line readable even when Clear Background is enabled over a
+    // white browser, document, or game scene. QTextBrowser does not provide a
+    // reliable text outline on Windows, so each line carries its own compact
+    // dark backing instead of depending on the pop-out panel colour.
+    cursor.insertHtml(QString("<span style='background-color:#111827;color:#ffffff'>%1<b style='color:%2'>%3</b> <span style='color:#ffffff;font-weight:600'>%4</span></span>")
         .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
@@ -271,7 +275,9 @@ void PopoutChat::applyOpacity(){
     chatPalette.setColor(QPalette::Text,QColor(QStringLiteral("#f6f8ff")));
     chatPalette.setColor(QPalette::WindowText,QColor(QStringLiteral("#f6f8ff")));
     chat_->setPalette(chatPalette);chat_->viewport()->setPalette(chatPalette);
-    chat_->document()->setDefaultStyleSheet(QStringLiteral("body{background:transparent;color:#f6f8ff;}"));
+    chat_->document()->setDefaultStyleSheet(QStringLiteral(
+        "body{background:transparent;color:#ffffff;}"
+        "span{color:#ffffff;}"));
     const bool chromeVisible=opacityPercent_>0;
     if(toolbarTitle_)toolbarTitle_->setVisible(chromeVisible);
     if(clipButton_)clipButton_->setVisible(chromeVisible);

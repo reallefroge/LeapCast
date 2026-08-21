@@ -2,6 +2,11 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 2.2.5
+
+- Fixed pop-out chat messages becoming unreadable over white or bright backgrounds.
+- Added a compact high-contrast backing behind each chat line while preserving persistent random username colors.
+
 ---
 
 ## Leapcast Studio 2.2.1
