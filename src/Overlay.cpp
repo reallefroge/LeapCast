@@ -64,6 +64,17 @@ constexpr int kRestoreHotkeyEscape = 0xC201;
 constexpr int kRestoreHotkeyAltC = 0xC202;
 #endif
 QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "HTTP/1.1 "+QByteArray::number(code)+(code==200?" OK\r\n":" Not Found\r\n")+"Content-Type: "+type+"\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: "+QByteArray::number(body.size())+"\r\nConnection: close\r\n\r\n"+body;}
+// A plain (non-cosmetic) QPen's width scales with whatever transform the
+// painter happens to have active, so the same "N px" outline setting could
+// render at a different on-screen thickness depending on the document's
+// internal scale — the outline stops matching the number in Settings.
+// Cosmetic pens are always exactly N device pixels regardless of transform.
+QPen chatOutlinePen(int thicknessPx){
+    if(thicknessPx<=0)return QPen(Qt::NoPen);
+    QPen pen(Qt::black,thicknessPx,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
+    pen.setCosmetic(true);
+    return pen;
+}
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
 html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif;color:white}
 .m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}
@@ -114,6 +125,11 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     titleBar_=new QWidget;
     titleBar_->setCursor(Qt::SizeAllCursor);
     titleBar_->installEventFilter(this);
+    // Always visible regardless of the chat/panel opacity setting — with the
+    // window frameless, this strip is the only way to find the drag handle
+    // and close button, so it can't fade away with everything else at 0%.
+    titleBar_->setStyleSheet(QStringLiteral(
+        "background-color:rgba(10,12,20,215);border-top-left-radius:10px;border-top-right-radius:10px;"));
     auto*toolbar=new QHBoxLayout(titleBar_);
     toolbar->setContentsMargins(0,0,0,0);
     toolbar->setSpacing(6);
@@ -208,6 +224,14 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     cursor.movePosition(QTextCursor::End);
     QTextBlockFormat format;
     format.setProperty(kMessageIdProperty,id);
+    // QTextDocument lays out line spacing purely from font metrics; it has no
+    // idea a char format also carries a text-outline pen, so a thick outline
+    // gets its top/bottom clipped by the neighboring line. Pad the block by
+    // the outline width so the stroke has room to render in full.
+    if(outlineThickness_>0){
+        format.setTopMargin(outlineThickness_);
+        format.setBottomMargin(outlineThickness_);
+    }
     if(!chat_->document()->isEmpty())cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
     QTextCharFormat messageFormat=cursor.charFormat();
@@ -222,7 +246,7 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     const int messageEnd=cursor.position();
     cursor.setPosition(messageStart);cursor.setPosition(messageEnd,QTextCursor::KeepAnchor);
     QTextCharFormat outlineFormat;
-    outlineFormat.setTextOutline(outlineThickness_>0?QPen(Qt::black,outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
+    outlineFormat.setTextOutline(chatOutlinePen(outlineThickness_));
     cursor.mergeCharFormat(outlineFormat);
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
@@ -325,38 +349,54 @@ void PopoutChat::applyTextOutline(){
     if(!chat_)return;
     QTextCursor cursor(chat_->document());cursor.select(QTextCursor::Document);
     QTextCharFormat format;
-    format.setTextOutline(outlineThickness_>0?QPen(Qt::black,outlineThickness_,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin):QPen(Qt::NoPen));
-    cursor.mergeCharFormat(format);chat_->viewport()->update();
+    format.setTextOutline(chatOutlinePen(outlineThickness_));
+    cursor.mergeCharFormat(format);
+    // Re-pad every existing block for the new outline width too, not just
+    // messages appended after the change — otherwise older lines already in
+    // the document keep getting clipped by their neighbors.
+    QTextBlock block=chat_->document()->firstBlock();
+    while(block.isValid()){
+        QTextBlockFormat blockFormat=block.blockFormat();
+        blockFormat.setTopMargin(outlineThickness_>0?outlineThickness_:0);
+        blockFormat.setBottomMargin(outlineThickness_>0?outlineThickness_:0);
+        QTextCursor(block).setBlockFormat(blockFormat);
+        block=block.next();
+    }
+    chat_->viewport()->update();
 }
 
 void ChatBrowser::paintEvent(QPaintEvent* event){
-    // QTextEdit paints through its viewport. Clear the complete damaged region
-    // to alpha first so Windows cannot reuse an opaque (white) backing-store
-    // tile when the pop-out grows and is then made smaller again.
+    // Clear the WHOLE viewport (not just event->rect()) before every paint.
+    // A layered, per-pixel-alpha top-level window has no automatic
+    // double-buffering safety net the way a normal composited window does:
+    // clearing only the damaged rectangle can leave Windows compositing a
+    // stretched copy of the last full frame into the newly exposed area
+    // during/after a resize, which shows up as a distorted, duplicated-text
+    // frame frozen behind the current one.
     QPainter clearPainter(viewport());
     clearPainter.setCompositionMode(QPainter::CompositionMode_Source);
-    clearPainter.fillRect(event->rect(),Qt::transparent);
+    clearPainter.fillRect(viewport()->rect(),Qt::transparent);
     clearPainter.end();
     QTextBrowser::paintEvent(event);
 }
 void PopoutChat::resizeEvent(QResizeEvent* event){
     QWidget::resizeEvent(event);
-    // On Windows, QTextBrowser can retain an opaque backing-store tile for the
-    // portion of its viewport exposed by a resize. Reassert the alpha and
-    // invalidate both surfaces so every newly exposed pixel is repainted.
     applyOpacity();
-    if(chat_){
-        chat_->update();
-        chat_->viewport()->update();
-    }
+    if(chat_)chat_->viewport()->update();
+    // Force an immediate, full-window synchronous repaint rather than a
+    // queued update(). During a live resize of a layered window, Windows can
+    // otherwise keep showing a stretched copy of the pre-resize frame until
+    // something else happens to trigger the next paint.
+    repaint();
 }
 void PopoutChat::paintEvent(QPaintEvent* event){
-    // A translucent top-level window must explicitly clear newly exposed
-    // pixels. Otherwise the Windows backing store can reveal its default white
-    // surface after a resize even though every child widget is transparent.
+    Q_UNUSED(event)
+    // Always clear the full window, not just the damaged rect — see the
+    // comment in ChatBrowser::paintEvent for why partial clears corrupt a
+    // layered translucent window's backing store during/after a resize.
     QPainter painter(this);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.fillRect(event->rect(),Qt::transparent);
+    painter.fillRect(rect(),Qt::transparent);
 }
 void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
@@ -393,11 +433,10 @@ void PopoutChat::applyOpacity(){
     chat_->document()->setDefaultStyleSheet(QStringLiteral(
         "body{background:transparent;color:#ffffff;}"
         "span{color:#ffffff;}"));
-    const bool backgroundVisible=opacityPercent_>0;
-    // Opacity controls backgrounds only. Chat and the live viewer count must
-    // remain visible at 0%; hiding them made the slider behave backwards.
-    if(toolbarTitle_)toolbarTitle_->setVisible(backgroundVisible);
-    if(clipButton_)clipButton_->setVisible(backgroundVisible);
+    // Opacity controls the chat/viewer panel backgrounds only. The title bar
+    // has its own permanent backdrop (set in the constructor) so it, the
+    // label, the Clip button, and the close button all stay visible at every
+    // opacity level; hiding them at 0% made them impossible to find.
     if(viewers_)viewers_->show();
 }
 void PopoutChat::registerRestoreHotkeys(){
