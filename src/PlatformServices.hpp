@@ -72,6 +72,32 @@ private:
     void installBridge(); TikTokPage page_; QString username_; QSet<QString> seen_;
 };
 
+class KickLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit KickLiveService(QObject* parent=nullptr);
+    void connectChannel(const QString& channel); void disconnectService();
+signals:
+    void messageReceived(const ChatMessage& message);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+private:
+    void installBridge(); TikTokPage page_; QString channel_; QSet<QString> seen_;
+};
+
+class RumbleLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit RumbleLiveService(QObject* parent=nullptr);
+    void connectApi(const QUrl& apiUrl); void disconnectService();
+signals:
+    void messageReceived(const ChatMessage& message);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+private:
+    void poll(); QNetworkAccessManager network_; QTimer timer_; QUrl apiUrl_; QSet<QString> seen_;
+};
+
 class TikTokModerationService final : public QObject {
     Q_OBJECT
 public:

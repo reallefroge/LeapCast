@@ -46,6 +46,7 @@ signals:
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
+    static QString kickName(const QString& link);
     void receive(const ChatMessage& message);
     void autoModerate(const ChatMessage& message,const QString& reason);
 public:
@@ -58,6 +59,8 @@ public:
     YouTubeChatService youtube_{QStringLiteral("youtube"),false};
     YouTubeChatService shorts_{QStringLiteral("yt_shorts"),true};
     TikTokLiveService tiktok_;
+    KickLiveService kick_;
+    RumbleLiveService rumble_;
     StreamlabsService streamlabs_;
     TwitchAuthService twitchAuth_;
     TwitchModerationService twitchMod_;

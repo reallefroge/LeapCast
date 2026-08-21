@@ -67,7 +67,7 @@ QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "H
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
 html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif;color:white}
 .m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}
-.m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}
+.m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}.kick{border-left:4px solid #53fc18}.rumble{border-left:4px solid #85c742}
 </style><main id=c></main><script>
 const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
 let n=0,clearGeneration=-1;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();if(clearGeneration<0)clearGeneration=d.clear_generation;else if(clearGeneration!==d.clear_generation){c.replaceChildren();clearGeneration=d.clear_generation}document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML='<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
@@ -285,6 +285,10 @@ void PopoutChat::showChatContextMenu(const QPoint&globalPos){
             // permanent action "Hide user on this channel".
             connect(menu.addAction(isYouTube?QStringLiteral("Hide from channel"):QStringLiteral("Ban")),
                     &QAction::triggered,this,[this,msg]{bool ok=false;const QString reason=QInputDialog::getMultiLineText(this,"Ban reason","Why is this user being banned?",QString(),&ok).trimmed();if(ok&&!reason.isEmpty())emit timeoutUserRequested(msg,0,reason);});
+        }else if(msg.platform==QStringLiteral("kick")||msg.platform==QStringLiteral("rumble")){
+            menu.addSeparator();
+            const bool kick=msg.platform==QStringLiteral("kick");
+            connect(menu.addAction(kick?QStringLiteral("Open Kick moderation"):QStringLiteral("Open Rumble moderation")),&QAction::triggered,this,[msg,kick]{const QString channel=msg.metadata.value("channel").toString();QDesktopServices::openUrl(kick?QUrl(QStringLiteral("https://kick.com/")+channel):QUrl(QStringLiteral("https://rumble.com/account/livestreams")));});
         }
     }
     menu.addSeparator();
@@ -297,13 +301,14 @@ void PopoutChat::setViewers(const QString&p,int n){
     int total=0;
     for(int v:counts_)total+=v;
     // Fixed display order so the breakdown doesn't reshuffle as counts update.
-    // Kick has no live source wired up yet, so it never appears here even
-    // though the pop-out's tab already exists as a "Coming Soon" placeholder.
+    // Keep a fixed display order so the breakdown stays stable as sources update.
     static const QList<QPair<QString,QString>> platforms{
         {QStringLiteral("twitch"),QStringLiteral("Twitch")},
         {QStringLiteral("youtube"),QStringLiteral("YouTube")},
         {QStringLiteral("yt_shorts"),QStringLiteral("Shorts")},
-        {QStringLiteral("tiktok"),QStringLiteral("TikTok")}};
+        {QStringLiteral("tiktok"),QStringLiteral("TikTok")},
+        {QStringLiteral("kick"),QStringLiteral("Kick")},
+        {QStringLiteral("rumble"),QStringLiteral("Rumble")}};
     QStringList parts;
     for(const auto&platform:platforms){
         const int count=counts_.value(platform.first,0);

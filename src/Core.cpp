@@ -81,8 +81,10 @@ void SettingsStore::load() {
         if(backup.open(QIODevice::ReadOnly))root_=QJsonDocument::fromJson(backup.readAll()).object();
         if(!root_.isEmpty())save();
     }
-    if (!root_.contains("links")) root_["links"]=QJsonObject{{"twitch",""},{"youtube",""},{"yt_shorts",""},{"tiktok",""}};
-    if (!root_.contains("enabled")) root_["enabled"]=QJsonObject{{"twitch",true},{"youtube",true},{"yt_shorts",true},{"tiktok",true}};
+    if (!root_.contains("links")) root_["links"]=QJsonObject{{"twitch",""},{"youtube",""},{"yt_shorts",""},{"tiktok",""},{"kick",""},{"rumble",""}};
+    else {auto links=root_["links"].toObject();if(!links.contains("kick"))links["kick"]="";if(!links.contains("rumble"))links["rumble"]="";root_["links"]=links;}
+    if (!root_.contains("enabled")) root_["enabled"]=QJsonObject{{"twitch",true},{"youtube",true},{"yt_shorts",true},{"tiktok",true},{"kick",true},{"rumble",true}};
+    else {auto enabled=root_["enabled"].toObject();if(!enabled.contains("kick"))enabled["kick"]=true;if(!enabled.contains("rumble"))enabled["rumble"]=true;root_["enabled"]=enabled;}
     if (!root_.contains("prefs")) root_["prefs"]=QJsonObject{};
     if (!root_.contains("port")) root_["port"]=8080;
 }

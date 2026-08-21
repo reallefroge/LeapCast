@@ -454,11 +454,11 @@ QWidget* MainWindow::makePlatformCard(const QString& name, const QString& status
 }
 
 QWidget* MainWindow::buildSourcesPage() {
-    auto* page=new QWidget; auto* layout=new QVBoxLayout(page);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);scroll->setWidget(body);outer->addWidget(scroll);
     layout->setContentsMargins(8,4,8,8);
     layout->addWidget(label(QStringLiteral("CONNECTED COMMUNITIES"),"heroTitle"));
     layout->addWidget(label(QStringLiteral("Paste a channel or live-stream link. Each reader runs independently."),"muted"));
-    const QList<QPair<QString,QString>> sources{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"}};
+    const QList<QPair<QString,QString>> sources{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"},{"kick","Kick"},{"rumble","Rumble"}};
     // A fresh install has every link blank (see SettingsStore::load()) — walk
     // the reader through the first connection instead of leaving four empty
     // cards with no explanation.
@@ -484,7 +484,7 @@ QWidget* MainWindow::buildSourcesPage() {
         auto* card=new QFrame;card->setProperty("card",true);card->setProperty("platform",source.first);sourceCards_[source.first]=card;auto* cardLayout=new QVBoxLayout(card);
         auto* head=new QHBoxLayout;head->addWidget(label(source.second,"cardTitle"));head->addStretch();
         auto* state=label(QStringLiteral("Offline"),"status");sourceStates_[source.first]=state;head->addWidget(state);cardLayout->addLayout(head);
-        auto* row=new QHBoxLayout;auto* entry=new QLineEdit(controller_->settings()->link(source.first));entry->setPlaceholderText(source.first=="twitch"?"twitch.tv/yourname":source.first=="tiktok"?"tiktok.com/@yourname":"youtube.com/@yourname");row->addWidget(entry,1);
+        auto* row=new QHBoxLayout;auto* entry=new QLineEdit(controller_->settings()->link(source.first));entry->setPlaceholderText(source.first=="twitch"?"twitch.tv/yourname":source.first=="tiktok"?"tiktok.com/@yourname":source.first=="kick"?"kick.com/yourname":source.first=="rumble"?"rumble.com/c/yourchannel":"youtube.com/@yourname");row->addWidget(entry,1);
         auto* connectButton=new QPushButton(QStringLiteral("Connect"));row->addWidget(connectButton);auto* disconnectButton=new QPushButton(QStringLiteral("Disconnect"));row->addWidget(disconnectButton);cardLayout->addLayout(row);
         connect(connectButton,&QPushButton::clicked,this,[this,entry,key=source.first]{controller_->connectSource(key,entry->text());});
         connect(disconnectButton,&QPushButton::clicked,this,[this,key=source.first]{controller_->disconnectSource(key);});
@@ -667,7 +667,7 @@ QWidget* MainWindow::buildSettingsPage(){
 
     auto* platforms=new QFrame;platforms->setProperty("card",true);auto* platformLayout=new QVBoxLayout(platforms);platformLayout->addWidget(label(QStringLiteral("VISIBLE PLATFORMS"),"cardTitle"));
     platformLayout->addWidget(label(QStringLiteral("Disable platforms you do not use. Saved links and authorization are retained."),"muted"));
-    const QList<QPair<QString,QString>> options{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"}};
+    const QList<QPair<QString,QString>> options{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"},{"kick","Kick"},{"rumble","Rumble"}};
     for(const auto&option:options){auto*box=new QCheckBox(option.second);box->setChecked(controller_->settings()->enabled(option.first));platformLayout->addWidget(box);connect(box,&QCheckBox::toggled,this,[this,key=option.first](bool enabled){controller_->settings()->setEnabled(key,enabled);if(enabled){const QString link=controller_->settings()->link(key);if(!link.isEmpty())controller_->connectSource(key,link);}else controller_->disconnectSource(key);applyPlatformVisibility();});}
     layout->addWidget(platforms);
 
@@ -697,7 +697,7 @@ void MainWindow::moveNavigationButton(const QString&key,int direction){
 }
 
 void MainWindow::applyPlatformVisibility(){
-    for(const auto&key:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok")}){
+    for(const auto&key:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok"),QStringLiteral("kick"),QStringLiteral("rumble")}){
         const bool enabled=controller_->settings()->enabled(key);if(sourceCards_.contains(key))sourceCards_[key]->setVisible(enabled);if(chatTabs_&&platformChatWidgets_.contains(key)){const int index=chatTabs_->indexOf(platformChatWidgets_[key]);if(index>=0)chatTabs_->setTabVisible(index,enabled);}
     }
     for(auto*widget:findChildren<QWidget*>()){
@@ -845,7 +845,11 @@ QWidget* MainWindow::buildKeysPage() {
     const bool youtubeAuthorized=!controller_->settings()->secret(QStringLiteral("youtube_access_token")).isEmpty();
     auto* youtubeCard=makePlatformCard(QStringLiteral("YouTube"),youtubeAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your YouTube account"),QColor("#ff334f"),youtubeAuthorized?QStringLiteral("Reload YouTube Key"):QStringLiteral("Connect YouTube"),QStringLiteral("Get YouTube keys ↗"),QUrl(QStringLiteral("https://console.cloud.google.com/apis/credentials")));
     youtubeCard->setProperty("platform",QStringLiteral("youtube"));youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));columns->addWidget(youtubeCard,1);connect(youtubeConnectButton_,&QPushButton::clicked,this,&MainWindow::configureYouTubeModeration);
-    layout->addLayout(columns);layout->addStretch();return page;
+    layout->addLayout(columns);
+    auto* additional=new QHBoxLayout;
+    auto* kickCard=new QFrame;kickCard->setProperty("card",true);auto* kickLayout=new QVBoxLayout(kickCard);kickLayout->addWidget(label(QStringLiteral("KICK"),"cardTitle"));auto* kickHelp=label(QStringLiteral("Kick chat uses the signed-in web session. Open Kick Developer if you want to register an OAuth app for future API features."),"muted");kickHelp->setWordWrap(true);kickLayout->addWidget(kickHelp);auto* kickDev=new QPushButton(QStringLiteral("Open Kick Developer ↗"));kickLayout->addWidget(kickDev);connect(kickDev,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://dev.kick.com/")));});additional->addWidget(kickCard,1);
+    auto* rumbleCard=new QFrame;rumbleCard->setProperty("card",true);auto* rumbleLayout=new QVBoxLayout(rumbleCard);rumbleLayout->addWidget(label(QStringLiteral("RUMBLE LIVE STREAM API"),"cardTitle"));auto* rumbleHelp=label(QStringLiteral("Paste your private Rumble Live Stream API URL. Keep it secret; resetting it in Rumble revokes access."),"muted");rumbleHelp->setWordWrap(true);rumbleLayout->addWidget(rumbleHelp);auto* rumbleUrl=new QLineEdit(controller_->settings()->secret(QStringLiteral("rumble_api_url")));rumbleUrl->setEchoMode(QLineEdit::Password);rumbleUrl->setPlaceholderText(QStringLiteral("https://rumble.com/-livestream-api/..."));rumbleLayout->addWidget(rumbleUrl);auto* rumbleButtons=new QHBoxLayout;auto* getRumble=new QPushButton(QStringLiteral("Get Rumble API URL ↗"));auto* saveRumble=new QPushButton(QStringLiteral("Save Rumble Key"));rumbleButtons->addWidget(getRumble);rumbleButtons->addWidget(saveRumble);rumbleLayout->addLayout(rumbleButtons);connect(getRumble,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://rumble.com/account/livestream-api")));});connect(saveRumble,&QPushButton::clicked,this,[this,rumbleUrl]{const QString value=rumbleUrl->text().trimmed();if(!QUrl(value).isValid()||!QUrl(value).host().endsWith(QStringLiteral("rumble.com"))){QMessageBox::warning(this,QStringLiteral("Rumble API"),QStringLiteral("Paste the private Rumble Live Stream API URL from your Rumble account."));return;}controller_->settings()->setSecret(QStringLiteral("rumble_api_url"),value);const QString link=controller_->settings()->link(QStringLiteral("rumble"));if(!link.isEmpty())controller_->connectSource(QStringLiteral("rumble"),link);QMessageBox::information(this,QStringLiteral("Rumble API"),QStringLiteral("Rumble chat key saved and connected."));});additional->addWidget(rumbleCard,1);
+    layout->addLayout(additional);layout->addStretch();return page;
 }
 
 QWidget* MainWindow::buildModerationPage() {
@@ -896,7 +900,9 @@ QWidget* MainWindow::buildModerationPage() {
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
     }
-    left->addWidget(tiktokCard);left->addStretch();
+    left->addWidget(tiktokCard);
+    auto* kickCard=makePlatformCard(QStringLiteral("Kick"),QStringLiteral("Chat connected under Sources"),QColor("#53fc18"),QStringLiteral("Open Kick moderation"));kickCard->setProperty("platform",QStringLiteral("kick"));left->addWidget(kickCard);connect(kickCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{QString link=controller_->settings()->link(QStringLiteral("kick"));if(!link.startsWith(QStringLiteral("http")))link=QStringLiteral("https://kick.com/")+link;QDesktopServices::openUrl(QUrl::fromUserInput(link));});
+    auto* rumbleCard=makePlatformCard(QStringLiteral("Rumble"),QStringLiteral("Moderate in the Rumble live chat"),QColor("#85c742"),QStringLiteral("Open Rumble moderation"));rumbleCard->setProperty("platform",QStringLiteral("rumble"));left->addWidget(rumbleCard);connect(rumbleCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{const QString link=controller_->settings()->link(QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?QStringLiteral("https://rumble.com/account/livestreams"):link));});left->addStretch();
     right->addStretch();
     columns->addLayout(left, 1); columns->addLayout(right, 1);
     layout->addLayout(columns, 1);
@@ -985,6 +991,10 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
                     this, [this, msg] {bool ok=false;const QString r=QInputDialog::getMultiLineText(this,"Timeout reason","Why is this user being timed out?",QString(),&ok).trimmed();if(ok&&!r.isEmpty()){controller_->moderateMessage(msg,300,r);const QString n="<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>";appendTrimmed(chatViews_.value("combined"),n);appendTrimmed(chatViews_.value(msg.platform),n);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated");}});
             connect(menu.addAction(isYouTube ? QStringLiteral("Hide from channel") : QStringLiteral("Ban")),
                     &QAction::triggered, this, [this, msg] {bool ok=false;const QString r=QInputDialog::getMultiLineText(this,"Ban reason","Why is this user being banned?",QString(),&ok).trimmed();if(ok&&!r.isEmpty()){controller_->moderateMessage(msg,0,r);const QString n="<div style='color:#7f8ba5;font-style:italic'>&lt;Message Moderated&gt;</div>";appendTrimmed(chatViews_.value("combined"),n);appendTrimmed(chatViews_.value(msg.platform),n);if(popout_)popout_->appendModerationNote(msg.user,"Message Moderated");}});
+        } else if (msg.platform==QStringLiteral("kick") || msg.platform==QStringLiteral("rumble")) {
+            menu.addSeparator();
+            const bool kick=msg.platform==QStringLiteral("kick");
+            connect(menu.addAction(kick?QStringLiteral("Open Kick moderation"):QStringLiteral("Open Rumble moderation")),&QAction::triggered,this,[this,kick]{const QString link=controller_->settings()->link(kick?QStringLiteral("kick"):QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?(kick?QStringLiteral("https://kick.com/"):QStringLiteral("https://rumble.com/account/livestreams")):link));});
         }
     }
     menu.addSeparator();
@@ -1002,8 +1012,10 @@ QWidget* MainWindow::buildChatDock() {
         {QStringLiteral("ALL"), QString()}, {QStringLiteral("Twitch"), QStringLiteral(":/brand/twitch.png")},
         {QStringLiteral("YouTube"), QStringLiteral(":/brand/youtube.png")},
         {QStringLiteral("Shorts"), QStringLiteral(":/brand/youtube_shorts.png")},
-        {QStringLiteral("TikTok"), QStringLiteral(":/brand/tiktok.png")}};
-    const QStringList keys{QStringLiteral("combined"),QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok")};
+        {QStringLiteral("TikTok"), QStringLiteral(":/brand/tiktok.png")},
+        {QStringLiteral("Kick"), QStringLiteral(":/brand/kick.svg")},
+        {QStringLiteral("Rumble"), QStringLiteral(":/brand/rumble.svg")}};
+    const QStringList keys{QStringLiteral("combined"),QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok"),QStringLiteral("kick"),QStringLiteral("rumble")};
     for (qsizetype index=0; index<tabs.size(); ++index) {
         const auto& tab=tabs.at(index);
         auto* chat = new ChatBrowser;
@@ -1017,17 +1029,6 @@ QWidget* MainWindow::buildChatDock() {
         connect(chat, &ChatBrowser::chatContextMenuRequested, this,
                 [this, chat](const QPoint& globalPos) { showDashboardChatMenu(chat, globalPos); });
     }
-
-    auto* kickPreview = new QTextBrowser;
-    kickPreview->setReadOnly(true);
-    kickPreview->setHtml(QStringLiteral(
-        "<div style='text-align:center;margin-top:44px;color:#7f8ba5'>"
-        "<div style='font-size:13pt;font-weight:800;color:#53cdf3'>KICK</div>"
-        "<div style='margin-top:6px;font-weight:700'>Coming Soon</div>"
-        "<div style='margin-top:2px;font-size:9pt'>Kick chat support is on the way.</div></div>"));
-    const int kickTabIndex = chatTabs_->addTab(kickPreview, QStringLiteral("Kick"));
-    chatTabs_->setTabEnabled(kickTabIndex, false);
-    chatTabs_->setTabToolTip(kickTabIndex, QStringLiteral("Kick — Coming Soon"));
 
     layout->addWidget(chatTabs_, 1);
     applyPlatformVisibility();
