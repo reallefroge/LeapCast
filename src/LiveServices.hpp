@@ -7,6 +7,7 @@
 #include <QSet>
 #include <QTimer>
 #include <QWebSocket>
+#include <QStringList>
 
 class QNetworkReply;
 
@@ -23,6 +24,7 @@ signals:
     void authorized(const QString& accessToken, const QString& refreshToken,
                     const QString& userId, const QString& login, int expiresIn);
     void authorizationFailed(const QString& detail);
+    void scopesValidated(const QStringList& scopes);
 private:
     void requestDeviceCode();
     void pollForToken();

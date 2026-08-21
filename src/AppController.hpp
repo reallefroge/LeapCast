@@ -64,5 +64,10 @@ public:
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;
+    // Per-broadcast name colours. Assigned on a chatter's first message and
+    // reused for every later message from that same platform account.
+    QHash<QString,QColor> broadcastUserColours_;
+    int nextBroadcastColour_{};
+    int broadcastColourOffset_{-1};
     bool twitchAuthorizationRequested_{};
 };

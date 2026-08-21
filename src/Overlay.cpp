@@ -158,7 +158,7 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     messageFormat.setProperty(kMessageIdProperty,id);
     cursor.setCharFormat(messageFormat);
     const QString badges=badgeGlyphs(m.badges);
-    cursor.insertHtml(QString("%1<b style='color:%2'>%3</b> %4")
+    cursor.insertHtml(QString("%1<b style='color:%2'>%3</b> <span style='color:#f6f8ff'>%4</span>")
         .arg(badges.isEmpty()?QString():badges+QStringLiteral(" "),m.color.name(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped()));
     chat_->moveCursor(QTextCursor::End);
     chat_->ensureCursorVisible();
@@ -258,9 +258,20 @@ void PopoutChat::setClearBackground(bool on){clearBackground_=on;applyOpacity();
 void PopoutChat::setOpacityPercent(int n){opacityPercent_=qBound(0,n,100);applyOpacity();}
 void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
-    chat_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);border:0;border-radius:12px;font-size:12pt;").arg(alpha));
+    const QString panel=QStringLiteral("rgba(16,19,29,%1)").arg(alpha);
+    // QTextBrowser uses a separate viewport widget. Styling only the outer
+    // control lets Windows/Qt paint that viewport with its default white base,
+    // which is why the chat became a white sheet after native transparency was
+    // enabled. Style both surfaces explicitly and set a readable text palette.
+    chat_->setStyleSheet(QStringLiteral("QTextBrowser{background:%1;color:#f6f8ff;border:0;border-radius:12px;font-size:12pt;}").arg(panel));
+    chat_->viewport()->setStyleSheet(QStringLiteral("background:%1;color:#f6f8ff;border:0;border-radius:12px;").arg(panel));
     viewers_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(alpha));
-    QPalette transparentPalette=chat_->palette();transparentPalette.setColor(QPalette::Base,Qt::transparent);transparentPalette.setColor(QPalette::Window,Qt::transparent);chat_->setPalette(transparentPalette);chat_->viewport()->setPalette(transparentPalette);
+    QPalette chatPalette=chat_->palette();const QColor panelColor(16,19,29,alpha);
+    chatPalette.setColor(QPalette::Base,panelColor);chatPalette.setColor(QPalette::Window,panelColor);
+    chatPalette.setColor(QPalette::Text,QColor(QStringLiteral("#f6f8ff")));
+    chatPalette.setColor(QPalette::WindowText,QColor(QStringLiteral("#f6f8ff")));
+    chat_->setPalette(chatPalette);chat_->viewport()->setPalette(chatPalette);
+    chat_->document()->setDefaultStyleSheet(QStringLiteral("body{background:transparent;color:#f6f8ff;}"));
     const bool chromeVisible=opacityPercent_>0;
     if(toolbarTitle_)toolbarTitle_->setVisible(chromeVisible);
     if(clipButton_)clipButton_->setVisible(chromeVisible);
