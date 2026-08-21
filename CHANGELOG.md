@@ -4,6 +4,41 @@
 
 ---
 
+## Leapcast Studio 2.2.1
+
+**Transparent pop-outs, safe Program Files upgrades, and a complete Twitch Appeals review flow.**
+
+| Release | Status | Focus |
+|---|---|---|
+| **V2.2.1** | Stable | Appeals, update safety, and Windows transparency |
+
+### 🛡️ Twitch Appeals review
+
+- Added **Approve Appeal** and **Deny Appeal** actions for one selected Twitch appeal.
+- Added a polished, frameless review popup showing the account, ban reason, ban date, moderator, appeal response, and the user’s stored chat logs.
+- The review popup closes safely when you click outside it. Clicking away never approves or denies an appeal.
+- Successfully resolved appeals refresh automatically and disappear from the pending list.
+
+### 🔐 Safer updates and installs
+
+- New installations now default to `C:\Program Files\Leapcast Studio` on 64-bit Windows.
+- Installer builds request the Windows administrator approval required for Program Files.
+- Automatic updates stage installers in the Windows temporary directory—not Downloads—and reinstall over the current application path.
+- Local settings, Twitch credentials, YouTube credentials, source links, moderation preferences, chat history, and event history stay outside the application folder so updates do not overwrite them.
+- Added a once-per-version connection check that reports the local data path and confirms which existing Twitch and YouTube credentials were preserved.
+- Added recovery from the pre-update settings backup if an older or interrupted installer leaves the settings file unreadable.
+
+### 👁️ Pop-out transparency
+
+- Fixed the native Windows backing surface that could remain black even when pop-out opacity was set to 0%.
+- Made the pop-out host, chat viewport, and palette explicitly transparent while keeping message text readable.
+
+### Permission note
+
+V2.2.1 is the first public build requesting Twitch’s `moderator:manage:unban_requests` permission for the new appeal actions. Twitch and YouTube connection data remains preserved during updates.
+
+---
+
 ## Leapcast Studio 2.2.0
 
 **A smoother launch, dependable updates, persistent creator settings, and a workspace that adapts to you.**

@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QInputDialog>
 #include <QMenu>
+#include <QPalette>
 #include <QPushButton>
 #include <QStackedLayout>
 #include <QTcpSocket>
@@ -75,6 +76,8 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     resize(460,720);
     setWindowFlag(Qt::WindowStaysOnTopHint,true);
     setAttribute(Qt::WA_TranslucentBackground,true);
+    setAttribute(Qt::WA_NoSystemBackground,true);
+    setAutoFillBackground(false);
     qApp->installNativeEventFilter(this);
     auto*l=new QVBoxLayout(this);
     l->setContentsMargins(8,8,8,8);
@@ -106,10 +109,18 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     l->addWidget(event_);
 
     auto*chatHost=new QWidget;
+    chatHost->setAttribute(Qt::WA_TranslucentBackground,true);
+    chatHost->setAttribute(Qt::WA_NoSystemBackground,true);
+    chatHost->setAutoFillBackground(false);
+    chatHost->setStyleSheet(QStringLiteral("background:transparent;border:0;"));
     chatStack_=new QStackedLayout(chatHost);
     chatStack_->setContentsMargins(0,0,0,0);
     chatStack_->setStackingMode(QStackedLayout::StackAll);
     chat_=new ChatBrowser;
+    chat_->setAttribute(Qt::WA_TranslucentBackground,true);
+    chat_->setAutoFillBackground(false);
+    chat_->viewport()->setAttribute(Qt::WA_TranslucentBackground,true);
+    chat_->viewport()->setAutoFillBackground(false);
     connect(chat_,&ChatBrowser::chatContextMenuRequested,this,&PopoutChat::showChatContextMenu);
     chatStack_->addWidget(chat_);
     l->addWidget(chatHost,1);
@@ -249,6 +260,7 @@ void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
     chat_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);border:0;border-radius:12px;font-size:12pt;").arg(alpha));
     viewers_->setStyleSheet(QStringLiteral("background:rgba(16,19,29,%1);padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(alpha));
+    QPalette transparentPalette=chat_->palette();transparentPalette.setColor(QPalette::Base,Qt::transparent);transparentPalette.setColor(QPalette::Window,Qt::transparent);chat_->setPalette(transparentPalette);chat_->viewport()->setPalette(transparentPalette);
     const bool chromeVisible=opacityPercent_>0;
     if(toolbarTitle_)toolbarTitle_->setVisible(chromeVisible);
     if(clipButton_)clipButton_->setVisible(chromeVisible);

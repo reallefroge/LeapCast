@@ -22,7 +22,7 @@ QString twitchError(const QByteArray& payload,const QString& fallback){
 }
 
 TwitchAuthService::TwitchAuthService(QObject*p):QObject(p){
-    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages moderator:read:unban_requests user:write:chat clips:edit");
+    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages moderator:read:unban_requests moderator:manage:unban_requests user:write:chat clips:edit");
     pollTimer_.setSingleShot(true);
     connect(&pollTimer_,&QTimer::timeout,this,&TwitchAuthService::pollForToken);
     refreshTimer_.setSingleShot(true);
@@ -150,6 +150,13 @@ void TwitchModerationService::watch(QNetworkReply*r,const QString&a){connect(r,&
 void TwitchModerationService::resolveBroadcaster(const QString&login){QUrl u("https://api.twitch.tv/helix/users");QUrlQuery q;q.addQueryItem("login",login);u.setQuery(q);auto*r=network_.get(request(u));connect(r,&QNetworkReply::finished,this,[this,r,login]{if(r->error()==QNetworkReply::NoError){auto a=QJsonDocument::fromJson(r->readAll()).object()["data"].toArray();if(!a.isEmpty())emit broadcasterResolved(login,a[0].toObject()["id"].toString());}r->deleteLater();});}
 void TwitchModerationService::listBans(const QString&b){QUrl u("https://api.twitch.tv/helix/moderation/banned");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("first","100");u.setQuery(q);auto*r=network_.get(request(u));connect(r,&QNetworkReply::finished,this,[this,r]{if(r->error()==QNetworkReply::NoError)emit bansReceived(QJsonDocument::fromJson(r->readAll()).object()["data"].toArray());else emit actionFinished("list_bans",false,r->errorString());r->deleteLater();});}
 void TwitchModerationService::listUnbanRequests(const QString&b){QUrl u("https://api.twitch.tv/helix/moderation/unban_requests");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("status","pending");q.addQueryItem("first","100");u.setQuery(q);auto*r=network_.get(request(u));connect(r,&QNetworkReply::finished,this,[this,r]{const QByteArray body=r->readAll();if(r->error()==QNetworkReply::NoError)emit unbanRequestsReceived(QJsonDocument::fromJson(body).object()["data"].toArray());else emit actionFinished("list_appeals",false,twitchError(body,r->errorString()));r->deleteLater();});}
+void TwitchModerationService::resolveUnbanRequest(const QString&b,const QString&id,bool approved,const QString&text){
+    QUrl u("https://api.twitch.tv/helix/moderation/unban_requests");QUrlQuery q;
+    q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);
+    q.addQueryItem("unban_request_id",id);q.addQueryItem("status",approved?"approved":"denied");
+    if(!text.isEmpty())q.addQueryItem("resolution_text",text.left(500));u.setQuery(q);
+    watch(network_.sendCustomRequest(request(u),"PATCH"),approved?"approve_appeal":"deny_appeal");
+}
 void TwitchModerationService::ban(const QString&b,const QString&u,int seconds,const QString&reason){
     // Watching (or testing chat on) a channel you don't moderate is expected —
     // don't hammer Twitch, and don't keep re-warning the user, once we already

@@ -12,8 +12,11 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTime>
+#include <QDialog>
+#include <QDir>
 #include <QEvent>
 #include <QFrame>
 #include <QFontComboBox>
@@ -164,7 +167,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         for(const auto&v:appeals){const auto a=v.toObject();auto*item=new QListWidgetItem;
             const QString user=a.value("user_name").toString(a.value("user_login").toString("Unknown user"));
             item->setText(QStringLiteral("%1\n%2").arg(user,a.value("text").toString("No appeal message provided.")));
-            item->setData(Qt::UserRole,a.value("user_id").toString());item->setData(Qt::UserRole+1,user);item->setToolTip(QStringLiteral("Submitted %1").arg(friendlyTimestamp(a.value("created_at").toString())));twitchAppeals_->addItem(item);}
+            item->setData(Qt::UserRole,a.value("user_id").toString());item->setData(Qt::UserRole+1,user);item->setData(Qt::UserRole+2,a.toVariantMap());item->setToolTip(QStringLiteral("Submitted %1").arg(friendlyTimestamp(a.value("created_at").toString())));twitchAppeals_->addItem(item);}
         if(twitchAppeals_->count()==0){auto*i=new QListWidgetItem("No pending Twitch appeals.");i->setFlags(Qt::NoItemFlags);twitchAppeals_->addItem(i);}
     });
     connect(controller_,&AppController::userChatHistoryReady,this,[this](const QString&,const QJsonArray&messages){
@@ -204,7 +207,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
     connect(controller_, &AppController::bansUpdated, this,
-            [this](const QString& platform, const QJsonArray& bans) {
+        [this](const QString& platform, const QJsonArray& bans) {
+            if(platform==QStringLiteral("twitch"))twitchBansCache_=bans;
         QListWidget* list = platform == QStringLiteral("twitch") ? twitchBans_ : youtubeBans_;
         if (!list) return;
         list->clear();
@@ -336,6 +340,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
     });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
+    QTimer::singleShot(350, this, &MainWindow::showPostUpdateConnectionCheck);
 }
 
 bool MainWindow::event(QEvent* e) {
@@ -727,8 +732,12 @@ QWidget* MainWindow::buildBansPage() {
     appealSplit->addWidget(twitchAppeals_);appealSplit->addWidget(twitchAppealHistory_);appealSplit->setStretchFactor(0,2);appealSplit->setStretchFactor(1,3);
     appealsLayout->addWidget(appealSplit,1);
     auto* appealControls=new QHBoxLayout;auto* refreshAppeals=new QPushButton(QStringLiteral("Refresh appeals"));
-    appealControls->addWidget(refreshAppeals);appealControls->addStretch();appealsLayout->addLayout(appealControls);
+    auto*approveAppeal=new QPushButton(QStringLiteral("Approve Appeal"));approveAppeal->setProperty("primary",true);
+    auto*denyAppeal=new QPushButton(QStringLiteral("Deny Appeal"));
+    appealControls->addWidget(refreshAppeals);appealControls->addStretch();appealControls->addWidget(denyAppeal);appealControls->addWidget(approveAppeal);appealsLayout->addLayout(appealControls);
     connect(refreshAppeals,&QPushButton::clicked,this,[this]{controller_->refreshTwitchAppeals();});
+    connect(approveAppeal,&QPushButton::clicked,this,[this]{reviewTwitchAppeal(true);});
+    connect(denyAppeal,&QPushButton::clicked,this,[this]{reviewTwitchAppeal(false);});
     connect(twitchAppeals_,&QListWidget::currentItemChanged,this,[this](QListWidgetItem*item,QListWidgetItem*){
         if(!item||!(item->flags()&Qt::ItemIsEnabled)){if(twitchAppealHistory_)twitchAppealHistory_->clear();return;}
         controller_->loadTwitchUserHistory(item->data(Qt::UserRole).toString(),item->data(Qt::UserRole+1).toString());
@@ -737,6 +746,43 @@ QWidget* MainWindow::buildBansPage() {
     layout->addWidget(tabs, 1);
     QTimer::singleShot(0, this, [this] { controller_->refreshBans(QStringLiteral("youtube")); });
     return page;
+}
+
+void MainWindow::reviewTwitchAppeal(bool approve){
+    auto*item=twitchAppeals_?twitchAppeals_->currentItem():nullptr;
+    if(!item||!(item->flags()&Qt::ItemIsEnabled)){QMessageBox::information(this,QStringLiteral("Twitch Appeals"),QStringLiteral("Select one pending appeal first."));return;}
+    const QJsonObject appeal=QJsonObject::fromVariantMap(item->data(Qt::UserRole+2).toMap());
+    const QString user=item->data(Qt::UserRole+1).toString();const QString userId=item->data(Qt::UserRole).toString();
+    QJsonObject ban;for(const auto&value:twitchBansCache_){const auto candidate=value.toObject();if(candidate.value("user_id").toString()==userId){ban=candidate;break;}}
+    // Qt::Popup gives this frameless review panel native click-away behaviour:
+    // clicking anywhere outside dismisses it without taking moderation action.
+    QDialog dialog(this,Qt::Popup|Qt::FramelessWindowHint);dialog.setObjectName(QStringLiteral("appealReview"));dialog.setModal(false);dialog.resize(920,600);
+    auto*outer=new QVBoxLayout(&dialog);outer->setContentsMargins(18,18,18,18);outer->setSpacing(12);
+    auto*title=label(QStringLiteral("TWITCH APPEAL — %1").arg(user),"heroTitle");outer->addWidget(title);
+    auto*split=new QSplitter(Qt::Horizontal);
+    auto*details=new QTextBrowser;details->setHtml(QStringLiteral("<h3>%1</h3><p><b>Ban reason</b><br>%2</p><p><b>Banned</b><br>%3</p><p><b>Banned by</b><br>%4</p><p><b>Appeal Reason</b><br>%5</p>")
+        .arg(user.toHtmlEscaped(),ban.value("reason").toString("Not supplied by Twitch").toHtmlEscaped(),friendlyTimestamp(ban.value("created_at").toString()).toHtmlEscaped(),ban.value("moderator_name").toString("Not supplied by Twitch").toHtmlEscaped(),appeal.value("text").toString("No appeal message provided.").toHtmlEscaped()));
+    auto*logs=new QTextBrowser;logs->setHtml(twitchAppealHistory_?twitchAppealHistory_->toHtml():QStringLiteral("No stored logs."));
+    split->addWidget(details);split->addWidget(logs);split->setStretchFactor(0,2);split->setStretchFactor(1,3);outer->addWidget(split,1);
+    auto*resolution=new QLineEdit;resolution->setPlaceholderText(approve?QStringLiteral("Approval response (optional)"):QStringLiteral("Reason for denying this appeal"));outer->addWidget(resolution);
+    auto*buttons=new QHBoxLayout;auto*cancel=new QPushButton(QStringLiteral("Cancel"));auto*confirm=new QPushButton(approve?QStringLiteral("Approve Appeal"):QStringLiteral("Deny Appeal"));confirm->setProperty("primary",approve);buttons->addStretch();buttons->addWidget(cancel);buttons->addWidget(confirm);outer->addLayout(buttons);
+    connect(cancel,&QPushButton::clicked,&dialog,&QDialog::reject);connect(confirm,&QPushButton::clicked,&dialog,&QDialog::accept);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    controller_->resolveTwitchAppeal(appeal.value("id").toString(),approve,resolution->text().trimmed());
+}
+
+void MainWindow::showPostUpdateConnectionCheck(){
+    const QString version=QCoreApplication::applicationVersion();
+    if(controller_->settings()->preference(QStringLiteral("connection_check_version")).toString()==version)return;
+    const bool twitch=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
+    const bool youtube=!controller_->settings()->secret(QStringLiteral("youtube_access_token")).isEmpty();
+    const bool existingInstall=twitch||youtube||!controller_->settings()->link(QStringLiteral("twitch")).isEmpty()||!controller_->settings()->link(QStringLiteral("youtube")).isEmpty();
+    if(!existingInstall){controller_->settings()->setPreference(QStringLiteral("connection_check_version"),version);return;}
+    const QString dataPath=QDir::toNativeSeparators(controller_->settings()->dataDirectory());
+    const QString report=QStringLiteral("Local data: ✓ Found\n%1\n\nTwitch: %2\nYouTube: %3\n\nYour existing connections and settings remain stored outside the Program Files installation, so this update did not require reconnecting them.")
+        .arg(dataPath,twitch?QStringLiteral("✓ Preserved and validating automatically"):QStringLiteral("Not previously connected"),youtube?QStringLiteral("✓ Preserved and ready"):QStringLiteral("Not previously connected"));
+    QMessageBox::information(this,QStringLiteral("Update connection check"),report);
+    controller_->settings()->setPreference(QStringLiteral("connection_check_version"),version);
 }
 
 QWidget* MainWindow::buildModerationPage() {

@@ -70,6 +70,8 @@ public:
     void resolveBroadcaster(const QString& login);
     void listBans(const QString& broadcasterId);
     void listUnbanRequests(const QString& broadcasterId);
+    void resolveUnbanRequest(const QString& broadcasterId, const QString& requestId,
+                             bool approved, const QString& resolutionText);
     void ban(const QString& broadcasterId, const QString& userId,
              int seconds, const QString& reason);
     void unban(const QString& broadcasterId, const QString& userId);

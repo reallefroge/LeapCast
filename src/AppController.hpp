@@ -18,6 +18,7 @@ public:
     void refreshBans(const QString& platform);
     void unbanTwitch(const QString& userId);
     void unbanYouTube(const QString& banId);
+    void resolveTwitchAppeal(const QString& requestId, bool approved, const QString& resolutionText);
     void createTwitchClip();
     // Manual moderation triggered from a chat message's context menu, for the
     // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
