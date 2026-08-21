@@ -13,12 +13,14 @@
 #include <QLabel>
 #include <QInputDialog>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPen>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QSizeGrip>
 #include <QStackedLayout>
 #include <QTcpSocket>
 #include <QTextBlock>
@@ -32,6 +34,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWindow>
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
@@ -89,6 +92,16 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     setWindowTitle("Leapcast Studio Pop-out");
     setWindowIcon(QIcon(":/brand/lefroge_chat_icon.png"));
     resize(460,720);
+    // A window that keeps the native Windows title bar/frame relies on DWM
+    // glass composition to make its client area translucent, and that
+    // composition silently falls back to an opaque (white) client surface
+    // whenever DWM composition or the system's "Transparency effects"
+    // setting isn't fully active — which is exactly the symptom reported
+    // here. Going frameless makes Qt use a per-pixel-alpha layered window
+    // instead, which blends correctly regardless of DWM/compositor state.
+    // The custom toolbar below replaces the lost native title bar/close
+    // button/drag handle; a QSizeGrip in the corner replaces native resize.
+    setWindowFlag(Qt::FramelessWindowHint,true);
     setWindowFlag(Qt::WindowStaysOnTopHint,true);
     setAttribute(Qt::WA_TranslucentBackground,true);
     setAttribute(Qt::WA_NoSystemBackground,true);
@@ -98,10 +111,16 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     l->setContentsMargins(8,8,8,8);
     l->setSpacing(6);
 
-    auto*toolbar=new QHBoxLayout;
+    titleBar_=new QWidget;
+    titleBar_->setCursor(Qt::SizeAllCursor);
+    titleBar_->installEventFilter(this);
+    auto*toolbar=new QHBoxLayout(titleBar_);
+    toolbar->setContentsMargins(0,0,0,0);
     toolbar->setSpacing(6);
     toolbarTitle_=new QLabel("LEAPCAST STUDIO");
     toolbarTitle_->setStyleSheet("color:#8f9bb5;font-size:8pt;font-weight:800;letter-spacing:1px;");
+    toolbarTitle_->setCursor(Qt::SizeAllCursor);
+    toolbarTitle_->installEventFilter(this);
     toolbar->addWidget(toolbarTitle_);
     toolbar->addStretch();
     clipButton_=new QPushButton("Clip");
@@ -114,7 +133,16 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     clipButton_->setEnabled(false);
     connect(clipButton_,&QPushButton::clicked,this,&PopoutChat::clipRequested);
     toolbar->addWidget(clipButton_);
-    l->addLayout(toolbar);
+    auto*closeButton=new QPushButton(QStringLiteral("✕"));
+    closeButton->setToolTip(QStringLiteral("Close pop-out"));
+    closeButton->setCursor(Qt::PointingHandCursor);
+    closeButton->setFixedSize(22,22);
+    closeButton->setStyleSheet(
+        "QPushButton{background:#20283a;color:#c7cede;border:0;border-radius:6px;font-weight:700;}"
+        "QPushButton:hover{background:#44202b;color:#ff91a4;}");
+    connect(closeButton,&QPushButton::clicked,this,&QWidget::close);
+    toolbar->addWidget(closeButton);
+    l->addWidget(titleBar_);
 
     event_=new QLabel;
     event_->setAlignment(Qt::AlignCenter);
@@ -156,8 +184,16 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     clipStatus_->hide();
     l->addWidget(clipStatus_);
 
+    auto*bottomRow=new QHBoxLayout;
+    bottomRow->setSpacing(6);
     viewers_=new QLabel("0 watching");
-    l->addWidget(viewers_);
+    bottomRow->addWidget(viewers_,1);
+    // Frameless windows lose the native resize border; a QSizeGrip in the
+    // corner is the standard Qt replacement.
+    auto*sizeGrip=new QSizeGrip(this);
+    sizeGrip->setStyleSheet(QStringLiteral("background:transparent;"));
+    bottomRow->addWidget(sizeGrip,0,Qt::AlignBottom|Qt::AlignRight);
+    l->addLayout(bottomRow);
     applyOpacity();
 }
 PopoutChat::~PopoutChat(){
@@ -379,6 +415,19 @@ void PopoutChat::unregisterRestoreHotkeys(){
     UnregisterHotKey(nullptr,kRestoreHotkeyAltC);
     hotkeysRegistered_=false;
 #endif
+}
+bool PopoutChat::eventFilter(QObject*watched,QEvent*event){
+    // The frameless window has no native title bar to drag; let a left-button
+    // press on titleBar_ move the window via the platform's own system move,
+    // same as dragging a normal title bar would.
+    if((watched==titleBar_||watched==toolbarTitle_)&&event->type()==QEvent::MouseButtonPress){
+        auto*mouse=static_cast<QMouseEvent*>(event);
+        if(mouse->button()==Qt::LeftButton&&windowHandle()){
+            windowHandle()->startSystemMove();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched,event);
 }
 bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintptr*result){
     Q_UNUSED(result)

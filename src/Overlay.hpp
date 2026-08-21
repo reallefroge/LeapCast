@@ -9,6 +9,7 @@
 #include <QWidget>
 class QResizeEvent;
 class QPaintEvent;
+class QEvent;
 class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
@@ -123,6 +124,7 @@ signals:
 
 protected:
     bool nativeEventFilter(const QByteArray& eventType, void* message, qintptr* result) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -138,6 +140,10 @@ private:
     QLabel* viewers_{};
     QLabel* clipStatus_{};
     QLabel* toolbarTitle_{};
+    // The window has no native title bar (see the constructor comment on
+    // Qt::FramelessWindowHint), so this row doubles as a drag handle via
+    // eventFilter() + QWindow::startSystemMove().
+    QWidget* titleBar_{};
     QPushButton* clipButton_{};
     QHash<QString, int> counts_;
     // Messages currently rendered in chat_, keyed by an ever-increasing id
