@@ -21,6 +21,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&youtube_,&YouTubeChatService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("youtube",s,d);});
     connect(&shorts_,&YouTubeChatService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("yt_shorts",s,d);});
     connect(&tiktok_,&TikTokLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("tiktok",s,d);});
+    connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();});
     connect(&twitch_,&TwitchChatService::viewerCountChanged,this,[this](int n){emit viewerCount("twitch",n);});
     connect(&youtube_,&YouTubeChatService::viewerCountChanged,this,[this](int n){emit viewerCount("youtube",n);});
     connect(&shorts_,&YouTubeChatService::viewerCountChanged,this,[this](int n){emit viewerCount("yt_shorts",n);});
@@ -134,7 +135,26 @@ void AppController::receive(const ChatMessage&m){
     }
     emit messageReady(coloured);
 }
-void AppController::autoModerate(const ChatMessage&m,const QString&r){if(m.platform=="twitch"){const auto broadcaster=m.metadata["room_id"].toString();if(!broadcaster.isEmpty()&&!m.userId.isEmpty())twitchMod_.ban(broadcaster,m.userId,300,r);}else if(m.platform=="youtube"||m.platform=="yt_shorts"){const auto chat=m.metadata["live_chat_id"].toString();if(!chat.isEmpty()&&!m.userId.isEmpty())youtubeMod_.ban(chat,m.userId,300,m.user);}}
+void AppController::autoModerate(const ChatMessage&m,const QString&r){
+    if(m.platform=="twitch"){
+        const auto broadcaster=m.metadata["room_id"].toString();
+        if(broadcaster.isEmpty()||m.userId.isEmpty())return;
+        // Escalating penalty for repeat offenders within one broadcast:
+        // offenses 1-5 are a 300s timeout, offense 6 is a single 600s
+        // timeout, and offense 7+ is a permanent ban. The count resets when
+        // the channel goes live again (see the broadcastWentLive connection
+        // in the constructor); AutoMod otherwise keeps moderating even while
+        // the channel is offline.
+        const int offense=++twitchAutoModOffenses_[m.userId];
+        const int seconds=offense<=5?300:offense==6?600:0;
+        twitchMod_.ban(broadcaster,m.userId,seconds,r);
+    }else if(m.platform=="youtube"||m.platform=="yt_shorts"){
+        const auto chat=m.metadata["live_chat_id"].toString();
+        if(chat.isEmpty()||m.userId.isEmpty())return;
+        const int seconds=qBound(300,settings_.preference(QStringLiteral("youtube_automod_timeout_seconds"),300).toInt(),86400);
+        youtubeMod_.ban(chat,m.userId,seconds,m.user);
+    }
+}
 void AppController::moderateMessage(const ChatMessage&m,int seconds,const QString&reason){
     if(m.platform=="twitch"){
         const auto broadcaster=m.metadata["room_id"].toString();

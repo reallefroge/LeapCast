@@ -52,6 +52,10 @@ signals:
     void messageReceived(const ChatMessage& message);
     void statusChanged(const QString& state, const QString& detail);
     void viewerCountChanged(int viewers);
+    // Fires once per transition from offline (or not-yet-known) to live, as
+    // detected by the same viewer-count poll — used to reset AutoMod's
+    // per-broadcast Twitch timeout escalation at the start of each stream.
+    void broadcastWentLive();
 private:
     void parseLine(const QString& line);
     void pollViewers();
@@ -62,6 +66,7 @@ private:
     QTimer viewerPoll_;
     QString channel_;
     int backoffMs_{2000};
+    bool wasLive_{false};
 };
 
 class TwitchModerationService final : public QObject {

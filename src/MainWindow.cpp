@@ -860,6 +860,27 @@ QWidget* MainWindow::buildModerationPage() {
     right->addWidget(automodCard);
     connect(automodCard->findChild<QPushButton*>(QStringLiteral("cardAction")), &QPushButton::clicked,
             this, &MainWindow::editBlockedWords);
+    if (auto* automodLayout = qobject_cast<QVBoxLayout*>(automodCard->layout())) {
+        auto* youtubeTimeoutRow = new QHBoxLayout;
+        youtubeTimeoutRow->addWidget(label(QStringLiteral("YouTube AutoMod timeout")));
+        auto* youtubeTimeout = new QSpinBox;
+        youtubeTimeout->setRange(300, 86400);
+        youtubeTimeout->setSuffix(QStringLiteral(" sec"));
+        youtubeTimeout->setToolTip(QStringLiteral(
+            "How long AutoMod times out a YouTube/Shorts chatter for. Max is 86400 seconds (24 hours)."));
+        youtubeTimeout->setValue(controller_->settings()->preference(
+            QStringLiteral("youtube_automod_timeout_seconds"), 300).toInt());
+        youtubeTimeoutRow->addWidget(youtubeTimeout, 1);
+        connect(youtubeTimeout, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
+            controller_->settings()->setPreference(QStringLiteral("youtube_automod_timeout_seconds"), value);
+        });
+        automodLayout->addLayout(youtubeTimeoutRow);
+        auto* twitchLadderNote = label(QStringLiteral(
+            "Twitch: 300s timeout for offenses 1–5 in a broadcast, 600s for offense 6, "
+            "then a permanent ban. Resets each time you go live."), "muted");
+        twitchLadderNote->setWordWrap(true);
+        automodLayout->addWidget(twitchLadderNote);
+    }
     right->addStretch();
     columns->addLayout(left, 1); columns->addLayout(right, 1);
     layout->addLayout(columns, 1);
