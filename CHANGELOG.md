@@ -2,6 +2,12 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 2.2.7
+
+- Fixed the pop-out window showing a distorted, stretched frame with duplicated text after being resized. The new frameless (v2.2.5) window has no automatic double-buffering safety net during a resize the way a normal composited window does, and clearing only the "damaged" rectangle on each paint could leave Windows compositing a stretched copy of the previous frame into the newly exposed area. Every paint now clears the full window instead, and a resize forces an immediate synchronous repaint.
+- The pop-out's title bar (drag handle + ✕ close button) now has its own permanent, always-visible backdrop instead of fading with the rest of the window at low opacity — it was becoming impossible to spot.
+- Fixed the chat font outline thickness not matching the pixel value set in Settings, and outlines getting clipped at the top/bottom of a line at larger thicknesses.
+
 ## Leapcast Studio 2.2.5
 
 - Fixed the pop-out chat rendering as a solid white window instead of transparent. The pop-out kept its native Windows title bar, which relies on DWM glass composition for a translucent client area — when DWM composition or the system's "Transparency effects" setting isn't fully active, that composition silently fell back to an opaque white surface, and no amount of stylesheet/palette tuning could fix a compositor-level fallback. The pop-out is now a frameless, per-pixel-alpha window (the standard, compositor-independent approach), with its own small title bar (drag to move, ✕ to close) and a resize grip in the corner replacing the native ones.
