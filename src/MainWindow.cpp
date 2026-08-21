@@ -145,9 +145,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controller_ = new AppController(this);
     applyTheme();
     overlay_ = new OverlayServer(this);
+    const QString savedMobileToken=controller_->settings()->secret(QStringLiteral("mobile_companion_token"));
+    if(savedMobileToken.isEmpty())controller_->settings()->setSecret(QStringLiteral("mobile_companion_token"),overlay_->mobileToken());
+    else overlay_->setMobileToken(savedMobileToken);
     overlay_->start(static_cast<quint16>(controller_->settings()->preference(QStringLiteral("port"),8080).toInt()));
     overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"), 0).toInt());
     overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
+    connect(overlay_,&OverlayServer::mobileDeleteRequested,controller_,&AppController::deleteChatMessage);
+    connect(overlay_,&OverlayServer::mobileModerationRequested,controller_,&AppController::moderateMessage);
     updater_ = new UpdateService(this);
 
     auto* splitter = new QSplitter(Qt::Horizontal);
@@ -407,14 +412,14 @@ QWidget* MainWindow::buildDashboard() {
     railLayout->addWidget(label(QStringLiteral("LEAPCAST\nSTUDIO"), "brand"));
 
     pages_ = new QStackedWidget;
-    const QStringList keys{QStringLiteral("sources"),QStringLiteral("events"),QStringLiteral("keys"),QStringLiteral("moderation"),QStringLiteral("bans"),QStringLiteral("obs"),QStringLiteral("settings")};
-    const QHash<QString,QString> names{{"sources","Sources"},{"events","Events"},{"keys","Keys"},{"moderation","Moderation"},{"bans","Bans"},{"obs","Chat Overlay"},{"settings","Settings"}};
+    const QStringList keys{QStringLiteral("sources"),QStringLiteral("events"),QStringLiteral("keys"),QStringLiteral("moderation"),QStringLiteral("bans"),QStringLiteral("obs"),QStringLiteral("phone"),QStringLiteral("settings")};
+    const QHash<QString,QString> names{{"sources","Sources"},{"events","Events"},{"keys","Keys"},{"moderation","Moderation"},{"bans","Bans"},{"obs","Chat Overlay"},{"phone","Phone Connect"},{"settings","Settings"}};
     const QStringList saved=controller_->settings()->preference(QStringLiteral("navigation_order"),keys).toStringList();
     navigationOrder_=saved;for(const auto&key:keys)if(!navigationOrder_.contains(key))navigationOrder_<<key;
     for(int i=navigationOrder_.size()-1;i>=0;--i)if(!keys.contains(navigationOrder_[i]))navigationOrder_.removeAt(i);
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
-    pages_->addWidget(buildSourcesPage());pages_->addWidget(buildEventsPage());pages_->addWidget(buildKeysPage());pages_->addWidget(buildModerationPage());pages_->addWidget(buildBansPage());pages_->addWidget(buildObsPage());pages_->addWidget(buildSettingsPage());
+    pages_->addWidget(buildSourcesPage());pages_->addWidget(buildEventsPage());pages_->addWidget(buildKeysPage());pages_->addWidget(buildModerationPage());pages_->addWidget(buildBansPage());pages_->addWidget(buildObsPage());pages_->addWidget(buildPhoneConnectPage());pages_->addWidget(buildSettingsPage());
     for (const auto&key:navigationOrder_) {
         const int i=keys.indexOf(key);
         auto* button = new QPushButton(names.value(key));
@@ -639,6 +644,37 @@ QWidget* MainWindow::buildObsPage() {
     return page;
 }
 
+QWidget* MainWindow::buildPhoneConnectPage(){
+    auto* page=new QWidget;
+    auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(10);
+    layout->addWidget(label(QStringLiteral("PHONE CONNECT"),"heroTitle"));
+    auto* intro=label(QStringLiteral("Optional iPhone companion for keeping combined chat, viewer counts, and essential moderation controls close while you stream."),"muted");intro->setWordWrap(true);layout->addWidget(intro);
+
+    auto* lockCard=new QFrame;lockCard->setProperty("card",true);auto* lockLayout=new QVBoxLayout(lockCard);
+    lockLayout->addWidget(label(QStringLiteral("PASSWORD-PROTECTED TEST"),"cardTitle"));
+    auto* lockHelp=label(QStringLiteral("This preview is locked while Phone Connect is being tested. Enter the test password to reveal the private connection link."),"muted");lockHelp->setWordWrap(true);lockLayout->addWidget(lockHelp);
+    auto* passwordRow=new QHBoxLayout;auto* password=new QLineEdit;password->setEchoMode(QLineEdit::Password);password->setPlaceholderText(QStringLiteral("Test password"));auto* unlock=new QPushButton(QStringLiteral("Unlock"));passwordRow->addWidget(password,1);passwordRow->addWidget(unlock);lockLayout->addLayout(passwordRow);auto* lockStatus=label(QString(),"status");lockLayout->addWidget(lockStatus);layout->addWidget(lockCard);
+
+    auto* content=new QWidget;auto* contentLayout=new QVBoxLayout(content);contentLayout->setContentsMargins(0,0,0,0);contentLayout->setSpacing(10);content->hide();
+    auto* connectCard=new QFrame;connectCard->setProperty("card",true);auto* connectLayout=new QVBoxLayout(connectCard);connectLayout->addWidget(label(QStringLiteral("CONNECT THIS IPHONE"),"cardTitle"));
+    auto* connectHelp=label(QStringLiteral("Keep Leapcast Studio open on this PC. Connect the iPhone to the same private Wi-Fi, copy the link below, and open it in Safari. The iPhone page will ask for the same test password."),"muted");connectHelp->setWordWrap(true);connectLayout->addWidget(connectHelp);
+    const QUrl mobileUrl=overlay_->mobileUrl();auto* link=new QLineEdit(mobileUrl.isValid()?mobileUrl.toString():QStringLiteral("Connect this PC to Wi-Fi or Ethernet, then restart Leapcast Studio."));link->setReadOnly(true);connectLayout->addWidget(link);
+    auto* actions=new QHBoxLayout;auto* copy=new QPushButton(QStringLiteral("Copy iPhone Link"));auto* preview=new QPushButton(QStringLiteral("Open Phone Preview"));auto* install=new QPushButton(QStringLiteral("Copy Install Link"));copy->setEnabled(mobileUrl.isValid());preview->setEnabled(mobileUrl.isValid());install->setEnabled(mobileUrl.isValid());actions->addWidget(copy);actions->addWidget(preview);actions->addWidget(install);actions->addStretch();connectLayout->addLayout(actions);
+    connect(copy,&QPushButton::clicked,this,[mobileUrl,lockStatus]{QApplication::clipboard()->setText(mobileUrl.toString());lockStatus->setText(QStringLiteral("Private iPhone link copied."));});
+    connect(install,&QPushButton::clicked,this,[mobileUrl,lockStatus]{QApplication::clipboard()->setText(mobileUrl.toString());lockStatus->setText(QStringLiteral("Install link copied. Open it in Safari, then use Add to Home Screen."));});
+    connect(preview,&QPushButton::clicked,this,[mobileUrl]{QDesktopServices::openUrl(mobileUrl);});contentLayout->addWidget(connectCard);
+
+    auto* stepsCard=new QFrame;stepsCard->setProperty("card",true);auto* steps=new QVBoxLayout(stepsCard);steps->addWidget(label(QStringLiteral("INSTALL AS AN IPHONE APP"),"cardTitle"));auto* stepText=label(QStringLiteral("1. Open the copied link in Safari on the iPhone.\n2. Enter the test password: apple\n3. Confirm chat and viewer counts connect.\n4. Tap Safari's Share button.\n5. Choose Add to Home Screen.\n6. Keep Open as Web App enabled, then tap Add."),"muted");stepText->setWordWrap(true);steps->addWidget(stepText);contentLayout->addWidget(stepsCard);
+
+    auto* requirementsCard=new QFrame;requirementsCard->setProperty("card",true);auto* requirements=new QVBoxLayout(requirementsCard);requirements->addWidget(label(QStringLiteral("IPHONE REQUIREMENTS"),"cardTitle"));auto* requirementsText=label(QStringLiteral("• iPhone only — iPad, Mac, Android, and Apple TV are not enabled for this test.\n• iOS 16.4 or newer recommended; iOS 17 or newer provides the best Home Screen web-app experience.\n• iPhone 8 / iPhone X generation or newer; fully optimized for iPhone 16 and Dynamic Island layouts.\n• Safari must be available to perform Add to Home Screen.\n• The iPhone and Windows 10/11 PC must use the same private Wi-Fi network.\n• Leapcast Studio must stay open on the PC while Phone Connect is used.\n• Allow Leapcast through Windows Firewall for Private networks.\n• Platform moderation must already be connected and authorized inside Leapcast Studio."),"muted");requirementsText->setWordWrap(true);requirements->addWidget(requirementsText);contentLayout->addWidget(requirementsCard);
+
+    auto* privacyCard=new QFrame;privacyCard->setProperty("card",true);auto* privacy=new QVBoxLayout(privacyCard);privacy->addWidget(label(QStringLiteral("LOCAL & OPTIONAL"),"cardTitle"));auto* privacyText=label(QStringLiteral("Phone Connect is optional. It does not upload the mobile page to a public host. The private link works only while Leapcast Studio is running and should not be shared outside your trusted local network."),"muted");privacyText->setWordWrap(true);privacy->addWidget(privacyText);contentLayout->addWidget(privacyCard);contentLayout->addStretch();layout->addWidget(content,1);
+
+    const auto tryUnlock=[password,content,lockStatus]{if(password->text()==QStringLiteral("apple")){content->show();lockStatus->setText(QStringLiteral("Unlocked for testing."));lockStatus->setStyleSheet(QStringLiteral("color:#63e6be"));password->clear();}else{content->hide();lockStatus->setText(QStringLiteral("Incorrect test password."));lockStatus->setStyleSheet(QStringLiteral("color:#ff8292"));}};
+    connect(unlock,&QPushButton::clicked,this,tryUnlock);connect(password,&QLineEdit::returnPressed,this,tryUnlock);
+    return page;
+}
+
 QWidget* MainWindow::buildSettingsPage(){
     auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(7);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
@@ -673,7 +709,7 @@ QWidget* MainWindow::buildSettingsPage(){
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();
-    auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key==QStringLiteral("obs")?QStringLiteral("Chat Overlay"):key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
+    auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key==QStringLiteral("obs")?QStringLiteral("Chat Overlay"):key==QStringLiteral("phone")?QStringLiteral("Phone Connect"):key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
     auto* up=new QPushButton(QStringLiteral("Move up"));auto* down=new QPushButton(QStringLiteral("Move down"));navSettings->addWidget(up);navSettings->addWidget(down);
     connect(up,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),-1);});
     connect(down,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),1);});layout->addWidget(navigation);

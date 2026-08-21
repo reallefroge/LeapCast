@@ -4,6 +4,7 @@
 #include <QContextMenuEvent>
 #include <QHash>
 #include <QPoint>
+#include <QUrl>
 #include <QTcpServer>
 #include <QTextBrowser>
 #include <QWidget>
@@ -56,11 +57,15 @@ private:
     QLabel* addressLabel_{};
 };
 class OverlayServer final : public QObject {
+    Q_OBJECT
 public:
     explicit OverlayServer(QObject* parent = nullptr);
     bool start(quint16 preferredPort = 8080);
     void stop();
     quint16 port() const { return server_.serverPort(); }
+    QUrl mobileUrl() const;
+    QString mobileToken() const { return QString::fromLatin1(mobileToken_); }
+    void setMobileToken(const QString& token);
     void ingest(const ChatMessage& message);
     void setViewers(const QString& platform, int count);
     void setFadeSeconds(int seconds) { fadeSeconds_ = qMax(0, seconds); }
@@ -69,9 +74,13 @@ public:
     int fadeSeconds() const { return fadeSeconds_; }
     void clear();
 
+signals:
+    void mobileDeleteRequested(const ChatMessage& message);
+    void mobileModerationRequested(const ChatMessage& message, int seconds, const QString& reason);
+
 private:
     void accept();
-    QByteArray responseFor(const QByteArray& target);
+    QByteArray responseFor(const QByteArray& method, const QByteArray& target, const QHostAddress& peer);
     QTcpServer server_;
     QList<QPair<quint64, ChatMessage>> messages_;
     QHash<QString, int> viewers_;
@@ -81,6 +90,7 @@ private:
     int backgroundOpacityPercent_{};
     int outlineThickness_{2};
     quint64 clearGeneration_{};
+    QByteArray mobileToken_;
 };
 
 class PopoutChat final : public QWidget, public QAbstractNativeEventFilter {

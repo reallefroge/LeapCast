@@ -40,6 +40,7 @@ private:
     QWidget* buildSourcesPage();
     QWidget* buildEventsPage();
     QWidget* buildObsPage();
+    QWidget* buildPhoneConnectPage();
     QWidget* buildKeysPage();
     QWidget* buildSettingsPage();
     QWidget* buildBansPage();
