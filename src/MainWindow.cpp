@@ -71,7 +71,7 @@ bool showUpdateNotesDialog(QWidget* parent,const QString&version,const QString&n
     auto* summaryLabel=label(QStringLiteral("🚀 %1").arg(summary.isEmpty()?QStringLiteral("A new update is ready."):summary),"muted");summaryLabel->setWordWrap(true);layout->addWidget(summaryLabel);
     auto* patchNotes=new QTextBrowser;patchNotes->setOpenExternalLinks(true);patchNotes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.45} h1,h2,h3{margin:8px 0 5px} p{margin:5px 0} li{margin:0 0 7px 0}"));patchNotes->setMarkdown(notes.trimmed().isEmpty()?QStringLiteral("- ✅ Performance improvements\n- 🛠️ Bug fixes"):notes.left(12000));patchNotes->setMinimumHeight(150);layout->addWidget(patchNotes,1);
     auto* hint=label(QStringLiteral("🔄 Installs the patch, then reopens Leapcast automatically."),"muted");hint->setWordWrap(true);layout->addWidget(hint);
-    auto* buttons=new QDialogButtonBox;auto* later=buttons->addButton(QStringLiteral("Later"),QDialogButtonBox::RejectRole);auto* install=buttons->addButton(QStringLiteral("⬇ Update now"),QDialogButtonBox::AcceptRole);install->setProperty("primary",true);connect(later,&QPushButton::clicked,&dialog,&QDialog::reject);connect(install,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(buttons);
+    auto* buttons=new QDialogButtonBox;auto* later=buttons->addButton(QStringLiteral("Later"),QDialogButtonBox::RejectRole);auto* install=buttons->addButton(QStringLiteral("⬇ Update now"),QDialogButtonBox::AcceptRole);install->setProperty("primary",true);QObject::connect(later,&QPushButton::clicked,&dialog,&QDialog::reject);QObject::connect(install,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(buttons);
     return dialog.exec()==QDialog::Accepted;
 }
 
