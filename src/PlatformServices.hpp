@@ -18,6 +18,7 @@ public:
     QString liveChatId() const{return liveChatId_;}
 signals:
     void messageReceived(const ChatMessage& message);
+    void activityReceived(const StreamEvent& event);
     void statusChanged(const QString& state,const QString& detail);
     void viewerCountChanged(int viewers);
 private:
