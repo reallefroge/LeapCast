@@ -2,6 +2,20 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 3.0.2
+
+- Fixed v3 installations repeatedly offering an older v2 release as an update.
+- Prevented the silent background check from reopening the Windows update dialog after startup.
+- Kept Phone Connect release notifications available without duplicating the desktop prompt.
+
+## Leapcast Studio 3.0.1
+
+- 💬 Repaired TikTok LIVE chat capture with current selectors, direct added-node detection, compact viewer-count parsing, and automatic bridge rescans.
+- 💜 Added Twitch Channel Point redemptions to Windows chat, pop-out chat, OBS, and Phone Connect chat/events. Existing Twitch connections must authorize the new redemption permission once.
+- 🎉 Added optional TikTok join, follow, and like activity for the pop-out only. It is disabled by default and never enters OBS or Phone Connect.
+- 🔖 Restored platform icons beside messages with separate settings for the program/pop-out and OBS overlay.
+- 🔐 Preserved v3.0.0 QR reset, private Phone Connect controls, mobile release notifications, and first-launch update notes.
+
 ## Leapcast Studio 2.3.0
 
 - Added Kick and Rumble sources, chat preview tabs, overlay routing, viewer counts, and settings toggles.

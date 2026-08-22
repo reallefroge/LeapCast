@@ -108,4 +108,5 @@ private:
     QUrl mobileUpdateAsset_;
     QString mobileUpdateName_;
     QString mobileUpdateDigest_;
+    bool silentUpdateCheck_{};
 };

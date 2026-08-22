@@ -69,6 +69,9 @@ The interface is organized into five focused areas:
 ### One chat view, four communities
 
 - Reads Twitch, YouTube Live, YouTube Shorts Live, TikTok LIVE, Kick, and Rumble chat.
+- Displays Twitch Channel Point custom reward redemptions (for example, “redeemed Hydrate”) in Windows chat and Phone Connect after Twitch authorization includes `channel:read:redemptions`.
+- Optionally displays TikTok joins, follows, and likes in the pop-out only; these activity lines never enter the OBS overlay.
+- Provides independent platform-icon toggles for program/pop-out messages and OBS overlay messages.
 - Provides one **All** feed plus separate branded tabs for Twitch, YouTube, Shorts, TikTok, Kick, and Rumble.
 - Uses clear Twitch, YouTube, Shorts, TikTok, Kick, and Rumble icons to identify each source.
 - Retries supported Twitch, YouTube, and Streamlabs connections after temporary failures.

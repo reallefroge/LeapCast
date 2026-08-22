@@ -66,10 +66,11 @@ public:
     QWebEnginePage* page(){return &page_;}
 signals:
     void messageReceived(const ChatMessage& message);
+    void activityReceived(const StreamEvent& event);
     void statusChanged(const QString& state,const QString& detail);
     void viewerCountChanged(int viewers);
 private:
-    void installBridge(); TikTokPage page_; QString username_; QSet<QString> seen_;
+    void installBridge(); TikTokPage page_; QString username_; QSet<QString> seen_,activitySeen_;
 };
 
 class KickLiveService final : public QObject {

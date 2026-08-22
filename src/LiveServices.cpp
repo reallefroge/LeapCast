@@ -22,7 +22,7 @@ QString twitchError(const QByteArray& payload,const QString& fallback){
 }
 
 TwitchAuthService::TwitchAuthService(QObject*p):QObject(p){
-    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages moderator:read:unban_requests moderator:manage:unban_requests user:write:chat clips:edit");
+    scopes_=QStringLiteral("chat:read chat:edit moderation:read moderator:read:banned_users moderator:manage:banned_users moderator:read:chat_messages moderator:manage:chat_messages moderator:read:unban_requests moderator:manage:unban_requests user:write:chat clips:edit channel:read:redemptions");
     pollTimer_.setSingleShot(true);
     connect(&pollTimer_,&QTimer::timeout,this,&TwitchAuthService::pollForToken);
     refreshTimer_.setSingleShot(true);
@@ -198,6 +198,47 @@ void TwitchModerationService::createClip(const QString&b){
         emit actionFinished("clip",false,ok?QStringLiteral("Twitch didn't return a clip. Make sure the channel is live."):twitchError(body,r->errorString()));
         r->deleteLater();
     });
+}
+
+TwitchEventSubService::TwitchEventSubService(QObject*p):QObject(p){
+    reconnect_.setSingleShot(true);
+    connect(&reconnect_,&QTimer::timeout,this,[this]{open(reconnectUrl_.isValid()?reconnectUrl_:QUrl(QStringLiteral("wss://eventsub.wss.twitch.tv/ws")));});
+    connect(&socket_,&QWebSocket::textMessageReceived,this,&TwitchEventSubService::parseMessage);
+    connect(&socket_,&QWebSocket::disconnected,this,[this]{
+        if(!broadcasterId_.isEmpty()&&!transferringSession_){emit statusChanged(QStringLiteral("warn"),QStringLiteral("Twitch rewards reconnecting…"));reconnect_.start(3000);}
+    });
+}
+void TwitchEventSubService::connectRedemptions(const QString&clientId,const QString&accessToken,const QString&broadcasterId){
+    const bool unchanged=clientId_==clientId.trimmed()&&token_==accessToken.trimmed()&&broadcasterId_==broadcasterId.trimmed()&&socket_.state()!=QAbstractSocket::UnconnectedState;
+    if(unchanged)return;
+    disconnectService();clientId_=clientId.trimmed();token_=accessToken.trimmed();broadcasterId_=broadcasterId.trimmed();
+    if(clientId_.isEmpty()||token_.isEmpty()||broadcasterId_.isEmpty())return;
+    emit statusChanged(QStringLiteral("connecting"),QStringLiteral("Connecting Twitch channel-point rewards…"));open();
+}
+void TwitchEventSubService::disconnectService(){reconnect_.stop();broadcasterId_.clear();reconnectUrl_.clear();transferringSession_=false;socket_.close();}
+void TwitchEventSubService::open(const QUrl&url){socket_.open(url);}
+void TwitchEventSubService::parseMessage(const QString&message){
+    const auto root=QJsonDocument::fromJson(message.toUtf8()).object();const auto metadata=root.value(QStringLiteral("metadata")).toObject();const auto payload=root.value(QStringLiteral("payload")).toObject();const QString type=metadata.value(QStringLiteral("message_type")).toString();
+    if(type==QStringLiteral("session_welcome")){
+        const QString sessionId=payload.value(QStringLiteral("session")).toObject().value(QStringLiteral("id")).toString();
+        if(!transferringSession_)createRedemptionSubscription(sessionId);else{transferringSession_=false;reconnectUrl_.clear();emit statusChanged(QStringLiteral("ok"),QStringLiteral("Twitch channel-point rewards connected"));}
+        return;
+    }
+    if(type==QStringLiteral("session_reconnect")){
+        reconnectUrl_=QUrl(payload.value(QStringLiteral("session")).toObject().value(QStringLiteral("reconnect_url")).toString());
+        if(reconnectUrl_.isValid()){transferringSession_=true;socket_.close();QTimer::singleShot(0,this,[this]{open(reconnectUrl_);});}return;
+    }
+    if(type==QStringLiteral("revocation")){emit statusChanged(QStringLiteral("warn"),QStringLiteral("Twitch channel-point permission was revoked. Reauthorize Twitch."));return;}
+    if(type!=QStringLiteral("notification"))return;
+    const auto subscription=payload.value(QStringLiteral("subscription")).toObject();
+    if(subscription.value(QStringLiteral("type")).toString()!=QStringLiteral("channel.channel_points_custom_reward_redemption.add"))return;
+    const auto value=payload.value(QStringLiteral("event")).toObject();const auto reward=value.value(QStringLiteral("reward")).toObject();
+    StreamEvent event;event.eventId=value.value(QStringLiteral("id")).toString();event.kind=QStringLiteral("twitch_redemption");event.platform=QStringLiteral("twitch");event.user=value.value(QStringLiteral("user_name")).toString(value.value(QStringLiteral("user_login")).toString(QStringLiteral("Someone")));event.amount=reward.value(QStringLiteral("title")).toString(QStringLiteral("Channel Point reward"));event.message=value.value(QStringLiteral("user_input")).toString();event.raw=value;emit eventReceived(event);
+}
+void TwitchEventSubService::createRedemptionSubscription(const QString&sessionId){
+    if(sessionId.isEmpty())return;QNetworkRequest request(QUrl(QStringLiteral("https://api.twitch.tv/helix/eventsub/subscriptions")));request.setRawHeader("Client-Id",clientId_.toUtf8());request.setRawHeader("Authorization",("Bearer "+token_).toUtf8());request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
+    const QJsonObject body{{QStringLiteral("type"),QStringLiteral("channel.channel_points_custom_reward_redemption.add")},{QStringLiteral("version"),QStringLiteral("1")},{QStringLiteral("condition"),QJsonObject{{QStringLiteral("broadcaster_user_id"),broadcasterId_}}},{QStringLiteral("transport"),QJsonObject{{QStringLiteral("method"),QStringLiteral("websocket")},{QStringLiteral("session_id"),sessionId}}}};
+    auto*reply=network_.post(request,QJsonDocument(body).toJson(QJsonDocument::Compact));connect(reply,&QNetworkReply::finished,this,[this,reply]{const QByteArray payload=reply->readAll();if(reply->error()==QNetworkReply::NoError)emit statusChanged(QStringLiteral("ok"),QStringLiteral("Twitch channel-point rewards connected"));else{const int status=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();emit statusChanged(QStringLiteral("warn"),status==401||status==403?QStringLiteral("Reauthorize Twitch to enable channel-point rewards."):twitchError(payload,reply->errorString()));}reply->deleteLater();});
 }
 
 StreamlabsService::StreamlabsService(QObject*p):QObject(p){connect(&socket_,&QWebSocket::connected,this,[this]{emit statusChanged("ok","Streamlabs connected");});connect(&socket_,&QWebSocket::textMessageReceived,this,&StreamlabsService::parseSocketIoFrame);connect(&socket_,&QWebSocket::disconnected,this,[this]{if(!token_.isEmpty()){emit statusChanged("warn","Streamlabs reconnecting…");reconnect_.start(3000);}});reconnect_.setSingleShot(true);connect(&reconnect_,&QTimer::timeout,this,[this]{connectToken(token_);});}
