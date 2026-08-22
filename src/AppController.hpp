@@ -32,6 +32,7 @@ signals:
     // chat views/pop-out only, never the OBS overlay feed.
     void messageModerated(const ChatMessage& message, const QString& reason);
     void eventReady(const StreamEvent& event);
+    void tiktokActivityReady(const StreamEvent& event);
     void sourceStatus(const QString& platform,const QString& state,const QString& detail);
     void viewerCount(const QString& platform,int count);
     void moderationResult(const QString& platform,bool success,const QString& detail);
@@ -64,6 +65,7 @@ public:
     StreamlabsService streamlabs_;
     TwitchAuthService twitchAuth_;
     TwitchModerationService twitchMod_;
+    TwitchEventSubService twitchEvents_;
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;

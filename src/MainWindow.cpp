@@ -132,6 +132,8 @@ QString friendlyTimestamp(const QString& value) {
 }
 
 QString eventAction(const StreamEvent& event) {
+    if (event.kind==QStringLiteral("twitch_redemption"))
+        return QStringLiteral("redeemed %1").arg(event.amount.isEmpty()?QStringLiteral("a Channel Point reward"):event.amount);
     if (event.kind.contains(QStringLiteral("gifted_sub")))
         return QStringLiteral("gifted %1 subscription%2").arg(event.amount.isEmpty()?QStringLiteral("1"):event.amount,event.amount==QStringLiteral("1")?QString():QStringLiteral("s"));
     if (event.kind.contains(QStringLiteral("donation")))
@@ -146,6 +148,7 @@ QString eventAction(const StreamEvent& event) {
     if (event.kind.contains(QStringLiteral("member"))) return QStringLiteral("became a member");
     return QStringLiteral("subscribed");
 }
+QString platformIconHtml(const QString&platform){static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};return paths.contains(platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(paths.value(platform)):QString();}
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -162,6 +165,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     overlay_->start(static_cast<quint16>(controller_->settings()->preference(QStringLiteral("port"),8080).toInt()));
     overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"), 0).toInt());
     overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
+    overlay_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());
     connect(overlay_,&OverlayServer::mobileDeleteRequested,controller_,&AppController::deleteChatMessage);
     connect(overlay_,&OverlayServer::mobileModerationRequested,controller_,&AppController::moderateMessage);
     connect(overlay_,&OverlayServer::mobileRefreshModerationRequested,this,[this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
@@ -184,8 +188,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
         const QString colour = m.color.isValid() ? m.color.name() : QStringLiteral("#53cdf3");
         const QString badges = badgeGlyphs(m.badges);
-        const QString html = QStringLiteral("%1<b style='color:%2'>%3</b> %4")
-            .arg(badges.isEmpty() ? QString() : badges + QStringLiteral(" "), colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
+        const QString icon=controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool()?platformIconHtml(m.platform):QString();
+        const QString html = QStringLiteral("%1%2<b style='color:%3'>%4</b> %5")
+            .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "), colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
         // Stamped with an id (see appendChatMessage) so a right-click on
         // either view can be traced back to this message for moderation.
         const qint64 id = ++nextChatSeq_;
@@ -208,6 +213,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         appendTrimmed(chatViews_.value(m.platform), note);
         if (popout_) popout_->appendModerationNote(m.user, reason);
     });
+    connect(controller_,&AppController::tiktokActivityReady,this,[this](const StreamEvent&e){if(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool()&&popout_)popout_->showTikTokActivity(e);});
     connect(controller_,&AppController::twitchAppealsUpdated,this,[this](const QJsonArray&appeals){
         overlay_->setMobileAppeals(appeals);
         if(!twitchAppeals_)return;twitchAppeals_->clear();
@@ -224,6 +230,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
         overlay_->ingestEvent(e);
+        if(e.kind==QStringLiteral("twitch_redemption"))return;
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
             e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):
             e.platform==QStringLiteral("rumble")?QStringLiteral("#85c742"):QStringLiteral("#63e6be");
@@ -734,12 +741,18 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* popoutOutlineRow=new QHBoxLayout;popoutOutlineRow->addWidget(label(QStringLiteral("Outline")));auto* popoutOutline=new QSlider(Qt::Horizontal);popoutOutline->setRange(0,8);popoutOutline->setValue(controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt());popoutOutlineRow->addWidget(popoutOutline,1);auto* popoutOutlineValue=label(QString::number(popoutOutline->value())+QStringLiteral(" px"));popoutOutlineRow->addWidget(popoutOutlineValue);popoutOutlineRow->addWidget(label(QStringLiteral("Name colors")));auto* colourMode=new QComboBox;colourMode->addItem(QStringLiteral("Random"),QStringLiteral("random"));colourMode->addItem(QStringLiteral("One color"),QStringLiteral("single"));const int colourModeIndex=colourMode->findData(controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")));colourMode->setCurrentIndex(qMax(0,colourModeIndex));popoutOutlineRow->addWidget(colourMode,1);popoutLayout->addLayout(popoutOutlineRow);
     QColor nameColour(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());if(!nameColour.isValid())nameColour=QColor(QStringLiteral("#53cdf3"));
     auto* nameColourRow=new QHBoxLayout;nameColourRow->addWidget(label(QStringLiteral("Specific name color")));auto* nameColourButton=new QPushButton(nameColour.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(nameColour.name(),nameColour.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));nameColourButton->setEnabled(colourMode->currentData().toString()==QStringLiteral("single"));nameColourRow->addWidget(nameColourButton);popoutLayout->addLayout(nameColourRow);
+    auto* programIcons=new QCheckBox(QStringLiteral("Show platform icons in program chat and pop-out"));programIcons->setChecked(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());popoutLayout->addWidget(programIcons);
+    auto* overlayIcons=new QCheckBox(QStringLiteral("Show platform icons in OBS overlay"));overlayIcons->setChecked(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());popoutLayout->addWidget(overlayIcons);
+    auto* tiktokActivity=new QCheckBox(QStringLiteral("Show TikTok joins, follows, and likes in pop-out only"));tiktokActivity->setChecked(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool());popoutLayout->addWidget(tiktokActivity);
     const auto applyPopoutAppearance=[this,popoutFont,popoutSize,popoutOutline]{if(popout_)popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),popoutOutline->value(),popoutFont->currentFont().family(),popoutSize->value());};
     connect(popoutFont,&QFontComboBox::currentFontChanged,this,[this,applyPopoutAppearance](const QFont&font){controller_->settings()->setPreference(QStringLiteral("popout_font_family"),font.family());applyPopoutAppearance();});
     connect(popoutSize,&QSlider::valueChanged,this,[this,popoutSizeValue,applyPopoutAppearance](int value){popoutSizeValue->setText(QString::number(value)+QStringLiteral(" pt"));controller_->settings()->setPreference(QStringLiteral("popout_font_size"),value);applyPopoutAppearance();});
     connect(popoutOutline,&QSlider::valueChanged,this,[this,popoutOutlineValue,applyPopoutAppearance](int value){popoutOutlineValue->setText(QString::number(value)+QStringLiteral(" px"));controller_->settings()->setPreference(QStringLiteral("popout_outline_thickness"),value);applyPopoutAppearance();});
     connect(colourMode,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,colourMode,nameColourButton](int){const QString mode=colourMode->currentData().toString();controller_->settings()->setPreference(QStringLiteral("chat_colour_mode"),mode);nameColourButton->setEnabled(mode==QStringLiteral("single"));});
     connect(nameColourButton,&QPushButton::clicked,this,[this,nameColourButton]{QColor current(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat name color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("chat_name_colour"),chosen.name());nameColourButton->setText(chosen.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});
+    connect(programIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("program_popout_show_platform_icons"),enabled);if(popout_)popout_->setShowPlatformIcons(enabled);});
+    connect(overlayIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("overlay_show_platform_icons"),enabled);overlay_->setShowPlatformIcons(enabled);});
+    connect(tiktokActivity,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("tiktok_popout_activity_enabled"),enabled);});
     layout->addWidget(popoutAppearance);
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
@@ -1056,7 +1069,7 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
     connect(copyAction, &QAction::triggered, view, &QTextBrowser::copy);
     if (chatHistoryById_.contains(id)) {
         const ChatMessage msg = chatHistoryById_.value(id);
-        const bool isTwitch = msg.platform == QStringLiteral("twitch");
+        const bool isTwitch = msg.platform == QStringLiteral("twitch") && !msg.metadata.value(QStringLiteral("channel_point_redemption")).toBool();
         const bool isYouTube = msg.platform == QStringLiteral("youtube") || msg.platform == QStringLiteral("yt_shorts");
         // Only Twitch and YouTube/Shorts have a working moderation API wired
         // up here; see PopoutChat::showChatContextMenu for why TikTok has no
@@ -1128,6 +1141,7 @@ QWidget* MainWindow::buildChatDock() {
         popout_ = new PopoutChat;
         popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 0).toInt());
         popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt(),controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString(),controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());
+        popout_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;

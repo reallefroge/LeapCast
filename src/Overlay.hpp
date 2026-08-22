@@ -77,6 +77,7 @@ public:
     void setFadeSeconds(int seconds) { fadeSeconds_ = qMax(0, seconds); }
     void setAppearance(const QColor& background, int backgroundOpacityPercent,
                        int outlineThickness);
+    void setShowPlatformIcons(bool enabled) { showPlatformIcons_ = enabled; }
     int fadeSeconds() const { return fadeSeconds_; }
     void clear();
 
@@ -105,6 +106,7 @@ private:
     QColor backgroundColor_{Qt::black};
     int backgroundOpacityPercent_{};
     int outlineThickness_{2};
+    bool showPlatformIcons_{true};
     quint64 clearGeneration_{};
     QByteArray mobileToken_;
 };
@@ -133,6 +135,8 @@ public:
     void setAppearance(const QColor& background, int outlineThickness,
                        const QString& fontFamily = QStringLiteral("Segoe UI"),
                        int fontSizePoints = 12);
+    void setShowPlatformIcons(bool enabled) { showPlatformIcons_ = enabled; }
+    void showTikTokActivity(const StreamEvent& event);
     int opacityPercent() const { return opacityPercent_; }
     void clearMessages();
     void setStreamlabsAlertAudio(bool enabled, const QUrl& alertBoxUrl);
@@ -193,4 +197,5 @@ private:
     bool ghostMode_{};
     bool hotkeysRegistered_{};
     bool clearBackground_{};
+    bool showPlatformIcons_{true};
 };

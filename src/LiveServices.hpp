@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QSet>
 #include <QTimer>
+#include <QUrl>
 #include <QWebSocket>
 #include <QStringList>
 
@@ -103,6 +104,28 @@ private:
     // Prevents autoModerate() from retrying — and re-warning the user about —
     // the same permission failure on every subsequent chat message.
     QSet<QString> autoModDenied_;
+};
+
+class TwitchEventSubService final : public QObject {
+    Q_OBJECT
+public:
+    explicit TwitchEventSubService(QObject* parent = nullptr);
+    void connectRedemptions(const QString& clientId, const QString& accessToken,
+                            const QString& broadcasterId);
+    void disconnectService();
+signals:
+    void eventReceived(const StreamEvent& event);
+    void statusChanged(const QString& state, const QString& detail);
+private:
+    void open(const QUrl& url = QUrl(QStringLiteral("wss://eventsub.wss.twitch.tv/ws")));
+    void parseMessage(const QString& message);
+    void createRedemptionSubscription(const QString& sessionId);
+    QWebSocket socket_;
+    QNetworkAccessManager network_;
+    QTimer reconnect_;
+    QString clientId_, token_, broadcasterId_;
+    QUrl reconnectUrl_;
+    bool transferringSession_{};
 };
 
 class StreamlabsService final : public QObject {

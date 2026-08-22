@@ -32,8 +32,10 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("tiktok",n);});
     connect(&kick_,&KickLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("kick",n);});
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("rumble",n);});
+    connect(&tiktok_,&TikTokLiveService::activityReceived,this,&AppController::tiktokActivityReady);
     connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
+    connect(&twitchEvents_,&TwitchEventSubService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);ChatMessage message;message.platform=QStringLiteral("twitch");message.user=e.user;message.text=QStringLiteral("redeemed %1").arg(e.amount.isEmpty()?QStringLiteral("a Channel Point reward"):e.amount);if(!e.message.isEmpty())message.text+=QStringLiteral(": ")+e.message;message.messageId=e.eventId;message.badges<<QStringLiteral("MONEY");message.metadata={{QStringLiteral("event_kind"),e.kind},{QStringLiteral("channel_point_redemption"),true}};receive(message);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("streamlabs",s,d);});
     const QString twitchClientId=configuredTwitchClientId(settings_);
     twitchMod_.configure(twitchClientId,settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));
@@ -41,7 +43,7 @@ AppController::AppController(QObject*p):QObject(p){
     for(const auto& item:settings_.preference("youtube_restrictions").toList())youtubeRestrictions_.append(QJsonObject::fromVariantMap(item.toMap()));
     connect(&twitchMod_,&TwitchModerationService::bansReceived,this,[this](const QJsonArray&a){emit bansUpdated("twitch",a);});
     connect(&twitchMod_,&TwitchModerationService::unbanRequestsReceived,this,&AppController::twitchAppealsUpdated);
-    connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);});
+    connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this,twitchClientId](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);twitchEvents_.connectRedemptions(twitchClientId,settings_.secret(QStringLiteral("twitch_access_token")),id);});
     connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user,bool permanent){QJsonObject o{{"id",id},{"user_name",user},{"type",permanent?QStringLiteral("Hide from channel"):QStringLiteral("Timeout (5 min)")},{"reason",pendingYouTubeReasons_.take(user)},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
     connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&action,bool ok,const QString&d){
         if(action=="clip"){if(!ok)emit twitchClipFailed(d);return;}
@@ -65,12 +67,14 @@ AppController::AppController(QObject*p):QObject(p){
         twitchMod_.configure(twitchClientId,token,userId);
         const QString channel=twitchName(settings_.link("twitch"));
         if(!channel.isEmpty())twitchMod_.resolveBroadcaster(channel);
+        const QString broadcaster=settings_.secret(QStringLiteral("twitch_broadcaster_id"));if(!broadcaster.isEmpty())twitchEvents_.connectRedemptions(twitchClientId,token,broadcaster);
         emit sourceStatus("twitch","ok",QStringLiteral("Authorized as %1").arg(login));
         if(twitchAuthorizationRequested_)emit twitchAuthorized(login);
         twitchAuthorizationRequested_=false;
     });
     if(!twitchClientId.isEmpty()&&!settings_.secret("twitch_access_token").isEmpty())
         twitchAuth_.restore(twitchClientId,settings_.secret("twitch_access_token"),settings_.secret("twitch_refresh_token"));
+    if(!twitchClientId.isEmpty()&&!settings_.secret(QStringLiteral("twitch_access_token")).isEmpty()&&!settings_.secret(QStringLiteral("twitch_broadcaster_id")).isEmpty())twitchEvents_.connectRedemptions(twitchClientId,settings_.secret(QStringLiteral("twitch_access_token")),settings_.secret(QStringLiteral("twitch_broadcaster_id")));
 }
 QString AppController::twitchName(const QString&l){auto m=QRegularExpression("twitch\\.tv/([A-Za-z0-9_]+)").match(l);if(m.hasMatch())return m.captured(1).toLower();return QRegularExpression("^[A-Za-z0-9_]{3,25}$").match(l).hasMatch()?l.toLower():QString();}
 QString AppController::tiktokName(const QString&l){auto m=QRegularExpression("tiktok\\.com/@([A-Za-z0-9._]+)").match(l);if(m.hasMatch())return m.captured(1);return l.startsWith('@')?l.mid(1):QString();}
@@ -78,7 +82,7 @@ QString AppController::kickName(const QString&l){auto m=QRegularExpression("kick
 void AppController::startConfiguredSources(){for(const auto&p:{"twitch","youtube","yt_shorts","tiktok","kick","rumble"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
 void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty()){twitchMod_.configure(configuredTwitchClientId(settings_),settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));twitchMod_.resolveBroadcaster(name);}}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));else if(p=="kick")kick_.connectChannel(kickName(l));else if(p=="rumble")rumble_.connectApi(QUrl(settings_.secret("rumble_api_url")));}
 void AppController::disconnectSource(const QString&p){
-    if(p=="twitch")twitch_.disconnectChannel();
+    if(p=="twitch"){twitch_.disconnectChannel();twitchEvents_.disconnectService();}
     else if(p=="youtube")youtube_.disconnectService();
     else if(p=="yt_shorts")shorts_.disconnectService();
     else if(p=="tiktok")tiktok_.disconnectService();
