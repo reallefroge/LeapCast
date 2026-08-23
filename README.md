@@ -71,6 +71,7 @@ The interface is organized into five focused areas:
 - Reads Twitch, YouTube Live, YouTube Shorts Live, TikTok LIVE, Kick, and Rumble chat.
 - Displays Twitch Channel Point custom reward redemptions (for example, “redeemed Hydrate”) in Windows chat, pop-out chat, OBS, and Phone Connect after Twitch authorization includes `channel:read:redemptions`; IRC reward tags provide a fallback if EventSub is delayed.
 - Lets creators choose stable random name colors, one fixed color, a four-color gradient, or repeating/mirrored/block color patterns for Windows and pop-out chat.
+
 - Optionally displays TikTok joins, follows, and likes in the pop-out only; these activity lines never enter the OBS overlay.
 - Provides independent platform-icon toggles for program/pop-out messages and OBS overlay messages.
 - Provides one **All** feed plus separate branded tabs for Twitch, YouTube, Shorts, TikTok, Kick, and Rumble.
