@@ -2,6 +2,12 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 3.0.5
+
+- Fixed Twitch rejecting the in-program Clips editor as an unsupported browser.
+- Added a dedicated persistent Twitch Clips browser profile with a current desktop browser identity, remembered Twitch login cookies, JavaScript, local storage, fullscreen support, and embedded playback.
+- Kept Twitch Clips inside Leapcast Studio without affecting the embedded TikTok collector.
+
 ## Leapcast Studio 3.0.4
 
 - Fixed Channel Point redemptions that appeared in Twitch as only their required chat text but never appeared correctly in Leapcast pop-out chat.

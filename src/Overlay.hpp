@@ -14,6 +14,7 @@ class QEvent;
 class QLabel; class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
+class QWebEngineProfile;
 class QUrl;
 class QCloseEvent;
 
@@ -38,10 +39,10 @@ protected:
 };
 
 // Embedded Chromium (Qt WebEngine) window used to open the Twitch clip editor
-// in-app instead of the user's external browser. Uses the default persistent
-// profile, the same one TikTok's embedded view uses, so a Twitch web login
-// made here is remembered on later opens — the app's own Twitch device-code
-// authorization is a separate API token and doesn't carry a browser session.
+// in-app instead of the user's external browser. It has its own persistent
+// browser profile so Twitch login cookies survive restarts without affecting
+// the TikTok collector. The app's Twitch device-code authorization is a
+// separate API token and does not carry a browser session.
 class ClipEditorWindow final : public QWidget {
     Q_OBJECT
 public:
@@ -53,6 +54,7 @@ protected:
     // app's lifetime after a single clip. Reopening just reloads the URL.
     void closeEvent(QCloseEvent* event) override;
 private:
+    QWebEngineProfile* profile_{};
     QWebEngineView* view_{};
     QLabel* addressLabel_{};
 };

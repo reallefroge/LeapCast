@@ -42,6 +42,7 @@
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
+#include <QWebEngineProfile>
 namespace {
 constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1;
 // Caps how many lines chat_'s QTextDocument keeps. Without this, a
@@ -552,9 +553,24 @@ ClipEditorWindow::ClipEditorWindow(QWidget*p):QWidget(p){
     auto*openExternal=new QPushButton(QStringLiteral("Open in browser ↗"));
     toolbar->addWidget(openExternal);
     layout->addLayout(toolbar);
-    // Default (persistent) profile, same as TikTok's embedded view, so a
-    // Twitch web login made here is remembered the next time this opens.
+    // Twitch rejects Qt WebEngine's product-token user agent as an unsupported
+    // browser even though the underlying Chromium engine can render the clip
+    // editor. Keep Twitch in its own persistent profile and identify it as a
+    // current desktop Chromium browser. The separate profile also prevents a
+    // Twitch login/cookie change from affecting the embedded TikTok collector.
+    profile_=new QWebEngineProfile(QStringLiteral("LeapcastTwitchClips"),this);
+    profile_->setHttpUserAgent(QStringLiteral(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/151.0.0.0 Safari/537.36"));
+    profile_->setHttpAcceptLanguage(QStringLiteral("en-US,en;q=0.9"));
+    profile_->setPersistentCookiesPolicy(QWebEngineProfile::ForcePersistentCookies);
     view_=new QWebEngineView(this);
+    view_->setPage(new QWebEnginePage(profile_,view_));
+    view_->settings()->setAttribute(QWebEngineSettings::JavascriptEnabled,true);
+    view_->settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled,true);
+    view_->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture,false);
+    view_->settings()->setAttribute(QWebEngineSettings::FullScreenSupportEnabled,true);
     layout->addWidget(view_,1);
     connect(back,&QPushButton::clicked,view_,&QWebEngineView::back);
     connect(forward,&QPushButton::clicked,view_,&QWebEngineView::forward);
