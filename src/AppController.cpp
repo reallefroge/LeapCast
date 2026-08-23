@@ -31,6 +31,9 @@ AppController::AppController(QObject*p):QObject(p){
     });
     connect(&youtube_,&YouTubeChatService::messageReceived,this,&AppController::receive);
     connect(&shorts_,&YouTubeChatService::messageReceived,this,&AppController::receive);
+    const auto acceptYouTubePin=[this](const QString&platform,const ChatMessage&message,bool active){if(active)currentPinnedMessages_[platform]=message;else currentPinnedMessages_.remove(platform);if(pinnedMessagesEnabled_)emit pinnedMessageChanged(platform,message,active);};
+    connect(&youtube_,&YouTubeChatService::pinnedMessageChanged,this,[acceptYouTubePin](const ChatMessage&m,bool active){acceptYouTubePin(QStringLiteral("youtube"),m,active);});
+    connect(&shorts_,&YouTubeChatService::pinnedMessageChanged,this,[acceptYouTubePin](const ChatMessage&m,bool active){acceptYouTubePin(QStringLiteral("yt_shorts"),m,active);});
     connect(&tiktok_,&TikTokLiveService::messageReceived,this,&AppController::receive);
     connect(&kick_,&KickLiveService::messageReceived,this,&AppController::receive);
     connect(&rumble_,&RumbleLiveService::messageReceived,this,&AppController::receive);
@@ -59,7 +62,7 @@ AppController::AppController(QObject*p):QObject(p){
     for(const auto& item:settings_.preference("youtube_restrictions").toList())youtubeRestrictions_.append(QJsonObject::fromVariantMap(item.toMap()));
     connect(&twitchMod_,&TwitchModerationService::bansReceived,this,[this](const QJsonArray&a){emit bansUpdated("twitch",a);});
     connect(&twitchMod_,&TwitchModerationService::unbanRequestsReceived,this,&AppController::twitchAppealsUpdated);
-    connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this,twitchClientId](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);twitchEvents_.connectRedemptions(twitchClientId,settings_.secret(QStringLiteral("twitch_access_token")),id);});
+    connect(&twitchMod_,&TwitchModerationService::broadcasterResolved,this,[this,twitchClientId](const QString&,const QString&id){settings_.setSecret("twitch_broadcaster_id",id);twitchEvents_.connectRedemptions(twitchClientId,settings_.secret(QStringLiteral("twitch_access_token")),id);if(pinnedMessagesEnabled_)twitchMod_.getPinnedMessage(id);});
     connect(&youtubeMod_,&YouTubeModerationService::banCreated,this,[this](const QString&id,const QString&user,bool permanent){QJsonObject o{{"id",id},{"user_name",user},{"type",permanent?QStringLiteral("Hide from channel"):QStringLiteral("Timeout (5 min)")},{"reason",pendingYouTubeReasons_.take(user)},{"created_at",QDateTime::currentDateTime().toString(Qt::ISODate)}};youtubeRestrictions_.prepend(o);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);});
     connect(&twitchMod_,&TwitchModerationService::actionFinished,this,[this](const QString&action,bool ok,const QString&d){
         if(action=="clip"){if(!ok)emit twitchClipFailed(d);return;}
@@ -67,6 +70,8 @@ AppController::AppController(QObject*p):QObject(p){
         if(ok&&(action=="approve_appeal"||action=="deny_appeal"))QTimer::singleShot(250,this,&AppController::refreshTwitchAppeals);
     });
     connect(&twitchMod_,&TwitchModerationService::clipCreated,this,[this](const QString&,const QUrl&editUrl){emit twitchClipCreated(editUrl);});
+    connect(&twitchMod_,&TwitchModerationService::pinnedMessageChanged,this,[this](const ChatMessage&m,bool active){if(active)currentPinnedMessages_[QStringLiteral("twitch")]=m;else currentPinnedMessages_.remove(QStringLiteral("twitch"));if(pinnedMessagesEnabled_)emit pinnedMessageChanged(QStringLiteral("twitch"),m,active);});
+    twitchPinnedTimer_.setInterval(5000);connect(&twitchPinnedTimer_,&QTimer::timeout,this,[this]{if(!pinnedMessagesEnabled_||twitch_.channel().isEmpty())return;const QString broadcaster=settings_.secret(QStringLiteral("twitch_broadcaster_id"));if(!broadcaster.isEmpty())twitchMod_.getPinnedMessage(broadcaster);});
     connect(&youtubeMod_,&YouTubeModerationService::actionFinished,this,[this](const QString&,bool ok,const QString&d){emit moderationResult("youtube",ok,d);});
     connect(&twitchAuth_,&TwitchAuthService::browserAuthorizationReady,this,&AppController::twitchAuthorizationUrl);
     connect(&twitchAuth_,&TwitchAuthService::scopesValidated,this,[this](const QStringList&scopes){settings_.setPreference(QStringLiteral("twitch_authorized_scopes"),scopes);if(!scopes.contains(QStringLiteral("channel:read:redemptions")))emit sourceStatus(QStringLiteral("twitch"),QStringLiteral("warn"),QStringLiteral("Reconnect Twitch to enable Channel Point redemptions."));});
@@ -91,6 +96,7 @@ AppController::AppController(QObject*p):QObject(p){
     if(!twitchClientId.isEmpty()&&!settings_.secret("twitch_access_token").isEmpty())
         twitchAuth_.restore(twitchClientId,settings_.secret("twitch_access_token"),settings_.secret("twitch_refresh_token"));
     if(!twitchClientId.isEmpty()&&!settings_.secret(QStringLiteral("twitch_access_token")).isEmpty()&&!settings_.secret(QStringLiteral("twitch_broadcaster_id")).isEmpty())twitchEvents_.connectRedemptions(twitchClientId,settings_.secret(QStringLiteral("twitch_access_token")),settings_.secret(QStringLiteral("twitch_broadcaster_id")));
+    pinnedMessagesEnabled_=settings_.preference(QStringLiteral("show_pinned_messages"),true).toBool();if(pinnedMessagesEnabled_)twitchPinnedTimer_.start();
 }
 QString AppController::twitchName(const QString&l){auto m=QRegularExpression("twitch\\.tv/([A-Za-z0-9_]+)").match(l);if(m.hasMatch())return m.captured(1).toLower();return QRegularExpression("^[A-Za-z0-9_]{3,25}$").match(l).hasMatch()?l.toLower():QString();}
 QString AppController::tiktokName(const QString&l){auto m=QRegularExpression("tiktok\\.com/@([A-Za-z0-9._]+)").match(l);if(m.hasMatch())return m.captured(1);return l.startsWith('@')?l.mid(1):QString();}
@@ -98,7 +104,7 @@ QString AppController::kickName(const QString&l){auto m=QRegularExpression("kick
 void AppController::startConfiguredSources(){for(const auto&p:{"twitch","youtube","yt_shorts","tiktok","kick","rumble"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
 void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty()){twitchMod_.configure(configuredTwitchClientId(settings_),settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));twitchMod_.resolveBroadcaster(name);}}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));else if(p=="kick")kick_.connectChannel(kickName(l));else if(p=="rumble")rumble_.connectApi(QUrl(settings_.secret("rumble_api_url")));}
 void AppController::disconnectSource(const QString&p){
-    if(p=="twitch"){twitch_.disconnectChannel();twitchEvents_.disconnectService();}
+    if(p=="twitch"){twitch_.disconnectChannel();twitchEvents_.disconnectService();currentPinnedMessages_.remove(QStringLiteral("twitch"));if(pinnedMessagesEnabled_)emit pinnedMessageChanged(QStringLiteral("twitch"),ChatMessage{},false);}
     else if(p=="youtube")youtube_.disconnectService();
     else if(p=="yt_shorts")shorts_.disconnectService();
     else if(p=="tiktok")tiktok_.disconnectService();
@@ -110,6 +116,12 @@ void AppController::disconnectSource(const QString&p){
     // *unexpected* drop, not a deliberate one), so Disconnect looked like it
     // did nothing. Tell the UI directly instead.
     emit sourceStatus(p,"warn","Disconnected");
+}
+void AppController::setPinnedMessagesEnabled(bool enabled){
+    pinnedMessagesEnabled_=enabled;settings_.setPreference(QStringLiteral("show_pinned_messages"),enabled);
+    if(!enabled){twitchPinnedTimer_.stop();for(const auto&platform:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts")})emit pinnedMessageChanged(platform,ChatMessage{},false);return;}
+    twitchPinnedTimer_.start();for(auto it=currentPinnedMessages_.cbegin();it!=currentPinnedMessages_.cend();++it)emit pinnedMessageChanged(it.key(),it.value(),true);
+    const QString broadcaster=settings_.secret(QStringLiteral("twitch_broadcaster_id"));if(!twitch_.channel().isEmpty()&&!broadcaster.isEmpty())twitchMod_.getPinnedMessage(broadcaster);
 }
 void AppController::authorizeTwitch(){twitchAuthorizationRequested_=true;twitchAuth_.authorize(configuredTwitchClientId(settings_));}
 void AppController::configureYouTubeModeration(const QString&t){settings_.setSecret("youtube_access_token",t);youtubeMod_.setAccessToken(t);emit sourceStatus("youtube","ok","moderation configured");}

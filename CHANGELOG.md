@@ -1,10 +1,20 @@
 # Leapcast Studio Changelog
 
+## Leapcast Studio 3.0.6
+
+- Added optional pinned-message display for Twitch and YouTube/YouTube Shorts. Supported pins appear in chat with a 📌 banner; one Settings switch controls pinned-message display across all applicable services.
+- Added Twitch pinned-message polling through Twitch's official pinned-chat API and YouTube pinned-banner detection from live-chat continuation actions.
+- **Possibly fixed** TikTok LIVE chat and viewer counts by updating the embedded browser identity and adding broader DOM, profile-link, text, and serialized-state fallbacks. TikTok can change its LIVE page without notice, so this is intentionally not described as guaranteed.
+- **Possibly improved** Twitch sign-in when the embedded Twitch experience rejects its browser: Leapcast keeps Twitch authorization in the user's normal system browser and performs a best-effort authorization handoff back to the in-app clip editor.
+- Replaced the pop-out close button's font-dependent X glyph with a programmatically drawn X so missing-font boxes should no longer appear.
+- Added native edge/corner hit testing to the frameless pop-out, allowing resizing from every direction even when the chat background is at 0% opacity.
+- Updated the once-per-version launch notes to show the 3.0.6 changes and to label uncertain Twitch/TikTok compatibility work as **possibly fixed/improved** rather than guaranteed.
+
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
 ## Leapcast Studio 3.0.5
 
-- Fixed Twitch rejecting the in-program Clips editor as an unsupported browser.
+- **Possibly fixed** Twitch rejecting the in-program Clips editor as an unsupported browser by updating the embedded browser profile. This was later revisited in 3.0.6 because Twitch could still reject the embedded login flow.
 - Added a dedicated persistent Twitch Clips browser profile with a current desktop browser identity, remembered Twitch login cookies, JavaScript, local storage, fullscreen support, and embedded playback.
 - Kept Twitch Clips inside Leapcast Studio without affecting the embedded TikTok collector.
 

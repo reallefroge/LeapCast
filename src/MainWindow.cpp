@@ -200,6 +200,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
+    connect(controller_,&AppController::pinnedMessageChanged,this,[this](const QString&platform,const ChatMessage&message,bool active){if(active)pinnedMessages_[platform]=message;else pinnedMessages_.remove(platform);refreshPinnedBanner();if(popout_)popout_->setPinnedMessage(platform,message,active);});
     connect(controller_, &AppController::messageModerated, this, [this](const ChatMessage& m, const QString& reason) {
         // Deliberately never touches overlay_ — viewers never see this note,
         // and since the original message was never ingested either, nothing
@@ -355,6 +356,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Connected as %1").arg(login));
         if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Reconnect Twitch"));twitchConnectButton_->setEnabled(true);}
         if(popout_)popout_->setClipAvailable(true);
+        if(clipEditor_)clipEditor_->setTwitchAccessToken(controller_->settings()->secret(QStringLiteral("twitch_access_token")));
         QMessageBox::information(this,QStringLiteral("Twitch connected"),QStringLiteral("You're all set. Leapcast Studio is connected to Twitch as %1.").arg(login));
     });
     connect(controller_,&AppController::twitchAuthorizationFailed,this,[this](const QString&detail){
@@ -435,7 +437,7 @@ void MainWindow::showFirstLaunchUpdateLog(){
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
     auto* title=label(QStringLiteral("WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
     auto* summary=label(QStringLiteral("A quick summary of this update. This appears once per installed version."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Phone Connect control center** with Chat, Events, Moderation, and Settings navigation.\n- **Live stream events** now appear on the connected iPhone.\n- **Mobile moderation** includes bans, unban requests, approvals, rejections, timeouts, and message removal.\n- **Private QR connection** can be regenerated to invalidate an older link.\n- **Release notifications** appear on mobile only when a newer published Windows release is available.\n- Connection and Safari compatibility improvements."));layout->addWidget(notes,1);
+    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Pinned chat support:** Twitch and YouTube/Shorts pinned messages can now appear as a pinned banner with a 📌 marker. A Settings switch controls the feature for all supported services.\n- **TikTok LIVE:** possibly fixed chat and viewer-count detection by widening current DOM/state detection and updating the embedded browser identity.\n- **Twitch sign-in:** possibly improved the unsupported-browser path by keeping account authorization in your normal system browser and handing the resulting Twitch authorization back to the clip editor as a best-effort session.\n- **Pop-out close button:** replaced the font glyph with a drawn X so it should no longer render as an empty box.\n- **Pop-out resizing:** all edges and corners can now resize the frameless pop-out, including at 0% background opacity.\n\nSome platform fixes are intentionally marked **possibly fixed** because Twitch/TikTok can change browser behavior and page markup without notice."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
@@ -749,6 +751,7 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* paletteRow=new QHBoxLayout;auto* paletteLabel=label(QStringLiteral("Multi-color palette"));paletteRow->addWidget(paletteLabel);QList<QPushButton*> paletteButtons;for(int index=0;index<4;++index){QColor color(namePalette.at(index));if(!color.isValid())color=Qt::white;auto*button=new QPushButton(QString::number(index+1));button->setToolTip(QStringLiteral("Choose palette color %1").arg(index+1));button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(color.name(),color.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));paletteButtons<<button;paletteRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,button,index]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(palette.size()<4)palette<<QStringLiteral("#ffffff");QColor current(palette.at(index));const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Name palette color %1").arg(index+1));if(!chosen.isValid())return;palette[index]=chosen.name();controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),palette);button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});}auto*patternStyle=new QComboBox;patternStyle->addItem(QStringLiteral("Repeat"),QStringLiteral("repeat"));patternStyle->addItem(QStringLiteral("Mirror"),QStringLiteral("mirror"));patternStyle->addItem(QStringLiteral("Color blocks"),QStringLiteral("blocks"));patternStyle->setCurrentIndex(qMax(0,patternStyle->findData(controller_->settings()->preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")))));paletteRow->addWidget(patternStyle);popoutLayout->addLayout(paletteRow);
     auto* programIcons=new QCheckBox(QStringLiteral("Show platform icons in program chat and pop-out"));programIcons->setChecked(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());popoutLayout->addWidget(programIcons);
     auto* overlayIcons=new QCheckBox(QStringLiteral("Show platform icons in OBS overlay"));overlayIcons->setChecked(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());popoutLayout->addWidget(overlayIcons);
+    auto* pinnedMessages=new QCheckBox(QStringLiteral("Show pinned messages for Twitch and YouTube/Shorts (📌)"));pinnedMessages->setChecked(controller_->settings()->preference(QStringLiteral("show_pinned_messages"),true).toBool());popoutLayout->addWidget(pinnedMessages);
     auto* tiktokActivity=new QCheckBox(QStringLiteral("Show TikTok joins, follows, and likes in pop-out only"));tiktokActivity->setChecked(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool());popoutLayout->addWidget(tiktokActivity);
     const auto applyPopoutAppearance=[this,popoutFont,popoutSize,popoutOutline]{if(popout_)popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),popoutOutline->value(),popoutFont->currentFont().family(),popoutSize->value());};
     connect(popoutFont,&QFontComboBox::currentFontChanged,this,[this,applyPopoutAppearance](const QFont&font){controller_->settings()->setPreference(QStringLiteral("popout_font_family"),font.family());applyPopoutAppearance();});
@@ -760,6 +763,7 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(nameColourButton,&QPushButton::clicked,this,[this,nameColourButton]{QColor current(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat name color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("chat_name_colour"),chosen.name());nameColourButton->setText(chosen.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});
     connect(programIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("program_popout_show_platform_icons"),enabled);if(popout_)popout_->setShowPlatformIcons(enabled);});
     connect(overlayIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("overlay_show_platform_icons"),enabled);overlay_->setShowPlatformIcons(enabled);});
+    connect(pinnedMessages,&QCheckBox::toggled,this,[this](bool enabled){controller_->setPinnedMessagesEnabled(enabled);});
     connect(tiktokActivity,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("tiktok_popout_activity_enabled"),enabled);});
     layout->addWidget(popoutAppearance);
 
@@ -1102,10 +1106,15 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
     menu.exec(globalPos);
 }
 
+void MainWindow::refreshPinnedBanner(){
+    if(!pinnedBanner_||!chatTabs_)return;QString selected=QStringLiteral("combined");auto*current=chatTabs_->currentWidget();for(auto it=chatViews_.cbegin();it!=chatViews_.cend();++it)if(it.value()==current){selected=it.key();break;}QStringList keys;if(selected==QStringLiteral("combined"))keys={QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts")};else keys={selected};const QHash<QString,QString>names{{QStringLiteral("twitch"),QStringLiteral("Twitch")},{QStringLiteral("youtube"),QStringLiteral("YouTube")},{QStringLiteral("yt_shorts"),QStringLiteral("YouTube Shorts")}};QStringList rows;for(const auto&key:keys)if(pinnedMessages_.contains(key)){const auto&m=pinnedMessages_.value(key);rows<<QStringLiteral("<b>&#128204; %1 pinned</b> &nbsp; <b>%2</b>: %3").arg(names.value(key,key).toHtmlEscaped(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped());}pinnedBanner_->setText(rows.join(QStringLiteral("<br>")));pinnedBanner_->setVisible(!rows.isEmpty());
+}
+
 QWidget* MainWindow::buildChatDock() {
     auto* dock = new QFrame; dock->setObjectName(QStringLiteral("chatDock"));
     auto* layout = new QVBoxLayout(dock);
     layout->addWidget(label(QStringLiteral("CHAT PREVIEW"), "pageTitle"));
+    pinnedBanner_=new QLabel;pinnedBanner_->setWordWrap(true);pinnedBanner_->setTextFormat(Qt::RichText);pinnedBanner_->setTextInteractionFlags(Qt::TextSelectableByMouse);pinnedBanner_->setStyleSheet(QStringLiteral("background:#211d12;border:1px solid #8a6f2b;border-radius:9px;padding:8px;color:#f7f1d1;"));pinnedBanner_->hide();layout->addWidget(pinnedBanner_);
     chatTabs_ = new QTabWidget;
     chatTabs_->setIconSize(QSize(44, 26));
     const QList<QPair<QString, QString>> tabs{
@@ -1142,6 +1151,7 @@ QWidget* MainWindow::buildChatDock() {
     }
 
     layout->addWidget(chatTabs_, 1);
+    connect(chatTabs_,&QTabWidget::currentChanged,this,[this]{refreshPinnedBanner();});
     applyPlatformVisibility();
 
     const auto ensurePopout = [this] {
@@ -1151,6 +1161,7 @@ QWidget* MainWindow::buildChatDock() {
         popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt(),controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString(),controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());
         popout_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
+        for(auto it=pinnedMessages_.cbegin();it!=pinnedMessages_.cend();++it)popout_->setPinnedMessage(it.key(),it.value(),true);
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;
             QSignalBlocker blocker(popoutClickThrough_);
@@ -1158,7 +1169,7 @@ QWidget* MainWindow::buildChatDock() {
         });
         connect(popout_, &PopoutChat::clipRequested, this, [this] { controller_->createTwitchClip(); });
         connect(popout_, &PopoutChat::openClipEditor, this, [this](const QUrl& url) {
-            if (!clipEditor_) clipEditor_ = new ClipEditorWindow;
+            if (!clipEditor_) {clipEditor_ = new ClipEditorWindow;connect(clipEditor_,&ClipEditorWindow::twitchBrowserLoginRequested,this,[this]{controller_->authorizeTwitch();});clipEditor_->setTwitchAccessToken(controller_->settings()->secret(QStringLiteral("twitch_access_token")));}
             clipEditor_->openUrl(url);
         });
         connect(popout_, &PopoutChat::deleteMessageRequested, this,

@@ -42,12 +42,17 @@ protected:
 // in-app instead of the user's external browser. It has its own persistent
 // browser profile so Twitch login cookies survive restarts without affecting
 // the TikTok collector. The app's Twitch device-code authorization is a
-// separate API token and does not carry a browser session.
+// separate API token; v3.0.6 can reuse it as a best-effort browser-session handoff.
 class ClipEditorWindow final : public QWidget {
     Q_OBJECT
 public:
     explicit ClipEditorWindow(QWidget* parent = nullptr);
     void openUrl(const QUrl& url);
+    // Uses the OAuth token obtained through Twitch's system-browser device
+    // login as a best-effort web-session handoff for the embedded clip editor.
+    void setTwitchAccessToken(const QString& token);
+signals:
+    void twitchBrowserLoginRequested();
 protected:
     // Releases the loaded page's renderer memory once the window is closed,
     // instead of keeping a full Twitch tab resident for the rest of the
@@ -57,6 +62,8 @@ private:
     QWebEngineProfile* profile_{};
     QWebEngineView* view_{};
     QLabel* addressLabel_{};
+    QUrl pendingUrl_;
+    bool loginRequestInProgress_{};
 };
 class OverlayServer final : public QObject {
     Q_OBJECT
@@ -139,6 +146,7 @@ public:
                        int fontSizePoints = 12);
     void setShowPlatformIcons(bool enabled) { showPlatformIcons_ = enabled; }
     void showTikTokActivity(const StreamEvent& event);
+    void setPinnedMessage(const QString& platform, const ChatMessage& message, bool active);
     int opacityPercent() const { return opacityPercent_; }
     void clearMessages();
     void setStreamlabsAlertAudio(bool enabled, const QUrl& alertBoxUrl);
@@ -172,6 +180,7 @@ private:
 
     ChatBrowser* chat_{};
     QLabel* event_{};
+    QLabel* pinned_{};
     QLabel* viewers_{};
     QLabel* clipStatus_{};
     QLabel* toolbarTitle_{};
@@ -181,6 +190,7 @@ private:
     QWidget* titleBar_{};
     QPushButton* clipButton_{};
     QHash<QString, int> counts_;
+    QHash<QString,ChatMessage> pinnedMessages_;
     // Messages currently rendered in chat_, keyed by an ever-increasing id
     // stamped onto each message's paragraph as a block property, so a
     // right-click can be traced back to the ChatMessage it landed on. Ids are

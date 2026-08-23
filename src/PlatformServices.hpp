@@ -18,6 +18,7 @@ public:
     QString liveChatId() const{return liveChatId_;}
 signals:
     void messageReceived(const ChatMessage& message);
+    void pinnedMessageChanged(const ChatMessage& message, bool active);
     void statusChanged(const QString& state,const QString& detail);
     void viewerCountChanged(int viewers);
 private:
@@ -26,8 +27,8 @@ private:
     static QStringList liveIds(const QByteArray& html);
     static QString runsText(const QJsonObject& message);
     QNetworkAccessManager network_; QTimer retry_,pollTimer_,viewerTimer_;
-    QString platform_,target_,videoId_,liveChatId_,apiKey_,clientVersion_,continuation_;
-    bool verticalOnly_{}; bool explicitVideo_{}; QSet<QString> seen_;
+    QString platform_,target_,videoId_,liveChatId_,apiKey_,clientVersion_,continuation_,pinnedMessageId_;
+    bool verticalOnly_{}; bool explicitVideo_{}; QSet<QString> seen_; QHash<QString,ChatMessage> recentMessages_;
 };
 
 class YouTubeModerationService final : public QObject {

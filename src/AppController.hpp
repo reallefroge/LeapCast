@@ -20,6 +20,7 @@ public:
     void unbanYouTube(const QString& banId);
     void resolveTwitchAppeal(const QString& requestId, bool approved, const QString& resolutionText);
     void createTwitchClip();
+    void setPinnedMessagesEnabled(bool enabled);
     // Manual moderation triggered from a chat message's context menu, for the
     // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
     void moderateMessage(const ChatMessage& message, int seconds, const QString& reason);
@@ -44,6 +45,7 @@ signals:
     void twitchAuthorizationUrl(const QUrl& url);
     void twitchAuthorized(const QString& login);
     void twitchAuthorizationFailed(const QString& detail);
+    void pinnedMessageChanged(const QString& platform, const ChatMessage& message, bool active);
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
@@ -80,6 +82,9 @@ public:
     // Per-broadcast name colours. Assigned on a chatter's first message and
     // reused for every later message from that same platform account.
     QHash<QString,QColor> broadcastUserColours_;
+    QHash<QString,ChatMessage> currentPinnedMessages_;
+    QTimer twitchPinnedTimer_;
+    bool pinnedMessagesEnabled_{true};
     int nextBroadcastColour_{};
     int broadcastColourOffset_{-1};
     bool twitchAuthorizationRequested_{};

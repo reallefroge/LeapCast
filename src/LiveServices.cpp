@@ -146,7 +146,7 @@ void TwitchChatService::parseLine(const QString&raw){if(raw.startsWith("PING")){
 void TwitchChatService::pollViewers(){if(channel_.isEmpty())return;QNetworkRequest req(QUrl("https://gql.twitch.tv/gql"));req.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");req.setRawHeader("Client-Id",TwitchGqlClient);QJsonObject body{{"query","query($login:String!){user(login:$login){stream{viewersCount}}}"},{"variables",QJsonObject{{"login",channel_}}}};auto*r=network_.post(req,QJsonDocument(body).toJson(QJsonDocument::Compact));connect(r,&QNetworkReply::finished,this,[this,r]{if(r->error()==QNetworkReply::NoError){auto stream=QJsonDocument::fromJson(r->readAll()).object()["data"].toObject()["user"].toObject()["stream"].toObject();const bool live=stream.contains("viewersCount");if(live)emit viewerCountChanged(stream["viewersCount"].toInt());if(live&&!wasLive_)emit broadcastWentLive();wasLive_=live;}r->deleteLater();});}
 
 TwitchModerationService::TwitchModerationService(QObject*p):QObject(p){}
-void TwitchModerationService::configure(QString c,QString t,QString m){clientId_=std::move(c);token_=std::move(t);moderatorId_=std::move(m);autoModDenied_.clear();}
+void TwitchModerationService::configure(QString c,QString t,QString m){clientId_=std::move(c);token_=std::move(t);moderatorId_=std::move(m);autoModDenied_.clear();pinReadDenied_.clear();}
 QNetworkRequest TwitchModerationService::request(const QUrl&u)const{QNetworkRequest r(u);r.setRawHeader("Client-Id",clientId_.toUtf8());r.setRawHeader("Authorization",("Bearer "+token_).toUtf8());r.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");return r;}
 void TwitchModerationService::watch(QNetworkReply*r,const QString&a){connect(r,&QNetworkReply::finished,this,[this,r,a]{const bool ok=r->error()==QNetworkReply::NoError;emit actionFinished(a,ok,ok?QString():QString::fromUtf8(r->readAll()));r->deleteLater();});}
 void TwitchModerationService::resolveBroadcaster(const QString&login){QUrl u("https://api.twitch.tv/helix/users");QUrlQuery q;q.addQueryItem("login",login);u.setQuery(q);auto*r=network_.get(request(u));connect(r,&QNetworkReply::finished,this,[this,r,login]{if(r->error()==QNetworkReply::NoError){auto a=QJsonDocument::fromJson(r->readAll()).object()["data"].toArray();if(!a.isEmpty())emit broadcasterResolved(login,a[0].toObject()["id"].toString());}r->deleteLater();});}
@@ -179,6 +179,24 @@ void TwitchModerationService::ban(const QString&b,const QString&u,int seconds,co
 void TwitchModerationService::unban(const QString&b,const QString&u){QUrl url("https://api.twitch.tv/helix/moderation/bans");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("user_id",u);url.setQuery(q);watch(network_.deleteResource(request(url)),"unban");}
 void TwitchModerationService::deleteMessage(const QString&b,const QString&m){QUrl url("https://api.twitch.tv/helix/moderation/chat");QUrlQuery q;q.addQueryItem("broadcaster_id",b);q.addQueryItem("moderator_id",moderatorId_);q.addQueryItem("message_id",m);url.setQuery(q);watch(network_.deleteResource(request(url)),"delete");}
 void TwitchModerationService::sendMessage(const QString&b,const QString&t){QUrl url("https://api.twitch.tv/helix/chat/messages");watch(network_.post(request(url),QJsonDocument(QJsonObject{{"broadcaster_id",b},{"sender_id",moderatorId_},{"message",t.left(500)}}).toJson(QJsonDocument::Compact)),"send");}
+void TwitchModerationService::getPinnedMessage(const QString&b){
+    if(b.isEmpty()||moderatorId_.isEmpty()||token_.isEmpty()||pinReadDenied_.contains(b))return;
+    QUrl url(QStringLiteral("https://api.twitch.tv/helix/chat/pins"));QUrlQuery q;
+    q.addQueryItem(QStringLiteral("broadcaster_id"),b);q.addQueryItem(QStringLiteral("moderator_id"),moderatorId_);url.setQuery(q);
+    auto*r=network_.get(request(url));
+    connect(r,&QNetworkReply::finished,this,[this,r,b]{
+        const QByteArray body=r->readAll();const int status=r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if(r->error()!=QNetworkReply::NoError){if(status==401||status==403)pinReadDenied_.insert(b);r->deleteLater();return;}
+        const auto data=QJsonDocument::fromJson(body).object().value(QStringLiteral("data")).toArray();
+        if(data.isEmpty()){emit pinnedMessageChanged(ChatMessage{},false);r->deleteLater();return;}
+        const auto pin=data.first().toObject();ChatMessage m;m.platform=QStringLiteral("twitch");
+        m.user=pin.value(QStringLiteral("sender_user_name")).toString(pin.value(QStringLiteral("sender_user_login")).toString(QStringLiteral("viewer")));
+        m.userId=pin.value(QStringLiteral("sender_user_id")).toString();m.messageId=pin.value(QStringLiteral("message_id")).toString();
+        m.text=pin.value(QStringLiteral("message")).toObject().value(QStringLiteral("text")).toString();m.color=QColor(QStringLiteral("#9146ff"));
+        m.metadata={{QStringLiteral("room_id"),b},{QStringLiteral("pinned"),true},{QStringLiteral("pinned_by"),pin.value(QStringLiteral("pinned_by_user_name")).toString()},{QStringLiteral("pinned_starts_at"),pin.value(QStringLiteral("starts_at")).toString()},{QStringLiteral("pinned_ends_at"),pin.value(QStringLiteral("ends_at")).toString()},{QStringLiteral("pinned_updated_at"),pin.value(QStringLiteral("updated_at")).toString()}};
+        emit pinnedMessageChanged(m,true);r->deleteLater();
+    });
+}
 void TwitchModerationService::createClip(const QString&b){
     QUrl url("https://api.twitch.tv/helix/clips");QUrlQuery q;q.addQueryItem("broadcaster_id",b);url.setQuery(q);
     auto*r=network_.post(request(url),QByteArray());

@@ -64,11 +64,14 @@ private:
     void reviewTwitchAppeal(bool approve);
     void showPostUpdateConnectionCheck();
     void showFirstLaunchUpdateLog();
+    void refreshPinnedBanner();
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
     QTabWidget* moderationTabs_{};
     QHash<QString,QTextBrowser*> chatViews_;
+    QHash<QString,ChatMessage> pinnedMessages_;
+    QLabel* pinnedBanner_{};
     QHash<QString,QWidget*> sourceCards_;
     QHash<QString,QWidget*> platformChatWidgets_;
     QHash<QString,QPushButton*> navigationButtons_;
