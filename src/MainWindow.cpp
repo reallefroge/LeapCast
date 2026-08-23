@@ -132,6 +132,8 @@ QString friendlyTimestamp(const QString& value) {
 }
 
 QString eventAction(const StreamEvent& event) {
+    if (event.kind==QStringLiteral("twitch_redemption"))
+        return QStringLiteral("redeemed %1").arg(event.amount.isEmpty()?QStringLiteral("a Channel Point reward"):event.amount);
     if (event.kind.contains(QStringLiteral("gifted_sub")))
         return QStringLiteral("gifted %1 subscription%2").arg(event.amount.isEmpty()?QStringLiteral("1"):event.amount,event.amount==QStringLiteral("1")?QString():QStringLiteral("s"));
     if (event.kind.contains(QStringLiteral("donation")))
@@ -146,6 +148,7 @@ QString eventAction(const StreamEvent& event) {
     if (event.kind.contains(QStringLiteral("member"))) return QStringLiteral("became a member");
     return QStringLiteral("subscribed");
 }
+QString platformIconHtml(const QString&platform){static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};return paths.contains(platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(paths.value(platform)):QString();}
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -162,6 +165,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     overlay_->start(static_cast<quint16>(controller_->settings()->preference(QStringLiteral("port"),8080).toInt()));
     overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"), 0).toInt());
     overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
+    overlay_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());
     connect(overlay_,&OverlayServer::mobileDeleteRequested,controller_,&AppController::deleteChatMessage);
     connect(overlay_,&OverlayServer::mobileModerationRequested,controller_,&AppController::moderateMessage);
     connect(overlay_,&OverlayServer::mobileRefreshModerationRequested,this,[this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
@@ -182,10 +186,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     splitter->setSizes({850, 430});
     setCentralWidget(splitter);
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
-        const QString colour = m.color.isValid() ? m.color.name() : QStringLiteral("#53cdf3");
         const QString badges = badgeGlyphs(m.badges);
-        const QString html = QStringLiteral("%1<b style='color:%2'>%3</b> %4")
-            .arg(badges.isEmpty() ? QString() : badges + QStringLiteral(" "), colour, m.user.toHtmlEscaped(), m.text.toHtmlEscaped());
+        const QString icon=controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool()?platformIconHtml(m.platform):QString();
+        const QString html = QStringLiteral("%1%2%3 %4")
+            .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "),chatNameHtml(m),m.text.toHtmlEscaped());
         // Stamped with an id (see appendChatMessage) so a right-click on
         // either view can be traced back to this message for moderation.
         const qint64 id = ++nextChatSeq_;
@@ -208,6 +212,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         appendTrimmed(chatViews_.value(m.platform), note);
         if (popout_) popout_->appendModerationNote(m.user, reason);
     });
+    connect(controller_,&AppController::tiktokActivityReady,this,[this](const StreamEvent&e){if(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool()&&popout_)popout_->showTikTokActivity(e);});
     connect(controller_,&AppController::twitchAppealsUpdated,this,[this](const QJsonArray&appeals){
         overlay_->setMobileAppeals(appeals);
         if(!twitchAppeals_)return;twitchAppeals_->clear();
@@ -224,6 +229,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
     connect(controller_,&AppController::eventReady,this,[this](const StreamEvent&e){
         overlay_->ingestEvent(e);
+        if(e.kind==QStringLiteral("twitch_redemption"))return;
         const QString colour=e.platform==QStringLiteral("twitch")?QStringLiteral("#b48cff"):
             e.platform==QStringLiteral("youtube")?QStringLiteral("#ff637d"):
             e.platform==QStringLiteral("rumble")?QStringLiteral("#85c742"):QStringLiteral("#63e6be");
@@ -364,6 +370,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                    const QString& name, const QString& digest) {
         mobileUpdateAsset_=asset;mobileUpdateName_=name;mobileUpdateDigest_=digest;
         overlay_->setMobileUpdate(QJsonObject{{"available",true},{"version",version},{"notes",notes.left(1200)}});
+        if (silentUpdateCheck_) { silentUpdateCheck_=false; return; }
         if (showUpdateNotesDialog(this,version,notes)) {
             auto* progress = new QProgressDialog(
                 QStringLiteral("Downloading the update…\nLeapcast Studio will reopen automatically."),
@@ -391,17 +398,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
     connect(updater_, &UpdateService::upToDate, this, [this] {
+        overlay_->setMobileUpdate(QJsonObject{{"available",false}});
+        mobileUpdateAsset_={};mobileUpdateName_.clear();mobileUpdateDigest_.clear();
+        if (silentUpdateCheck_) { silentUpdateCheck_=false; return; }
         QMessageBox::information(this, QStringLiteral("Updates"),
                                  QStringLiteral("Leapcast Studio is up to date."));
     });
     connect(updater_, &UpdateService::failed, this, [this](const QString& detail) {
+        if (silentUpdateCheck_) { silentUpdateCheck_=false; return; }
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
     });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
     QTimer::singleShot(350, this, &MainWindow::showPostUpdateConnectionCheck);
     QTimer::singleShot(900, this, &MainWindow::showFirstLaunchUpdateLog);
     QTimer::singleShot(1600, this, [this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
-    QTimer::singleShot(2400, updater_, [this]{updater_->check(false);});
+    QTimer::singleShot(2400, updater_, [this]{silentUpdateCheck_=true;updater_->check(false);});
 }
 
 bool MainWindow::event(QEvent* e) {
@@ -731,15 +742,25 @@ QWidget* MainWindow::buildSettingsPage(){
     popoutLayout->addWidget(label(QStringLiteral("POP-OUT CHAT APPEARANCE"),"cardTitle"));
     const QString savedPopoutFont=controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString();
     auto* popoutFontRow=new QHBoxLayout;popoutFontRow->addWidget(label(QStringLiteral("Font")));auto* popoutFont=new QFontComboBox;popoutFont->setCurrentFont(QFont(savedPopoutFont));popoutFontRow->addWidget(popoutFont,1);popoutFontRow->addWidget(label(QStringLiteral("Size")));auto* popoutSize=new QSlider(Qt::Horizontal);popoutSize->setRange(8,36);popoutSize->setValue(controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());popoutFontRow->addWidget(popoutSize,1);auto* popoutSizeValue=label(QString::number(popoutSize->value())+QStringLiteral(" pt"));popoutFontRow->addWidget(popoutSizeValue);popoutLayout->addLayout(popoutFontRow);
-    auto* popoutOutlineRow=new QHBoxLayout;popoutOutlineRow->addWidget(label(QStringLiteral("Outline")));auto* popoutOutline=new QSlider(Qt::Horizontal);popoutOutline->setRange(0,8);popoutOutline->setValue(controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt());popoutOutlineRow->addWidget(popoutOutline,1);auto* popoutOutlineValue=label(QString::number(popoutOutline->value())+QStringLiteral(" px"));popoutOutlineRow->addWidget(popoutOutlineValue);popoutOutlineRow->addWidget(label(QStringLiteral("Name colors")));auto* colourMode=new QComboBox;colourMode->addItem(QStringLiteral("Random"),QStringLiteral("random"));colourMode->addItem(QStringLiteral("One color"),QStringLiteral("single"));const int colourModeIndex=colourMode->findData(controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")));colourMode->setCurrentIndex(qMax(0,colourModeIndex));popoutOutlineRow->addWidget(colourMode,1);popoutLayout->addLayout(popoutOutlineRow);
+    auto* popoutOutlineRow=new QHBoxLayout;popoutOutlineRow->addWidget(label(QStringLiteral("Outline")));auto* popoutOutline=new QSlider(Qt::Horizontal);popoutOutline->setRange(0,8);popoutOutline->setValue(controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt());popoutOutlineRow->addWidget(popoutOutline,1);auto* popoutOutlineValue=label(QString::number(popoutOutline->value())+QStringLiteral(" px"));popoutOutlineRow->addWidget(popoutOutlineValue);popoutOutlineRow->addWidget(label(QStringLiteral("Name colors")));auto* colourMode=new QComboBox;colourMode->addItem(QStringLiteral("Random per chatter"),QStringLiteral("random"));colourMode->addItem(QStringLiteral("One color"),QStringLiteral("single"));colourMode->addItem(QStringLiteral("Custom gradient"),QStringLiteral("gradient"));colourMode->addItem(QStringLiteral("Repeating pattern"),QStringLiteral("pattern"));const int colourModeIndex=colourMode->findData(controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")));colourMode->setCurrentIndex(qMax(0,colourModeIndex));popoutOutlineRow->addWidget(colourMode,1);popoutLayout->addLayout(popoutOutlineRow);
     QColor nameColour(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());if(!nameColour.isValid())nameColour=QColor(QStringLiteral("#53cdf3"));
     auto* nameColourRow=new QHBoxLayout;nameColourRow->addWidget(label(QStringLiteral("Specific name color")));auto* nameColourButton=new QPushButton(nameColour.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(nameColour.name(),nameColour.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));nameColourButton->setEnabled(colourMode->currentData().toString()==QStringLiteral("single"));nameColourRow->addWidget(nameColourButton);popoutLayout->addLayout(nameColourRow);
+    QStringList namePalette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(namePalette.size()<4)namePalette<<QStringLiteral("#ffffff");
+    auto* paletteRow=new QHBoxLayout;auto* paletteLabel=label(QStringLiteral("Multi-color palette"));paletteRow->addWidget(paletteLabel);QList<QPushButton*> paletteButtons;for(int index=0;index<4;++index){QColor color(namePalette.at(index));if(!color.isValid())color=Qt::white;auto*button=new QPushButton(QString::number(index+1));button->setToolTip(QStringLiteral("Choose palette color %1").arg(index+1));button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(color.name(),color.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));paletteButtons<<button;paletteRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,button,index]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(palette.size()<4)palette<<QStringLiteral("#ffffff");QColor current(palette.at(index));const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Name palette color %1").arg(index+1));if(!chosen.isValid())return;palette[index]=chosen.name();controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),palette);button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});}auto*patternStyle=new QComboBox;patternStyle->addItem(QStringLiteral("Repeat"),QStringLiteral("repeat"));patternStyle->addItem(QStringLiteral("Mirror"),QStringLiteral("mirror"));patternStyle->addItem(QStringLiteral("Color blocks"),QStringLiteral("blocks"));patternStyle->setCurrentIndex(qMax(0,patternStyle->findData(controller_->settings()->preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")))));paletteRow->addWidget(patternStyle);popoutLayout->addLayout(paletteRow);
+    auto* programIcons=new QCheckBox(QStringLiteral("Show platform icons in program chat and pop-out"));programIcons->setChecked(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());popoutLayout->addWidget(programIcons);
+    auto* overlayIcons=new QCheckBox(QStringLiteral("Show platform icons in OBS overlay"));overlayIcons->setChecked(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());popoutLayout->addWidget(overlayIcons);
+    auto* tiktokActivity=new QCheckBox(QStringLiteral("Show TikTok joins, follows, and likes in pop-out only"));tiktokActivity->setChecked(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool());popoutLayout->addWidget(tiktokActivity);
     const auto applyPopoutAppearance=[this,popoutFont,popoutSize,popoutOutline]{if(popout_)popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),popoutOutline->value(),popoutFont->currentFont().family(),popoutSize->value());};
     connect(popoutFont,&QFontComboBox::currentFontChanged,this,[this,applyPopoutAppearance](const QFont&font){controller_->settings()->setPreference(QStringLiteral("popout_font_family"),font.family());applyPopoutAppearance();});
     connect(popoutSize,&QSlider::valueChanged,this,[this,popoutSizeValue,applyPopoutAppearance](int value){popoutSizeValue->setText(QString::number(value)+QStringLiteral(" pt"));controller_->settings()->setPreference(QStringLiteral("popout_font_size"),value);applyPopoutAppearance();});
     connect(popoutOutline,&QSlider::valueChanged,this,[this,popoutOutlineValue,applyPopoutAppearance](int value){popoutOutlineValue->setText(QString::number(value)+QStringLiteral(" px"));controller_->settings()->setPreference(QStringLiteral("popout_outline_thickness"),value);applyPopoutAppearance();});
-    connect(colourMode,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,colourMode,nameColourButton](int){const QString mode=colourMode->currentData().toString();controller_->settings()->setPreference(QStringLiteral("chat_colour_mode"),mode);nameColourButton->setEnabled(mode==QStringLiteral("single"));});
+    const auto updateColourControls=[colourMode,nameColourButton,paletteLabel,paletteButtons,patternStyle]{const QString mode=colourMode->currentData().toString();nameColourButton->setEnabled(mode==QStringLiteral("single"));const bool multi=mode==QStringLiteral("gradient")||mode==QStringLiteral("pattern");paletteLabel->setEnabled(multi);for(auto*button:paletteButtons)button->setEnabled(multi);patternStyle->setEnabled(mode==QStringLiteral("pattern"));};updateColourControls();
+    connect(colourMode,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,colourMode,updateColourControls](int){controller_->settings()->setPreference(QStringLiteral("chat_colour_mode"),colourMode->currentData().toString());updateColourControls();});
+    connect(patternStyle,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,patternStyle](int){controller_->settings()->setPreference(QStringLiteral("chat_name_pattern"),patternStyle->currentData().toString());});
     connect(nameColourButton,&QPushButton::clicked,this,[this,nameColourButton]{QColor current(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat name color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("chat_name_colour"),chosen.name());nameColourButton->setText(chosen.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});
+    connect(programIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("program_popout_show_platform_icons"),enabled);if(popout_)popout_->setShowPlatformIcons(enabled);});
+    connect(overlayIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("overlay_show_platform_icons"),enabled);overlay_->setShowPlatformIcons(enabled);});
+    connect(tiktokActivity,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("tiktok_popout_activity_enabled"),enabled);});
     layout->addWidget(popoutAppearance);
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
@@ -763,9 +784,9 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* checkNow = new QPushButton(QStringLiteral("Check now"));
     updateLayout->addWidget(releases); updateLayout->addWidget(checkNow);
     connect(releases, &QPushButton::clicked, this, [] {
-        QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/reallefroge/MultiStreamChat/releases")));
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/reallefroge/LeapCast/releases")));
     });
-    connect(checkNow, &QPushButton::clicked, this, [this] { updater_->check(true); });
+    connect(checkNow, &QPushButton::clicked, this, [this] { silentUpdateCheck_=false;updater_->check(true); });
     layout->addWidget(updateCard);
     layout->addStretch();
     return page;
@@ -1056,7 +1077,7 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
     connect(copyAction, &QAction::triggered, view, &QTextBrowser::copy);
     if (chatHistoryById_.contains(id)) {
         const ChatMessage msg = chatHistoryById_.value(id);
-        const bool isTwitch = msg.platform == QStringLiteral("twitch");
+        const bool isTwitch = msg.platform == QStringLiteral("twitch") && !msg.metadata.value(QStringLiteral("channel_point_redemption")).toBool();
         const bool isYouTube = msg.platform == QStringLiteral("youtube") || msg.platform == QStringLiteral("yt_shorts");
         // Only Twitch and YouTube/Shorts have a working moderation API wired
         // up here; see PopoutChat::showChatContextMenu for why TikTok has no
@@ -1128,6 +1149,7 @@ QWidget* MainWindow::buildChatDock() {
         popout_ = new PopoutChat;
         popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 0).toInt());
         popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt(),controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString(),controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());
+        popout_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;

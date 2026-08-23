@@ -63,13 +63,28 @@ jobs:
         env:
           LEAPCAST_TWITCH_CLIENT_ID: ${{ vars.TWITCH_CLIENT_ID }}
 
+      - name: Verify release artifact version
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $installer = "artifacts/LeapcastStudio-Setup-$version.exe"
+          $checksum = "$installer.sha256"
+          if (-not (Test-Path $installer) -or -not (Test-Path $checksum)) {
+            throw "The installer assets do not match VERSION ($version)."
+          }
+          $unexpected = Get-ChildItem artifacts -Filter "LeapcastStudio-Setup-*.exe" |
+            Where-Object { $_.Name -ne "LeapcastStudio-Setup-$version.exe" }
+          if ($unexpected) {
+            throw "A stale installer was found: $($unexpected.Name -join ', ')"
+          }
+
       - name: Upload testable installer
         uses: actions/upload-artifact@v4
         with:
           name: LeapcastStudio-${{ steps.version.outputs.version }}-Windows
           path: |
-            artifacts/LeapcastStudio-Setup-*.exe
-            artifacts/LeapcastStudio-Setup-*.exe.sha256
+            artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe
+            artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe.sha256
           if-no-files-found: error
           retention-days: 14
 

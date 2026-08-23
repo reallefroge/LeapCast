@@ -32,6 +32,7 @@ signals:
     // chat views/pop-out only, never the OBS overlay feed.
     void messageModerated(const ChatMessage& message, const QString& reason);
     void eventReady(const StreamEvent& event);
+    void tiktokActivityReady(const StreamEvent& event);
     void sourceStatus(const QString& platform,const QString& state,const QString& detail);
     void viewerCount(const QString& platform,int count);
     void moderationResult(const QString& platform,bool success,const QString& detail);
@@ -64,6 +65,7 @@ public:
     StreamlabsService streamlabs_;
     TwitchAuthService twitchAuth_;
     TwitchModerationService twitchMod_;
+    TwitchEventSubService twitchEvents_;
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;
@@ -73,6 +75,8 @@ public:
     // transitions from offline to live (see TwitchChatService::broadcastWentLive) —
     // AutoMod itself keeps moderating while offline, only the ladder resets.
     QHash<QString,int> twitchAutoModOffenses_;
+    QHash<QString,ChatMessage> pendingTwitchRedemptions_;
+    QSet<QString> recentTwitchRedemptions_;
     // Per-broadcast name colours. Assigned on a chatter's first message and
     // reused for every later message from that same platform account.
     QHash<QString,QColor> broadcastUserColours_;

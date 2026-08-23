@@ -36,6 +36,10 @@ Q_DECLARE_METATYPE(ChatMessage)
 // requires an authenticated API call and bundled images per badge set, so
 // this uses plain-text glyphs instead.
 QString badgeGlyphs(const QStringList& badges);
+// Formats a chat name using the message's selected single, gradient, or
+// repeating palette while keeping the original plain username intact for
+// moderation and platform API calls.
+QString chatNameHtml(const ChatMessage& message);
 
 struct StreamEvent {
     QString eventId;

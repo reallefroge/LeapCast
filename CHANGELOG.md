@@ -2,6 +2,37 @@
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
+## Leapcast Studio 3.0.4
+
+- Fixed Channel Point redemptions that appeared in Twitch as only their required chat text but never appeared correctly in Leapcast pop-out chat.
+- Added Twitch IRC reward-tag detection, EventSub/IRC deduplication, and a timed fallback when Twitch does not deliver the richer reward event.
+- Added visible Twitch reward-connection status and a reconnect warning when the redemption permission is missing.
+- Added user-selectable name styling: stable random colors, one color, a four-color custom gradient, or a repeating four-color pattern.
+- Applied custom multi-color names consistently to the Windows program chat and pop-out chat while preserving plain usernames for moderation.
+
+## Leapcast Studio 3.0.3
+
+- Pointed automatic updates and release links at the actual `reallefroge/LeapCast` GitHub repository.
+- Made upgrades close Leapcast, remove stale Leapcast/Qt runtime files, copy the complete new deployment, and relaunch afterward.
+- Limited cleanup to application-managed files so AppData settings, connections, chat history, and the installer registration remain preserved.
+- Prevented the fallback launcher from reopening Leapcast when setup exits with an error.
+- Refused release assets whose installer filename does not match the GitHub tag, preventing an older build from being installed repeatedly.
+- Added release-workflow checks that reject stale or wrongly versioned installer artifacts.
+
+## Leapcast Studio 3.0.2
+
+- Fixed v3 installations repeatedly offering an older v2 release as an update.
+- Prevented the silent background check from reopening the Windows update dialog after startup.
+- Kept Phone Connect release notifications available without duplicating the desktop prompt.
+
+## Leapcast Studio 3.0.1
+
+- 💬 Repaired TikTok LIVE chat capture with current selectors, direct added-node detection, compact viewer-count parsing, and automatic bridge rescans.
+- 💜 Added Twitch Channel Point redemptions to Windows chat, pop-out chat, OBS, and Phone Connect chat/events. Existing Twitch connections must authorize the new redemption permission once.
+- 🎉 Added optional TikTok join, follow, and like activity for the pop-out only. It is disabled by default and never enters OBS or Phone Connect.
+- 🔖 Restored platform icons beside messages with separate settings for the program/pop-out and OBS overlay.
+- 🔐 Preserved v3.0.0 QR reset, private Phone Connect controls, mobile release notifications, and first-launch update notes.
+
 ## Leapcast Studio 2.3.0
 
 - Added Kick and Rumble sources, chat preview tabs, overlay routing, viewer counts, and settings toggles.

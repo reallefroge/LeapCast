@@ -52,6 +52,11 @@ if (Test-Path $DeployDir) {
 }
 New-Item -ItemType Directory -Force $DeployDir, $OutputDirectory | Out-Null
 
+# Never let a previous-version installer remain in the publish directory.
+# The release workflow must upload only the installer matching VERSION.
+Get-ChildItem -Path $OutputDirectory -Filter "LeapcastStudio-Setup-*.exe*" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+
 Write-Host "Building Leapcast Studio v$Version..."
 & $Cmake.Source -S $ProjectRoot -B $BuildDir -G "Visual Studio 17 2022" -A x64 `
     "-DCMAKE_PREFIX_PATH=$QtRoot" "-DLEAPCAST_TWITCH_CLIENT_ID=$TwitchClientId"

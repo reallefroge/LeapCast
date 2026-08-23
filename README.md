@@ -9,7 +9,7 @@
 
   Follow Twitch, YouTube, YouTube Shorts, TikTok LIVE, Kick, and Rumble communities, moderate faster, show chat in OBS, and surface Streamlabs and Rumble alerts without juggling a wall of browser windows.
 
-  [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
+  [Download for Windows](https://github.com/reallefroge/LeapCast/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/LeapCast/issues)
 </div>
 
 > [!IMPORTANT]
@@ -19,7 +19,7 @@
 
 Leapcast Studio is made for **64-bit Windows 10 and Windows 11**.
 
-1. Open the [Releases page](https://github.com/reallefroge/MultiStreamChat/releases).
+1. Open the [Releases page](https://github.com/reallefroge/LeapCast/releases).
 2. Open the newest release marked **Latest**.
 3. Download `LeapcastStudio-Setup-<version>.exe`.
 4. Run the installer and launch **Leapcast Studio** from the Start menu or optional desktop shortcut.
@@ -69,6 +69,10 @@ The interface is organized into five focused areas:
 ### One chat view, four communities
 
 - Reads Twitch, YouTube Live, YouTube Shorts Live, TikTok LIVE, Kick, and Rumble chat.
+- Displays Twitch Channel Point custom reward redemptions (for example, “redeemed Hydrate”) in Windows chat, pop-out chat, OBS, and Phone Connect after Twitch authorization includes `channel:read:redemptions`; IRC reward tags provide a fallback if EventSub is delayed.
+- Lets creators choose stable random name colors, one fixed color, a four-color gradient, or repeating/mirrored/block color patterns for Windows and pop-out chat.
+- Optionally displays TikTok joins, follows, and likes in the pop-out only; these activity lines never enter the OBS overlay.
+- Provides independent platform-icon toggles for program/pop-out messages and OBS overlay messages.
 - Provides one **All** feed plus separate branded tabs for Twitch, YouTube, Shorts, TikTok, Kick, and Rumble.
 - Uses clear Twitch, YouTube, Shorts, TikTok, Kick, and Rumble icons to identify each source.
 - Retries supported Twitch, YouTube, and Streamlabs connections after temporary failures.
@@ -207,7 +211,7 @@ For a complete one-command release workflow, see
 
 ## Support and contributions
 
-- Found a reproducible bug? [Open an issue](https://github.com/reallefroge/MultiStreamChat/issues) with the app version, platform involved, expected result, actual result, and a screenshot with private information blurred.
+- Found a reproducible bug? [Open an issue](https://github.com/reallefroge/LeapCast/issues) with the app version, platform involved, expected result, actual result, and a screenshot with private information blurred.
 - Want to contribute? Fork the repository, make a focused change, test it on Windows, and open a pull request.
 - Never include access tokens, client secrets, stream keys, unblurred chat logs, or personal channel data in an issue.
 

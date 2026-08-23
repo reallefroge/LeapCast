@@ -25,6 +25,34 @@ QString badgeGlyphs(const QStringList& badges) {
     return out;
 }
 
+QString chatNameHtml(const ChatMessage& message) {
+    const QString mode=message.metadata.value(QStringLiteral("name_color_mode")).toString();
+    QStringList palette;
+    for(const auto&value:message.metadata.value(QStringLiteral("name_color_palette")).toArray()){
+        const QColor color(value.toString());if(color.isValid())palette<<color.name();
+    }
+    if((mode!=QStringLiteral("gradient")&&mode!=QStringLiteral("pattern"))||palette.size()<2)
+        return QStringLiteral("<b style='color:%1'>%2</b>").arg(message.color.name(),message.user.toHtmlEscaped());
+    const int count=message.user.size();QString html=QStringLiteral("<b>");
+    for(int index=0;index<count;++index){
+        QColor color;
+        if(mode==QStringLiteral("pattern")){
+            const QString pattern=message.metadata.value(QStringLiteral("name_color_pattern")).toString(QStringLiteral("repeat"));int paletteIndex=index%palette.size();
+            if(pattern==QStringLiteral("blocks"))paletteIndex=(index/2)%palette.size();
+            else if(pattern==QStringLiteral("mirror")&&palette.size()>1){const int cycle=palette.size()*2-2;const int step=index%cycle;paletteIndex=step<palette.size()?step:cycle-step;}
+            color=QColor(palette.at(paletteIndex));
+        }
+        else{
+            const double position=count<=1?0.0:double(index)/double(count-1);
+            const double scaled=position*(palette.size()-1);const int left=qMin(int(scaled),palette.size()-2);const double mix=scaled-left;
+            const QColor a(palette.at(left)),b(palette.at(left+1));
+            color=QColor(qRound(a.red()+(b.red()-a.red())*mix),qRound(a.green()+(b.green()-a.green())*mix),qRound(a.blue()+(b.blue()-a.blue())*mix));
+        }
+        html+=QStringLiteral("<span style='color:%1'>%2</span>").arg(color.name(),QString(message.user.at(index)).toHtmlEscaped());
+    }
+    return html+QStringLiteral("</b>");
+}
+
 QJsonObject ChatMessage::toJson() const {
     return {{QStringLiteral("user"), user}, {QStringLiteral("text"), text},
             {QStringLiteral("platform"), platform},
