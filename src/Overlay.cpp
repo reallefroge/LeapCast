@@ -29,6 +29,7 @@
 #include <QPen>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QRandomGenerator>
 #include <QSizeGrip>
 #include <QStackedLayout>
@@ -65,6 +66,71 @@ protected:
         p.setPen(QPen(isDown()?QColor(QStringLiteral("#ffffff")):underMouse()?QColor(QStringLiteral("#ff91a4")):QColor(QStringLiteral("#c7cede")),2.0,Qt::SolidLine,Qt::RoundCap));
         const QRectF r=rect().adjusted(7,7,-7,-7);p.drawLine(r.topLeft(),r.bottomRight());p.drawLine(r.topRight(),r.bottomLeft());
     }
+};
+
+class PopoutSeasonalDecoration final : public QWidget {
+public:
+    explicit PopoutSeasonalDecoration(QWidget* parent=nullptr):QWidget(parent){
+        setAttribute(Qt::WA_TransparentForMouseEvents,true);
+        setAttribute(Qt::WA_TranslucentBackground,true);
+        setAttribute(Qt::WA_NoSystemBackground,true);
+        setAutoFillBackground(false);
+        hide();
+    }
+    void setTheme(const QString& theme){
+        theme_=theme;
+        setVisible(!theme_.isEmpty());
+        if(isVisible())raise();
+        update();
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        if(theme_.isEmpty())return;
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const QRect r=rect();
+        if(theme_==QStringLiteral("birthday")){
+            static const QColor colors[]{QColor("#ff5ca8"),QColor("#53cdf3"),QColor("#ffd166"),QColor("#72efb0")};
+            for(int x=16,i=0;x<r.width()-16;x+=42,++i){
+                QPainterPath path;path.moveTo(x,2);path.cubicTo(x+9,11,x-9,21,x+7,31);
+                painter.setPen(QPen(colors[i%4],2.5,Qt::SolidLine,Qt::RoundCap));painter.drawPath(path);
+            }
+            const auto hat=[&](qreal x){
+                QPainterPath path;path.moveTo(x,42);path.lineTo(x+14,14);path.lineTo(x+28,42);path.closeSubpath();
+                painter.setBrush(QColor("#ff5ca8"));painter.setPen(QPen(QColor("#ffd166"),1.5));painter.drawPath(path);
+                painter.setBrush(QColor("#53cdf3"));painter.drawEllipse(QPointF(x+14,11),3.5,3.5);
+            };
+            hat(6);hat(qMax<qreal>(6,r.width()-34));
+        }else if(theme_==QStringLiteral("christmas")){
+            for(int x=10,i=0;x<r.width()-10;x+=24,++i){
+                painter.setPen(QPen(QColor("#667089"),1));painter.drawLine(x,0,x,7);
+                painter.setBrush(i%3==0?QColor("#ff5268"):i%3==1?QColor("#5ee8d3"):QColor("#ffd166"));
+                painter.setPen(Qt::NoPen);painter.drawEllipse(QPointF(x,10),3.5,4.5);
+            }
+        }else if(theme_==QStringLiteral("halloween")){
+            painter.setPen(QPen(QColor("#ff8b2c"),2));painter.setBrush(QColor("#ff8b2c"));
+            painter.drawEllipse(QRectF(7,7,23,18));painter.drawEllipse(QRectF(qMax(7,r.width()-30),7,23,18));
+        }else if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("veterans")){
+            const auto flag=[&](qreal x){
+                QRectF f(x,6,45,26);painter.setPen(Qt::NoPen);
+                for(int i=0;i<7;++i){painter.setBrush(i%2?Qt::white:QColor("#d82c3b"));painter.drawRect(QRectF(f.x(),f.y()+i*f.height()/7.0,f.width(),f.height()/7.0));}
+                painter.setBrush(QColor("#21468b"));painter.drawRect(QRectF(f.x(),f.y(),f.width()*.42,f.height()*.55));
+            };
+            flag(5);flag(qMax<qreal>(5,r.width()-50));
+        }else if(theme_==QStringLiteral("easter")){
+            painter.setBrush(QColor("#fce1f0"));painter.setPen(QPen(QColor("#f7a8d2"),2));
+            painter.drawEllipse(QRectF(8,7,20,28));painter.drawEllipse(QRectF(qMax(8,r.width()-28),7,20,28));
+        }else if(theme_==QStringLiteral("newyear")){
+            painter.setPen(QPen(QColor("#ffd166"),2));
+            const qreal centers[2]={15.0,qMax<qreal>(15.0,r.width()-15.0)};
+            for(const qreal x:centers)for(int a=0;a<8;++a){
+                const qreal ang=a*6.283185307/8.0;
+                painter.drawLine(QPointF(x,18),QPointF(x+std::cos(ang)*12,18+std::sin(ang)*12));
+            }
+        }
+    }
+private:
+    QString theme_;
 };
 void trimChatBlocks(QTextDocument* doc) {
     while (doc->blockCount() > kMaxChatBlocks) {
@@ -197,6 +263,12 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     toolbar->addWidget(closeButton);
     l->addWidget(titleBar_);
     seasonalRibbon_=new QLabel;seasonalRibbon_->setAlignment(Qt::AlignCenter);seasonalRibbon_->setAttribute(Qt::WA_TransparentForMouseEvents);seasonalRibbon_->setStyleSheet(QStringLiteral("background:transparent;color:#ffd166;font-size:11pt;font-weight:700;letter-spacing:2px;"));seasonalRibbon_->hide();l->addWidget(seasonalRibbon_);
+    // Keep holiday/birthday edge art in a child overlay rather than the
+    // translucent top-level window's paintEvent. On Windows, painting complex
+    // decoration directly into the layered top-level during first show could
+    // destabilize creation of the frameless pop-out.
+    seasonalDecor_=new PopoutSeasonalDecoration(this);
+    seasonalDecor_->setGeometry(rect());
 
     pinned_=new QLabel;pinned_->setTextFormat(Qt::RichText);pinned_->setWordWrap(true);pinned_->setTextInteractionFlags(Qt::TextSelectableByMouse);pinned_->hide();l->addWidget(pinned_);
     event_=new QLabel;
@@ -347,8 +419,22 @@ void PopoutChat::showChatContextMenu(const QPoint&globalPos){
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind==QStringLiteral("twitch_redemption")?QStringLiteral("redeemed %1").arg(e.amount):e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":e.kind.contains("gifted_sub")?QStringLiteral("gifted %1 subscription%2").arg(e.amount.isEmpty()?QStringLiteral("1"):e.amount,e.amount==QStringLiteral("1")?QString():QStringLiteral("s")):"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":e.platform=="rumble"?"#85c742":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>%4").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped(),e.message.isEmpty()?QString():QStringLiteral("<br><span style='color:#c7cede'>%1</span>").arg(e.message.toHtmlEscaped())));if(opacityPercent_>0)event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
 void PopoutChat::showTikTokActivity(const StreamEvent&e){QTextCursor cursor(chat_->document());cursor.movePosition(QTextCursor::End);if(!chat_->document()->isEmpty())cursor.insertBlock();const QString icon=showPlatformIcons_?QStringLiteral("<img src=':/brand/tiktok.png' width='18' height='18' style='vertical-align:middle;margin-right:5px'>"):QString();const QString action=e.kind.endsWith(QStringLiteral("join"))?QStringLiteral("joined the LIVE"):e.kind.endsWith(QStringLiteral("follow"))?QStringLiteral("followed the creator"):e.amount.isEmpty()?QStringLiteral("sent likes"):QStringLiteral("sent %1 likes").arg(e.amount);cursor.insertHtml(QStringLiteral("%1<span style='color:#7f8ba5;font-style:italic'><b style='color:#18e0d5'>%2</b> %3</span>").arg(icon,e.user.toHtmlEscaped(),action.toHtmlEscaped()));chat_->moveCursor(QTextCursor::End);chat_->ensureCursorVisible();trimChatBlocks(chat_->document());}
 void PopoutChat::setSeasonalTheme(const QString&theme){
-    seasonalTheme_=theme;if(seasonalRibbon_){QString text;if(theme==QStringLiteral("birthday"))text=QStringLiteral("🎉 〰 🎊 〰 🎉 〰 🎊 〰 🎉");else if(theme==QStringLiteral("halloween"))text=QStringLiteral("🎃  ·  👻  ·  🎃");else if(theme==QStringLiteral("christmas"))text=QStringLiteral("🎄  ·  ❄  ·  ✨  ·  🎁  ·  🎄");else if(theme==QStringLiteral("easter"))text=QStringLiteral("🐰  ·  🥚  ·  🌷  ·  🐣");else if(theme==QStringLiteral("july4")||theme==QStringLiteral("veterans"))text=QStringLiteral("🇺🇸  ★  🇺🇸  ★  🇺🇸");else if(theme==QStringLiteral("newyear"))text=QStringLiteral("✨  🎆  HAPPY NEW YEAR  🎆  ✨");seasonalRibbon_->setText(text);seasonalRibbon_->setVisible(!text.isEmpty());}
-    update();
+    seasonalTheme_=theme;
+    if(seasonalRibbon_){
+        QString text;
+        if(theme==QStringLiteral("birthday"))text=QStringLiteral("🎉 〰 🎊 〰 🎉 〰 🎊 〰 🎉");
+        else if(theme==QStringLiteral("halloween"))text=QStringLiteral("🎃  ·  👻  ·  🎃");
+        else if(theme==QStringLiteral("christmas"))text=QStringLiteral("🎄  ·  ❄  ·  ✨  ·  🎁  ·  🎄");
+        else if(theme==QStringLiteral("easter"))text=QStringLiteral("🐰  ·  🥚  ·  🌷  ·  🐣");
+        else if(theme==QStringLiteral("july4")||theme==QStringLiteral("veterans"))text=QStringLiteral("🇺🇸  ★  🇺🇸  ★  🇺🇸");
+        else if(theme==QStringLiteral("newyear"))text=QStringLiteral("✨  🎆  HAPPY NEW YEAR  🎆  ✨");
+        seasonalRibbon_->setText(text);seasonalRibbon_->setVisible(!text.isEmpty());
+    }
+    if(seasonalDecor_){
+        seasonalDecor_->setGeometry(rect());
+        static_cast<PopoutSeasonalDecoration*>(seasonalDecor_)->setTheme(theme);
+        if(!theme.isEmpty())seasonalDecor_->raise();
+    }
 }
 void PopoutChat::setPinnedMessage(const QString&platform,const ChatMessage&message,bool active){
     if(active)pinnedMessages_[platform]=message;else pinnedMessages_.remove(platform);if(!pinned_)return;
@@ -440,10 +526,18 @@ void ChatBrowser::paintEvent(QPaintEvent* event){
     clearPainter.end();
     QTextBrowser::paintEvent(event);
 }
+void PopoutChat::showEvent(QShowEvent* event){
+    QWidget::showEvent(event);
+    // Cache the native id only once Qt is actually showing the window. Do not
+    // call QWidget::winId() from the global native event filter: winId() can
+    // force platform-window creation and is unsafe/re-entrant during construction.
+    nativeWindowId_=static_cast<quintptr>(winId());
+}
 void PopoutChat::resizeEvent(QResizeEvent* event){
     QWidget::resizeEvent(event);
     applyOpacity();
     if(chat_)chat_->viewport()->update();
+    if(seasonalDecor_){seasonalDecor_->setGeometry(rect());if(!seasonalTheme_.isEmpty())seasonalDecor_->raise();}
     // Force an immediate, full-window synchronous repaint rather than a
     // queued update(). During a live resize of a layered window, Windows can
     // otherwise keep showing a stretched copy of the pre-resize frame until
@@ -452,23 +546,11 @@ void PopoutChat::resizeEvent(QResizeEvent* event){
 }
 void PopoutChat::paintEvent(QPaintEvent* event){
     Q_UNUSED(event)
-    QPainter painter(this);painter.setCompositionMode(QPainter::CompositionMode_Source);painter.fillRect(rect(),Qt::transparent);painter.setCompositionMode(QPainter::CompositionMode_SourceOver);painter.setRenderHint(QPainter::Antialiasing);
-    if(seasonalTheme_.isEmpty())return;const QRect r=rect();
-    if(seasonalTheme_==QStringLiteral("birthday")){
-        static const QColor colors[]{QColor("#ff5ca8"),QColor("#53cdf3"),QColor("#ffd166"),QColor("#72efb0")};
-        for(int x=16,i=0;x<r.width()-16;x+=42,++i){QPainterPath path;path.moveTo(x,2);path.cubicTo(x+9,11,x-9,21,x+7,31);painter.setPen(QPen(colors[i%4],2.5,Qt::SolidLine,Qt::RoundCap));painter.drawPath(path);}
-        const auto hat=[&](qreal x){QPainterPath p;p.moveTo(x,42);p.lineTo(x+14,14);p.lineTo(x+28,42);p.closeSubpath();painter.setBrush(QColor("#ff5ca8"));painter.setPen(QPen(QColor("#ffd166"),1.5));painter.drawPath(p);painter.setBrush(QColor("#53cdf3"));painter.drawEllipse(QPointF(x+14,11),3.5,3.5);};hat(6);hat(r.width()-34);
-    }else if(seasonalTheme_==QStringLiteral("christmas")){
-        for(int x=10,i=0;x<r.width()-10;x+=24,++i){painter.setPen(QPen(QColor("#667089"),1));painter.drawLine(x,0,x,7);painter.setBrush(i%3==0?QColor("#ff5268"):i%3==1?QColor("#5ee8d3"):QColor("#ffd166"));painter.setPen(Qt::NoPen);painter.drawEllipse(QPointF(x,10),3.5,4.5);}
-    }else if(seasonalTheme_==QStringLiteral("halloween")){
-        painter.setPen(QPen(QColor("#ff8b2c"),2));painter.setBrush(QColor("#ff8b2c"));painter.drawEllipse(QRectF(7,7,23,18));painter.drawEllipse(QRectF(r.width()-30,7,23,18));
-    }else if(seasonalTheme_==QStringLiteral("july4")||seasonalTheme_==QStringLiteral("veterans")){
-        auto flag=[&](qreal x){QRectF f(x,6,45,26);painter.setPen(Qt::NoPen);for(int i=0;i<7;++i){painter.setBrush(i%2?Qt::white:QColor("#d82c3b"));painter.drawRect(QRectF(f.x(),f.y()+i*f.height()/7.0,f.width(),f.height()/7.0));}painter.setBrush(QColor("#21468b"));painter.drawRect(QRectF(f.x(),f.y(),f.width()*.42,f.height()*.55));};flag(5);flag(r.width()-50);
-    }else if(seasonalTheme_==QStringLiteral("easter")){
-        painter.setBrush(QColor("#fce1f0"));painter.setPen(QPen(QColor("#f7a8d2"),2));painter.drawEllipse(QRectF(8,7,20,28));painter.drawEllipse(QRectF(r.width()-28,7,20,28));
-    }else if(seasonalTheme_==QStringLiteral("newyear")){
-        painter.setPen(QPen(QColor("#ffd166"),2));for(int x:{15,r.width()-15})for(int a=0;a<8;++a){const qreal ang=a*6.283185307/8.0;painter.drawLine(QPointF(x,18),QPointF(x+std::cos(ang)*12,18+std::sin(ang)*12));}
-    }
+    // Keep the top-level layered window paint path minimal and deterministic.
+    // Seasonal artwork is painted by seasonalDecor_ as a transparent child.
+    QPainter painter(this);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.fillRect(rect(),Qt::transparent);
 }
 void PopoutChat::applyOpacity(){
     const int alpha=clearBackground_?0:qRound(opacityPercent_*255.0/100.0);
@@ -545,7 +627,7 @@ bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintp
 #ifdef Q_OS_WIN
     if(eventType=="windows_generic_MSG"||eventType=="windows_dispatcher_MSG"){
         auto*msg=static_cast<MSG*>(message);
-        if(msg->hwnd==reinterpret_cast<HWND>(winId())&&msg->message==WM_NCHITTEST&&!ghostMode_){
+        if(nativeWindowId_!=0&&msg->hwnd==reinterpret_cast<HWND>(nativeWindowId_)&&msg->message==WM_NCHITTEST&&!ghostMode_){
             constexpr int border=9;const POINTS pt=MAKEPOINTS(msg->lParam);const QPoint local=mapFromGlobal(QPoint(pt.x,pt.y));const bool left=local.x()>=0&&local.x()<border,right=local.x()<=width()&&local.x()>width()-border,top=local.y()>=0&&local.y()<border,bottom=local.y()<=height()&&local.y()>height()-border;
             if(top&&left)*result=HTTOPLEFT;else if(top&&right)*result=HTTOPRIGHT;else if(bottom&&left)*result=HTBOTTOMLEFT;else if(bottom&&right)*result=HTBOTTOMRIGHT;else if(left)*result=HTLEFT;else if(right)*result=HTRIGHT;else if(top)*result=HTTOP;else if(bottom)*result=HTBOTTOM;else return false;return true;
         }

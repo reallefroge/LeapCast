@@ -177,6 +177,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     void applyOpacity();
@@ -192,6 +193,7 @@ private:
     QLabel* clipStatus_{};
     QLabel* toolbarTitle_{};
     QLabel* seasonalRibbon_{};
+    QWidget* seasonalDecor_{};
     // The window has no native title bar (see the constructor comment on
     // Qt::FramelessWindowHint), so this row doubles as a drag handle via
     // eventFilter() + QWindow::startSystemMove().
@@ -219,4 +221,5 @@ private:
     bool clearBackground_{};
     bool showPlatformIcons_{true};
     QString seasonalTheme_;
+    quintptr nativeWindowId_{};
 };

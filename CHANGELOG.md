@@ -2,6 +2,8 @@
 
 ## Leapcast Studio 3.0.6
 
+- **Pop-out crash hotfix:** moved birthday/holiday edge decorations off the frameless transparent top-level window and into a separate click-through child layer, applies the seasonal theme only after the pop-out is shown, and stops the native Windows event filter from forcing `winId()` creation while the pop-out is still being constructed. This hardens the first-open path while keeping the decorative strands and party accents.
+- Added **Birthday confetti playback** with **Every launch** (default) and **First launch only** modes. Every launch replays the transparent birthday party animation once whenever Leapcast is reopened during an active birthday window; First launch only keeps the previous once-per-date behavior. The same setting is available from Phone Connect/mobile.
 - **Build stability hotfix:** split the expanded Phone Connect page into compiler-safe string chunks so MSVC no longer fails with `C2026: string too big, trailing characters truncated` in `Overlay.cpp`.
 
 - Corrected a Windows/MSVC build failure in the new birthday/seasonal celebration overlay where the constructor referenced the wrong theme variable. Also simplified a few date/decorative loops for safer MSVC compilation.
