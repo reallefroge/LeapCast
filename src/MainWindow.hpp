@@ -120,5 +120,6 @@ private:
     QWidget* seasonalDecoration_{};
     QTimer* seasonalTimer_{};
     QString seasonalTheme_;
+    bool birthdayCelebrationPlayedThisLaunch_{};
     bool silentUpdateCheck_{};
 };
