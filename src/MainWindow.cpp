@@ -6,6 +6,7 @@
 #include "qrcodegen.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QAction>
 #include <QApplication>
@@ -17,6 +18,8 @@
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTime>
+#include <QElapsedTimer>
+#include <QDate>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -25,6 +28,7 @@
 #include <QFontComboBox>
 #include <QComboBox>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QImage>
@@ -33,11 +37,19 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPolygon>
+#include <QRadialGradient>
+#include <QRandomGenerator>
+#include <QRegularExpression>
+#include <QScreen>
+#include <QShowEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -55,6 +67,7 @@
 #include <QTextDocument>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVector>
 
 namespace {
 QPixmap phoneQrCode(const QUrl& url,int pixels=236){
@@ -149,6 +162,92 @@ QString eventAction(const StreamEvent& event) {
     return QStringLiteral("subscribed");
 }
 QString platformIconHtml(const QString&platform){static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};return paths.contains(platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(paths.value(platform)):QString();}
+
+QDate easterSunday(int year){
+    const int a=year%19,b=year/100,c=year%100,d=b/4,e=b%4,f=(b+8)/25,g=(b-f+1)/3;
+    const int h=(19*a+b-d-g+15)%30,i=c/4,k=c%4,l=(32+2*e+2*i-h-k)%7,m=(a+11*h+22*l)/451;
+    const int month=(h+l-7*m+114)/31,day=((h+l-7*m+114)%31)+1;return QDate(year,month,day);
+}
+
+bool birthdayWindow(SettingsStore* settings,const QDate& date){
+    if(!settings||!settings->preference(QStringLiteral("birthday_effects_enabled"),true).toBool())return false;
+    if(date>=QDate(2026,8,23)&&date<=QDate(2026,8,24))return true;
+    const int month=settings->preference(QStringLiteral("birthday_month"),0).toInt();
+    const int day=settings->preference(QStringLiteral("birthday_day"),0).toInt();
+    if(month<1||month>12||day<1)return false;
+    // Check this year's birthday and the next year's birthday so a Jan 1
+    // birthday also activates correctly on Dec 31 of the previous year.
+    for(const int year:{date.year(),date.year()+1}){
+        const QDate birthday(year,month,day);
+        if(birthday.isValid()&&(date==birthday||date==birthday.addDays(-1)))return true;
+    }
+    return false;
+}
+
+QString seasonalThemeFor(SettingsStore* settings,const QDateTime& now){
+    if(!settings||!settings->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool())return {};
+    const QDate date=now.date();
+    if(birthdayWindow(settings,date))return QStringLiteral("birthday");
+    if(date.month()==10&&date.day()>=15&&date.day()<=31)return QStringLiteral("halloween");
+    if(date.month()==12&&date.day()>=10&&date.day()<=28)return QStringLiteral("christmas");
+    const QDate easter=easterSunday(date.year());if(date>=easter.addDays(-2)&&date<=easter.addDays(1))return QStringLiteral("easter");
+    if(date.month()==7&&date.day()==4)return QStringLiteral("july4");
+    if(date.month()==11&&date.day()==11)return QStringLiteral("veterans");
+    if((date.month()==12&&date.day()==31)||(date.month()==1&&date.day()==1))return QStringLiteral("newyear");
+    return {};
+}
+
+QString seasonalThemeLabel(const QString& theme){
+    if(theme==QStringLiteral("birthday"))return QStringLiteral("Birthday celebration");
+    if(theme==QStringLiteral("halloween"))return QStringLiteral("Halloween");
+    if(theme==QStringLiteral("christmas"))return QStringLiteral("Christmas");
+    if(theme==QStringLiteral("easter"))return QStringLiteral("Easter");
+    if(theme==QStringLiteral("july4"))return QStringLiteral("Independence Day");
+    if(theme==QStringLiteral("veterans"))return QStringLiteral("Veterans Day");
+    if(theme==QStringLiteral("newyear"))return QStringLiteral("New Year");
+    return {};
+}
+
+class SeasonalDecorationWidget final : public QWidget {
+public:
+    explicit SeasonalDecorationWidget(QWidget* parent):QWidget(parent){setAttribute(Qt::WA_TransparentForMouseEvents);setAttribute(Qt::WA_TranslucentBackground);setAttribute(Qt::WA_NoSystemBackground);hide();}
+    void setTheme(const QString& theme){theme_=theme;setVisible(!theme_.isEmpty());raise();update();}
+protected:
+    void paintEvent(QPaintEvent*) override {
+        if(theme_.isEmpty())return;QPainter p(this);p.setRenderHint(QPainter::Antialiasing);const QRect r=rect();
+        const auto hat=[&](QPointF at,double scale){QPainterPath path;path.moveTo(at.x(),at.y()+34*scale);path.lineTo(at.x()+18*scale,at.y());path.lineTo(at.x()+36*scale,at.y()+34*scale);path.closeSubpath();p.setBrush(QColor("#ff5ca8"));p.setPen(QPen(QColor("#ffd166"),2));p.drawPath(path);p.setBrush(QColor("#53cdf3"));p.drawEllipse(QRectF(at.x()+14*scale,at.y()-5*scale,8*scale,8*scale));p.setPen(QPen(QColor("#ffffff"),2));for(int i=1;i<4;++i)p.drawLine(QPointF(at.x()+i*8*scale,at.y()+29*scale),QPointF(at.x()+i*8*scale-8*scale,at.y()+14*scale));};
+        const auto streamer=[&](int y){static const QColor colors[]{QColor("#ff5ca8"),QColor("#53cdf3"),QColor("#ffd166"),QColor("#72efb0")};for(int x=20,i=0;x<r.width()-20;x+=54,++i){QPainterPath path;path.moveTo(x,y);path.cubicTo(x+12,y+12,x-12,y+24,x+8,y+38);p.setPen(QPen(colors[i%4],3,Qt::SolidLine,Qt::RoundCap));p.drawPath(path);}};
+        const auto flag=[&](QRectF f){p.setPen(Qt::NoPen);for(int i=0;i<7;++i){p.setBrush(i%2?Qt::white:QColor("#d82c3b"));p.drawRect(QRectF(f.x(),f.y()+i*f.height()/7.0,f.width(),f.height()/7.0));}p.setBrush(QColor("#21468b"));p.drawRect(QRectF(f.x(),f.y(),f.width()*0.43,f.height()*0.55));p.setPen(QColor("#ffffff"));p.setFont(QFont(QStringLiteral("Segoe UI"),5,QFont::Bold));p.drawText(QRectF(f.x()+2,f.y()+1,f.width()*0.4,f.height()*0.5),Qt::AlignCenter,QStringLiteral("★ ★ ★\n ★ ★"));};
+        if(theme_==QStringLiteral("birthday")){streamer(7);hat(QPointF(12,28),.85);hat(QPointF(r.width()-58,28),.85);p.setPen(QPen(QColor("#ff91a4"),2));for(int i=0;i<4;++i){const int x=(i%2)?r.width()-24:24,y=110+i*95;p.setBrush(i%2?QColor("#53cdf3"):QColor("#ff5ca8"));p.drawEllipse(QPointF(x,y),9,12);p.drawLine(x,y+12,x+(i%2?-6:6),y+32);}}
+        else if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("veterans")){flag(QRectF(10,10,62,36));flag(QRectF(r.width()-72,10,62,36));p.setPen(QColor("#ffffff"));p.setFont(QFont(QStringLiteral("Segoe UI"),9,QFont::Bold));if(theme_==QStringLiteral("veterans"))p.drawText(QRect(0,8,r.width(),32),Qt::AlignCenter,QStringLiteral("★  HONORING VETERANS  ★"));}
+        else if(theme_==QStringLiteral("halloween")){p.setPen(QPen(QColor("#ff8b2c"),3));for(int x:{18,r.width()-48}){p.setBrush(QColor("#ff8b2c"));p.drawEllipse(QRectF(x,14,30,24));p.setBrush(QColor("#111111"));p.drawPolygon(QPolygonF{QPointF(x+7,24),QPointF(x+12,19),QPointF(x+15,25)});p.drawPolygon(QPolygonF{QPointF(x+19,25),QPointF(x+24,19),QPointF(x+27,24)});}p.setPen(QPen(QColor("#cfd6e8"),1));for(int i=0;i<5;++i)p.drawLine(r.width()/2,0,r.width()/2-60+i*30,45);}
+        else if(theme_==QStringLiteral("christmas")){for(int x=12,i=0;x<r.width()-12;x+=28,++i){p.setPen(QPen(QColor("#4a536d"),1));p.drawLine(x,0,x,9);p.setBrush(i%3==0?QColor("#ff5268"):i%3==1?QColor("#5ee8d3"):QColor("#ffd166"));p.setPen(Qt::NoPen);p.drawEllipse(QPointF(x,12),4,5);}QPainterPath tree;tree.moveTo(24,18);tree.lineTo(8,55);tree.lineTo(40,55);tree.closeSubpath();p.setBrush(QColor("#2ca66f"));p.drawPath(tree);p.setBrush(QColor("#f6c85f"));p.drawEllipse(QPointF(24,15),4,4);}
+        else if(theme_==QStringLiteral("easter")){for(int x:{15,r.width()-42}){p.setPen(QPen(QColor("#f7a8d2"),2));p.setBrush(QColor("#fce1f0"));p.drawEllipse(QRectF(x,12,28,38));p.setPen(QPen(QColor("#7fd8d0"),2));p.drawArc(QRectF(x+4,23,20,12),0,180*16);}}
+        else if(theme_==QStringLiteral("newyear")){p.setPen(QColor("#ffd166"));p.setFont(QFont(QStringLiteral("Segoe UI"),11,QFont::Bold));p.drawText(QRect(0,7,r.width(),28),Qt::AlignCenter,QStringLiteral("✦  HAPPY NEW YEAR  ✦"));for(int i=0;i<8;++i){const QPointF c(i%2?r.width()-25:25,55+i*70);p.drawLine(c+QPointF(-8,0),c+QPointF(8,0));p.drawLine(c+QPointF(0,-8),c+QPointF(0,8));}}
+    }
+private:QString theme_;
+};
+
+class CelebrationOverlay final : public QWidget {
+public:
+    CelebrationOverlay(const QString& theme,bool ballDrop):theme_(theme),ballDrop_(ballDrop){
+        setWindowFlags(Qt::Tool|Qt::FramelessWindowHint|Qt::WindowStaysOnTopHint|Qt::WindowTransparentForInput);
+        setAttribute(Qt::WA_TranslucentBackground);setAttribute(Qt::WA_NoSystemBackground);setAttribute(Qt::WA_DeleteOnClose);setFocusPolicy(Qt::NoFocus);
+        QRect virtualRect;for(auto*screen:QGuiApplication::screens())virtualRect=virtualRect.united(screen->geometry());setGeometry(virtualRect);
+        const int count=theme==QStringLiteral("birthday")?150:theme==QStringLiteral("christmas")?110:90;particles_.reserve(count);
+        for(int i=0;i<count;++i){Particle q;q.x=QRandomGenerator::global()->bounded(qMax(1,width()));q.y=QRandomGenerator::global()->bounded(qMax(1,height()/2))-height()/2.0;q.vx=(QRandomGenerator::global()->bounded(200)-100)/100.0;q.vy=1.4+QRandomGenerator::global()->bounded(240)/100.0;q.spin=(QRandomGenerator::global()->bounded(200)-100)/100.0;q.size=4+QRandomGenerator::global()->bounded(8);q.color=QColor::fromHsv(QRandomGenerator::global()->bounded(360),180+QRandomGenerator::global()->bounded(70),245);particles_<<q;}
+        connect(&timer_,&QTimer::timeout,this,[this]{update();if(elapsed_.elapsed()>8500){timer_.stop();close();}});timer_.start(16);elapsed_.start();show();raise();
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {QPainter p(this);p.setRenderHint(QPainter::Antialiasing);const qreal t=elapsed_.elapsed()/1000.0;
+        if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("newyear")){for(int b=0;b<5;++b){const QPointF c(width()*(.14+.18*b),height()*(.16+.08*(b%2)));const qreal radius=20+std::fmod(t*85+b*23,120.0);QColor c1=b%2?QColor("#ffffff"):QColor("#ff445b");c1.setAlphaF(qMax(0.0,1.0-radius/145.0));p.setPen(QPen(c1,3));for(int a=0;a<16;++a){const qreal ang=a*6.283185307/16.0;p.drawLine(c+QPointF(std::cos(ang)*radius*.55,std::sin(ang)*radius*.55),c+QPointF(std::cos(ang)*radius,std::sin(ang)*radius));}}}
+        for(int i=0;i<particles_.size();++i){auto&q=particles_[i];q.x+=q.vx;q.y+=q.vy;q.vy+=theme_==QStringLiteral("christmas")?.002:.006;if(q.y>height()+20){q.y=-20;q.x=QRandomGenerator::global()->bounded(qMax(1,width()));}p.save();p.translate(q.x,q.y);p.rotate(t*100*q.spin+i*11);p.setPen(Qt::NoPen);p.setBrush(theme_==QStringLiteral("christmas")?QColor(245,250,255,210):q.color);if(theme_==QStringLiteral("christmas"))p.drawEllipse(QPointF(0,0),q.size*.45,q.size*.45);else p.drawRect(QRectF(-q.size/2,-2,q.size,4));p.restore();}
+        if(theme_==QStringLiteral("birthday")){p.setFont(QFont(QStringLiteral("Segoe UI"),24,QFont::Bold));p.setPen(QColor(255,255,255,220));p.drawText(QRect(0,40,width(),50),Qt::AlignCenter,QStringLiteral("HAPPY BIRTHDAY!"));}
+        if(ballDrop_){const qreal progress=qBound<qreal>(0.0,t/5.0,1.0);const qreal y=-45+progress*(height()*.42+45);p.setPen(QPen(QColor("#f7e59b"),3));p.drawLine(width()/2,0,width()/2,y-28);QRadialGradient grad(QPointF(width()/2,y),34);grad.setColorAt(0,QColor("#fffbd1"));grad.setColorAt(1,QColor("#c4a33f"));p.setBrush(grad);p.drawEllipse(QPointF(width()/2,y),32,32);}
+    }
+private:
+    struct Particle{qreal x{},y{},vx{},vy{},spin{},size{};QColor color;};QString theme_;bool ballDrop_{};QVector<Particle> particles_;QTimer timer_;QElapsedTimer elapsed_;
+};
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -171,9 +270,26 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(overlay_,&OverlayServer::mobileRefreshModerationRequested,this,[this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
     connect(overlay_,&OverlayServer::mobileUnbanRequested,this,[this](const QString&platform,const QString&id){if(platform==QStringLiteral("twitch"))controller_->unbanTwitch(id);else if(platform==QStringLiteral("youtube"))controller_->unbanYouTube(id);});
     connect(overlay_,&OverlayServer::mobileAppealRequested,this,[this](const QString&id,bool approved){controller_->resolveTwitchAppeal(id,approved,approved?QStringLiteral("Approved from Phone Connect"):QStringLiteral("Rejected from Phone Connect"));});
-    connect(overlay_,&OverlayServer::mobileSettingRequested,this,[this](const QString&name,const QVariant&value){if(name==QStringLiteral("overlay_fade_seconds"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),3600));else if(name==QStringLiteral("overlay_background_opacity"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),100));else if(name==QStringLiteral("chat_outline_thickness"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),8));else if(name==QStringLiteral("automod_enabled")){auto moderation=controller_->settings()->moderation();moderation[QStringLiteral("enabled")]=value.toBool();controller_->settings()->setModeration(moderation);}overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt());overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",overlay_->fadeSeconds()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});});
-    overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",overlay_->fadeSeconds()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});
-    connect(controller_->settings(),&SettingsStore::changed,this,[this]{overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});});
+    connect(overlay_,&OverlayServer::mobileSettingRequested,this,[this](const QString&name,const QVariant&value){
+        if(name==QStringLiteral("overlay_fade_seconds"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),3600));
+        else if(name==QStringLiteral("overlay_background_opacity"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),100));
+        else if(name==QStringLiteral("chat_outline_thickness"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),8));
+        else if(name==QStringLiteral("automod_enabled")){auto moderation=controller_->settings()->moderation();moderation[QStringLiteral("enabled")]=value.toBool();controller_->settings()->setModeration(moderation);}
+        else if(name==QStringLiteral("chat_colour_mode")){const QString mode=value.toString();if(QStringList{QStringLiteral("random"),QStringLiteral("single"),QStringLiteral("gradient"),QStringLiteral("pattern")}.contains(mode))controller_->settings()->setPreference(name,mode);}
+        else if(name==QStringLiteral("chat_name_pattern")){const QString pattern=value.toString();if(QStringList{QStringLiteral("repeat"),QStringLiteral("mirror"),QStringLiteral("blocks")}.contains(pattern))controller_->settings()->setPreference(name,pattern);}
+        else if(name==QStringLiteral("chat_name_colour")){const QColor color(value.toString());if(color.isValid())controller_->settings()->setPreference(name,color.name());}
+        else if(name==QStringLiteral("chat_name_palette")){QStringList palette=value.toStringList();palette.erase(std::remove_if(palette.begin(),palette.end(),[](const QString&v){return !QColor(v).isValid();}),palette.end());if(palette.size()>=2){while(palette.size()>8)palette.removeLast();controller_->settings()->setPreference(name,palette);controller_->regenerateNameColours();}}
+        else if(name==QStringLiteral("chat_palette_randomize")){controller_->settings()->setPreference(name,value.toBool());controller_->regenerateNameColours();}
+        else if(name==QStringLiteral("regenerate_name_colors")){controller_->regenerateNameColours();}
+        else if(name==QStringLiteral("seasonal_effects_enabled")||name==QStringLiteral("birthday_effects_enabled"))controller_->settings()->setPreference(name,value.toBool());
+        else if(name==QStringLiteral("birthday_month"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),12));
+        else if(name==QStringLiteral("birthday_day"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),31));
+        overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt());
+        overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
+        updateSeasonalEffects(false);syncMobileSettings();
+    });
+    syncMobileSettings();
+    connect(controller_->settings(),&SettingsStore::changed,this,[this]{syncMobileSettings();});
     updater_ = new UpdateService(this);
     connect(overlay_,&OverlayServer::mobileInstallUpdateRequested,this,[this]{if(mobileUpdateAsset_.isValid())updater_->downloadAndInstall(mobileUpdateAsset_,mobileUpdateName_,mobileUpdateDigest_);});
 
@@ -417,11 +533,54 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     QTimer::singleShot(2400, updater_, [this]{silentUpdateCheck_=true;updater_->check(false);});
 }
 
+void MainWindow::syncMobileSettings(){
+    if(!overlay_||!controller_)return;
+    QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();
+    QJsonArray paletteJson;for(const auto&value:palette)if(QColor(value).isValid())paletteJson.append(QColor(value).name());
+    const QString theme=seasonalThemeFor(controller_->settings(),QDateTime::currentDateTime());
+    overlay_->setMobileSettings(QJsonObject{
+        {"overlay_fade_seconds",overlay_->fadeSeconds()},
+        {"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},
+        {"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},
+        {"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)},
+        {"chat_colour_mode",controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")).toString()},
+        {"chat_name_colour",controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString()},
+        {"chat_name_pattern",controller_->settings()->preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")).toString()},
+        {"chat_name_palette",paletteJson},
+        {"chat_palette_randomize",controller_->settings()->preference(QStringLiteral("chat_palette_randomize"),false).toBool()},
+        {"seasonal_effects_enabled",controller_->settings()->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool()},
+        {"birthday_effects_enabled",controller_->settings()->preference(QStringLiteral("birthday_effects_enabled"),true).toBool()},
+        {"birthday_month",controller_->settings()->preference(QStringLiteral("birthday_month"),0).toInt()},
+        {"birthday_day",controller_->settings()->preference(QStringLiteral("birthday_day"),0).toInt()},
+        {"seasonal_theme",theme},
+        {"seasonal_theme_label",seasonalThemeLabel(theme)}
+    });
+}
+
+void MainWindow::updateSeasonalEffects(bool allowCelebration){
+    if(!controller_)return;const QDateTime now=QDateTime::currentDateTime();const QString theme=seasonalThemeFor(controller_->settings(),now);seasonalTheme_=theme;
+    if(!seasonalDecoration_){seasonalDecoration_=new SeasonalDecorationWidget(this);seasonalDecoration_->setGeometry(rect());}
+    static_cast<SeasonalDecorationWidget*>(seasonalDecoration_)->setTheme(theme);seasonalDecoration_->setGeometry(rect());seasonalDecoration_->raise();
+    if(popout_)popout_->setSeasonalTheme(theme);
+    syncMobileSettings();
+    if(!allowCelebration||theme.isEmpty()||theme==QStringLiteral("veterans"))return;
+    const QString dateKey=now.date().toString(Qt::ISODate);const QString seenKey=QStringLiteral("seasonal_effect_seen_")+theme;
+    if(controller_->settings()->preference(seenKey).toString()==dateKey)return;
+    controller_->settings()->setPreference(seenKey,dateKey);
+    const bool ballDrop=theme==QStringLiteral("newyear")&&now.date().month()==1&&now.date().day()==1&&now.time().hour()==0&&now.time().minute()<5;
+    new CelebrationOverlay(theme,ballDrop);
+}
+
 bool MainWindow::event(QEvent* e) {
-    if (e->type() == QEvent::WindowActivate && popout_ && popout_->ghostMode()) {
-        popout_->setGhostMode(false);
-    }
+    if (e->type() == QEvent::WindowActivate && popout_ && popout_->ghostMode()) popout_->setGhostMode(false);
+    if(e->type()==QEvent::Resize&&seasonalDecoration_){seasonalDecoration_->setGeometry(rect());seasonalDecoration_->raise();}
     return QMainWindow::event(e);
+}
+
+void MainWindow::showEvent(QShowEvent* e){
+    QMainWindow::showEvent(e);
+    if(!seasonalTimer_){seasonalTimer_=new QTimer(this);seasonalTimer_->setInterval(30000);connect(seasonalTimer_,&QTimer::timeout,this,[this]{updateSeasonalEffects(true);});seasonalTimer_->start();}
+    QTimer::singleShot(250,this,[this]{updateSeasonalEffects(true);});
 }
 
 void MainWindow::closeEvent(QCloseEvent* e){
@@ -433,14 +592,14 @@ void MainWindow::showFirstLaunchUpdateLog(){
     const QString version=QString::fromLatin1(leapcast::Version);
     // Keep the user-visible version at 3.0.6 while allowing cumulative 3.0.6
     // hotfix notes to appear once even if an earlier 3.0.6 note set was seen.
-    const QString notesRevision=version+QStringLiteral("-cumulative-r2");
+    const QString notesRevision=version+QStringLiteral("-cumulative-r3");
     if(controller_->settings()->preference(QStringLiteral("update_log_seen_revision")).toString()==notesRevision)return;
     controller_->settings()->setPreference(QStringLiteral("update_log_seen_revision"),notesRevision);
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
     auto* title=label(QStringLiteral("WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
     auto* summary=label(QStringLiteral("A quick summary of this cumulative 3.0.6 update. This note appears once for this revision."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Pinned messages:** Twitch and YouTube/Shorts pins can appear in chat with a 📌 indicator and can be enabled or disabled globally in Settings.\n- **TikTok compatibility possibly improved:** LIVE chat/view-count collection uses broader fallbacks, but TikTok changes its page frequently so this is not guaranteed.\n- **Twitch login possibly improved:** Twitch authorization stays in the normal system browser with a best-effort handoff back to the in-app Clips browser.\n- **Pop-out fixes:** the close X is drawn instead of relying on a font glyph, and every edge/corner can resize even at 0% opacity.\n- **AutoMod whitelist:** `smash`, `pass`, and `as` are allowed by default, the whitelist is editable, and normal English vocabulary is protected from substring/fuzzy false positives.\n- **YouTube custom emojis:** supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect.\n- **Build stability:** the earlier 3.0.6 YouTube pinned-message compile error is corrected."));layout->addWidget(notes,1);
+    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Pinned messages:** Twitch and YouTube/Shorts pins can appear in chat with a 📌 indicator and can be enabled or disabled globally in Settings.\n- **TikTok compatibility possibly improved:** LIVE chat/view-count collection uses broader fallbacks, but TikTok changes its page frequently so this is not guaranteed.\n- **Twitch login possibly improved:** Twitch authorization stays in the normal system browser with a best-effort handoff back to the in-app Clips browser.\n- **Pop-out fixes:** the close X is drawn instead of relying on a font glyph, and every edge/corner can resize even at 0% opacity.\n- **AutoMod whitelist:** `smash`, `pass`, and `as` are allowed by default, the whitelist is editable, and normal English vocabulary is protected from substring/fuzzy false positives.\n- **YouTube custom emojis:** supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect.\n- **Custom palette randomizer:** selected 2–8 color palettes can now generate a different stable variation for every chatter, with a one-click reroll. The custom palette editor, reorder/add/remove controls, and reroll controls are also available in Phone Connect.\n- **Birthday effects:** users can save a month/day for birthday effects. Leapcast checks the PC's local system clock and activates the celebration only on the day before and the birthday itself. The special 2026 birthday launch celebration runs only Aug 23–24.\n- **Birthday celebration visuals:** transparent screen-wide confetti, balloons, sparkles, streamers and party accents can animate outside the Leapcast window; party hats decorate the app and hanging confetti/streamers also decorate the transparent pop-out without covering chat.\n- **Seasonal & holiday themes:** Halloween runs Oct 15–31, Christmas Dec 10–28, Easter over Easter weekend, Independence Day on July 4 with fireworks, Veterans Day on Nov 11 with American-flag accents, and New Year's Eve/Day with fireworks. A New Year ball drop can play during the first minutes after the local system clock reaches midnight on Jan 1.\n- **Mobile seasonal controls:** Phone Connect includes the birthday field/toggles and mirrors the active seasonal theme.\n- **Build stability:** the earlier 3.0.6 YouTube pinned-message compile error is corrected."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
@@ -752,6 +911,10 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* nameColourRow=new QHBoxLayout;nameColourRow->addWidget(label(QStringLiteral("Specific name color")));auto* nameColourButton=new QPushButton(nameColour.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(nameColour.name(),nameColour.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));nameColourButton->setEnabled(colourMode->currentData().toString()==QStringLiteral("single"));nameColourRow->addWidget(nameColourButton);popoutLayout->addLayout(nameColourRow);
     QStringList namePalette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(namePalette.size()<4)namePalette<<QStringLiteral("#ffffff");
     auto* paletteRow=new QHBoxLayout;auto* paletteLabel=label(QStringLiteral("Multi-color palette"));paletteRow->addWidget(paletteLabel);QList<QPushButton*> paletteButtons;for(int index=0;index<4;++index){QColor color(namePalette.at(index));if(!color.isValid())color=Qt::white;auto*button=new QPushButton(QString::number(index+1));button->setToolTip(QStringLiteral("Choose palette color %1").arg(index+1));button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(color.name(),color.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));paletteButtons<<button;paletteRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,button,index]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(palette.size()<4)palette<<QStringLiteral("#ffffff");QColor current(palette.at(index));const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Name palette color %1").arg(index+1));if(!chosen.isValid())return;palette[index]=chosen.name();controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),palette);button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});}auto*patternStyle=new QComboBox;patternStyle->addItem(QStringLiteral("Repeat"),QStringLiteral("repeat"));patternStyle->addItem(QStringLiteral("Mirror"),QStringLiteral("mirror"));patternStyle->addItem(QStringLiteral("Color blocks"),QStringLiteral("blocks"));patternStyle->setCurrentIndex(qMax(0,patternStyle->findData(controller_->settings()->preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")))));paletteRow->addWidget(patternStyle);popoutLayout->addLayout(paletteRow);
+    auto* randomizePalette=new QCheckBox(QStringLiteral("Unique randomized palette variation per chatter"));randomizePalette->setChecked(controller_->settings()->preference(QStringLiteral("chat_palette_randomize"),false).toBool());popoutLayout->addWidget(randomizePalette);auto* paletteActionRow=new QHBoxLayout;auto* editPalette=new QPushButton(QStringLiteral("Edit custom palette (2–8 colors)"));auto* rerollPalette=new QPushButton(QStringLiteral("Randomize palette for chatters"));paletteActionRow->addWidget(editPalette,1);paletteActionRow->addWidget(rerollPalette,1);popoutLayout->addLayout(paletteActionRow);
+    connect(editPalette,&QPushButton::clicked,this,[this,paletteButtons]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();bool ok=false;const QString text=QInputDialog::getMultiLineText(this,QStringLiteral("Custom name palette"),QStringLiteral("One hex color per line (2–8 colors). Reorder the lines to reorder the palette."),palette.join(QLatin1Char('\n')),&ok);if(!ok)return;QStringList next;for(QString value:text.split(QRegularExpression(QStringLiteral("[\r\n,]+")),Qt::SkipEmptyParts)){value=value.trimmed();QColor c(value);if(c.isValid())next<<c.name();}if(next.size()<2||next.size()>8){QMessageBox::warning(this,QStringLiteral("Custom palette"),QStringLiteral("Choose between 2 and 8 valid colors."));return;}controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),next);controller_->regenerateNameColours();for(int i=0;i<paletteButtons.size();++i){QColor c(i<next.size()?next.at(i):QStringLiteral("#ffffff"));paletteButtons[i]->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(c.name(),c.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));}});
+    connect(randomizePalette,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("chat_palette_randomize"),enabled);controller_->regenerateNameColours();});
+    connect(rerollPalette,&QPushButton::clicked,this,[this,randomizePalette]{if(!randomizePalette->isChecked())randomizePalette->setChecked(true);controller_->regenerateNameColours();});
     auto* programIcons=new QCheckBox(QStringLiteral("Show platform icons in program chat and pop-out"));programIcons->setChecked(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());popoutLayout->addWidget(programIcons);
     auto* overlayIcons=new QCheckBox(QStringLiteral("Show platform icons in OBS overlay"));overlayIcons->setChecked(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());popoutLayout->addWidget(overlayIcons);
     auto* pinnedMessages=new QCheckBox(QStringLiteral("Show pinned messages for Twitch and YouTube/Shorts (📌)"));pinnedMessages->setChecked(controller_->settings()->preference(QStringLiteral("show_pinned_messages"),true).toBool());popoutLayout->addWidget(pinnedMessages);
@@ -769,6 +932,17 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(pinnedMessages,&QCheckBox::toggled,this,[this](bool enabled){controller_->setPinnedMessagesEnabled(enabled);});
     connect(tiktokActivity,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("tiktok_popout_activity_enabled"),enabled);});
     layout->addWidget(popoutAppearance);
+
+    auto* seasonal=new QFrame;seasonal->setProperty("card",true);auto* seasonalLayout=new QVBoxLayout(seasonal);seasonalLayout->addWidget(label(QStringLiteral("SEASONAL & BIRTHDAY EFFECTS"),"cardTitle"));
+    auto* seasonalEnabled=new QCheckBox(QStringLiteral("Enable seasonal and holiday effects"));seasonalEnabled->setChecked(controller_->settings()->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool());seasonalLayout->addWidget(seasonalEnabled);
+    auto* birthdayEnabled=new QCheckBox(QStringLiteral("Birthday effects — confetti, party hats, balloons, sparkles, and streamers"));birthdayEnabled->setChecked(controller_->settings()->preference(QStringLiteral("birthday_effects_enabled"),true).toBool());seasonalLayout->addWidget(birthdayEnabled);
+    auto* birthdayRow=new QHBoxLayout;birthdayRow->addWidget(label(QStringLiteral("Birthday (month / day)")));auto* birthdayMonth=new QComboBox;birthdayMonth->addItem(QStringLiteral("Not set"),0);for(int month=1;month<=12;++month)birthdayMonth->addItem(QLocale().monthName(month,QLocale::LongFormat),month);birthdayMonth->setCurrentIndex(qMax(0,birthdayMonth->findData(controller_->settings()->preference(QStringLiteral("birthday_month"),0))));birthdayRow->addWidget(birthdayMonth,1);auto* birthdayDay=new QSpinBox;birthdayDay->setRange(0,31);birthdayDay->setSpecialValueText(QStringLiteral("Day"));birthdayDay->setValue(controller_->settings()->preference(QStringLiteral("birthday_day"),0).toInt());birthdayRow->addWidget(birthdayDay);seasonalLayout->addLayout(birthdayRow);
+    auto* birthdayHelp=label(QStringLiteral("Birthday effects are date-only: they play on the day before and on the saved birthday, after Leapcast verifies the PC's local system date. Holiday themes are automatic: Halloween Oct 15–31, Christmas Dec 10–28, Easter weekend, July 4, Veterans Day Nov 11, and New Year's Eve/Day. The New Year ball drop is limited to the first minutes after local midnight on Jan 1."),"muted");birthdayHelp->setWordWrap(true);seasonalLayout->addWidget(birthdayHelp);
+    connect(seasonalEnabled,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("seasonal_effects_enabled"),enabled);updateSeasonalEffects(false);});
+    connect(birthdayEnabled,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("birthday_effects_enabled"),enabled);updateSeasonalEffects(false);});
+    connect(birthdayMonth,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,birthdayMonth](int){controller_->settings()->setPreference(QStringLiteral("birthday_month"),birthdayMonth->currentData().toInt());updateSeasonalEffects(false);});
+    connect(birthdayDay,qOverload<int>(&QSpinBox::valueChanged),this,[this](int day){controller_->settings()->setPreference(QStringLiteral("birthday_day"),day);updateSeasonalEffects(false);});
+    layout->addWidget(seasonal);
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();
@@ -1176,6 +1350,7 @@ QWidget* MainWindow::buildChatDock() {
         popout_->setOpacityPercent(controller_->settings()->preference(QStringLiteral("popout_opacity_percent"), 0).toInt());
         popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt(),controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString(),controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());
         popout_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());
+        popout_->setSeasonalTheme(seasonalThemeFor(controller_->settings(),QDateTime::currentDateTime()));
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
         for(auto it=pinnedMessages_.cbegin();it!=pinnedMessages_.cend();++it)popout_->setPinnedMessage(it.key(),it.value(),true);
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {

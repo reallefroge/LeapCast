@@ -15,6 +15,14 @@
 - Kept bypass detection for separated, repeated-letter, leetspeak, and Unicode-confusable versions of genuinely blocked terms.
 - Added YouTube and YouTube Shorts custom-emoji run parsing so supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect instead of only showing `:emoji_name:` text. The text shortcut remains as a moderation/log fallback.
 - Updated the once-per-install launch notes with the cumulative 3.0.6 changes.
+- Added **custom palette randomization**: a selected 2–8 color palette can produce a stable, unique variation for each chatter during the broadcast, with a one-click reroll/regenerate control.
+- Expanded the desktop custom palette editor to accept 2–8 colors and added matching Phone Connect controls to add, remove, replace, and reorder palette colors, choose the name-color mode/pattern, toggle per-chatter palette randomization, and reroll assignments remotely.
+- Added **Birthday effects** settings on desktop and Phone Connect. Users save a month/day only; Leapcast verifies the Windows PC's local system date at runtime and activates birthday effects only on the day before and the birthday itself.
+- Added a temporary 2026 birthday celebration window that is limited to **August 23–24, 2026**.
+- Added transparent screen-wide birthday animation with confetti, balloons, sparkles, and streamers that can render outside the Leapcast launch/main window without adding an opaque background or blocking clicks.
+- Added persistent birthday accents around the application plus hanging confetti/streamer decorations in the pop-out chat while keeping chat text unobstructed.
+- Added date-driven **Seasonal & Holiday Effects** using the local system clock: Halloween (Oct 15–31), Christmas (Dec 10–28), Easter weekend, Independence Day (July 4), Veterans Day (Nov 11), and New Year's Eve/Day.
+- Added Independence Day/New Year fireworks, Veterans Day American-flag accents, and a New Year ball-drop animation restricted to the first minutes after local midnight on January 1. Phone Connect mirrors the currently active seasonal theme.
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 

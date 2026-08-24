@@ -18,6 +18,8 @@ class QCheckBox;
 class QSlider;
 class QFrame;
 class QCloseEvent;
+class QShowEvent;
+class QTimer;
 class QVBoxLayout;
 class AppController;
 class OverlayServer;
@@ -33,6 +35,7 @@ public:
 protected:
     bool event(QEvent* e) override;
     void closeEvent(QCloseEvent* e) override;
+    void showEvent(QShowEvent* e) override;
 
 private:
     QWidget* buildSidebar();
@@ -66,6 +69,8 @@ private:
     void showPostUpdateConnectionCheck();
     void showFirstLaunchUpdateLog();
     void refreshPinnedBanner();
+    void syncMobileSettings();
+    void updateSeasonalEffects(bool allowCelebration = true);
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
@@ -112,5 +117,8 @@ private:
     QUrl mobileUpdateAsset_;
     QString mobileUpdateName_;
     QString mobileUpdateDigest_;
+    QWidget* seasonalDecoration_{};
+    QTimer* seasonalTimer_{};
+    QString seasonalTheme_;
     bool silentUpdateCheck_{};
 };

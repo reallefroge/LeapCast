@@ -153,6 +153,7 @@ public:
     void setShowPlatformIcons(bool enabled) { showPlatformIcons_ = enabled; }
     void showTikTokActivity(const StreamEvent& event);
     void setPinnedMessage(const QString& platform, const ChatMessage& message, bool active);
+    void setSeasonalTheme(const QString& theme);
     int opacityPercent() const { return opacityPercent_; }
     void clearMessages();
     void setStreamlabsAlertAudio(bool enabled, const QUrl& alertBoxUrl);
@@ -190,6 +191,7 @@ private:
     QLabel* viewers_{};
     QLabel* clipStatus_{};
     QLabel* toolbarTitle_{};
+    QLabel* seasonalRibbon_{};
     // The window has no native title bar (see the constructor comment on
     // Qt::FramelessWindowHint), so this row doubles as a drag handle via
     // eventFilter() + QWindow::startSystemMove().
@@ -216,4 +218,5 @@ private:
     bool hotkeysRegistered_{};
     bool clearBackground_{};
     bool showPlatformIcons_{true};
+    QString seasonalTheme_;
 };

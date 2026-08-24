@@ -43,7 +43,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("tiktok",s,d);});
     connect(&kick_,&KickLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("kick",s,d);});
     connect(&rumble_,&RumbleLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("rumble",s,d);});
-    connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();});
+    connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();regenerateNameColours();});
     connect(&twitch_,&TwitchChatService::viewerCountChanged,this,[this](int n){emit viewerCount("twitch",n);});
     connect(&youtube_,&YouTubeChatService::viewerCountChanged,this,[this](int n){emit viewerCount("youtube",n);});
     connect(&shorts_,&YouTubeChatService::viewerCountChanged,this,[this](int n){emit viewerCount("yt_shorts",n);});
@@ -138,6 +138,14 @@ void AppController::resolveTwitchAppeal(const QString&requestId,bool approved,co
     const QString broadcaster=settings_.secret("twitch_broadcaster_id");
     if(!broadcaster.isEmpty()&&!requestId.isEmpty())twitchMod_.resolveUnbanRequest(broadcaster,requestId,approved,resolutionText);
 }
+void AppController::regenerateNameColours(){
+    broadcastUserColours_.clear();
+    broadcastPaletteVariations_.clear();
+    nextBroadcastColour_=0;
+    nextPaletteVariation_=0;
+    broadcastColourOffset_=QRandomGenerator::global()->bounded(360);
+    broadcastPaletteOffset_=QRandomGenerator::global()->bounded(360);
+}
 void AppController::createTwitchClip(){
     const QString broadcaster=settings_.secret("twitch_broadcaster_id");
     if(settings_.secret("twitch_access_token").isEmpty()||broadcaster.isEmpty()){
@@ -171,6 +179,25 @@ void AppController::receive(const ChatMessage&m){
         QStringList palette=settings_.preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();
         palette.erase(std::remove_if(palette.begin(),palette.end(),[](const QString&value){return !QColor(value).isValid();}),palette.end());
         if(palette.size()<2)palette={QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1")};
+        const bool randomized=settings_.preference(QStringLiteral("chat_palette_randomize"),false).toBool();
+        if(randomized){
+            if(broadcastPaletteOffset_<0)broadcastPaletteOffset_=QRandomGenerator::global()->bounded(360);
+            if(!broadcastPaletteVariations_.contains(identity))broadcastPaletteVariations_.insert(identity,nextPaletteVariation_++);
+            const int variant=broadcastPaletteVariations_.value(identity);
+            const int rotation=variant%palette.size();
+            const int hueShift=((broadcastPaletteOffset_+variant*47)%73)-36;
+            QStringList varied;varied.reserve(palette.size());
+            for(int i=0;i<palette.size();++i){
+                QColor base(palette.at((i+rotation)%palette.size()));
+                int h=base.hsvHue();int sat=base.hsvSaturation();int val=base.value();
+                if(h<0)h=(broadcastPaletteOffset_+variant*29+i*17)%360;else h=(h+hueShift+i*3+360)%360;
+                sat=qBound(120,sat+((variant*19+i*11)%31)-15,255);
+                val=qBound(185,val+((variant*13+i*7)%25)-12,255);
+                varied<<QColor::fromHsv(h,sat,val).name();
+            }
+            palette=varied;
+            coloured.metadata[QStringLiteral("name_color_variant")]=variant;
+        }
         coloured.color=QColor(palette.first());coloured.metadata[QStringLiteral("name_color_mode")]=colourMode;coloured.metadata[QStringLiteral("name_color_palette")]=QJsonArray::fromStringList(palette);if(colourMode==QStringLiteral("pattern"))coloured.metadata[QStringLiteral("name_color_pattern")]=settings_.preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")).toString();
     }
     const bool omitBlockedFromLog=coloured.platform==QStringLiteral("kick")||coloured.platform==QStringLiteral("rumble");
