@@ -2,6 +2,8 @@
 
 ## Leapcast Studio 3.0.6
 
+- **Build stability hotfix:** split the expanded Phone Connect page into compiler-safe string chunks so MSVC no longer fails with `C2026: string too big, trailing characters truncated` in `Overlay.cpp`.
+
 - Corrected a Windows/MSVC build failure in the new birthday/seasonal celebration overlay where the constructor referenced the wrong theme variable. Also simplified a few date/decorative loops for safer MSVC compilation.
 
 - Added optional pinned-message display for Twitch and YouTube/YouTube Shorts. Supported pins appear in chat with a 📌 banner; one Settings switch controls pinned-message display across all applicable services.
