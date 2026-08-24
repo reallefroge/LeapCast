@@ -9,7 +9,7 @@
 
   Follow Twitch, YouTube, YouTube Shorts, TikTok LIVE, Kick, and Rumble communities, moderate faster, show chat in OBS, and surface Streamlabs and Rumble alerts without juggling a wall of browser windows.
 
- ➤➤➤ [Download for Windows](https://github.com/reallefroge/LeapCast/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/LeapCast/issues)
+ ## ➤➤➤ [Download for Windows](https://github.com/reallefroge/LeapCast/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/LeapCast/issues)
 </div>
 
 > [!IMPORTANT]
