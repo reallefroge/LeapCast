@@ -66,6 +66,19 @@ void YouTubeChatService::resolveViaStreamsScrape(const QString&base){
 }
 void YouTubeChatService::bootstrap(const QString&vid){auto*r=network_.get(webReq(QUrl("https://www.youtube.com/live_chat?is_popout=1&v="+vid)));connect(r,&QNetworkReply::finished,this,[this,r,vid]{auto b=r->readAll();r->deleteLater();apiKey_=capture(b,"\\\"INNERTUBE_API_KEY\\\":\\\"([^\\\"]+)");clientVersion_=capture(b,"\\\"clientVersion\\\":\\\"([\\d.]+)");continuation_=capture(b,"\\\"continuation\\\":\\\"([^\\\"]+)");liveChatId_=capture(b,"\\\"liveChatId\\\":\\\"([^\\\"]+)");if(apiKey_.isEmpty()||continuation_.isEmpty()){emit statusChanged("warn","chat unavailable");retry_.start(20000);return;}if(clientVersion_.isEmpty())clientVersion_="2.20240101.00.00";emit statusChanged("ok",QStringLiteral("LIVE — %1").arg(vid));viewerTimer_.start();poll();pollViewers();});}
 QString YouTubeChatService::runsText(const QJsonObject&m){QString out;for(const auto&v:m["runs"].toArray()){auto r=v.toObject();if(r.contains("text"))out+=r["text"].toString();else{auto e=r["emoji"].toObject();auto s=e["shortcuts"].toArray();out+=s.isEmpty()?e["emojiId"].toString():s[0].toString();}}return out;}
+QJsonArray YouTubeChatService::runsMetadata(const QJsonObject&m){
+    QJsonArray out;
+    for(const auto&v:m.value(QStringLiteral("runs")).toArray()){
+        const auto r=v.toObject();
+        if(r.contains(QStringLiteral("text"))){out.append(QJsonObject{{QStringLiteral("text"),r.value(QStringLiteral("text")).toString()}});continue;}
+        const auto e=r.value(QStringLiteral("emoji")).toObject();const auto shortcuts=e.value(QStringLiteral("shortcuts")).toArray();
+        const QString alt=shortcuts.isEmpty()?e.value(QStringLiteral("emojiId")).toString():shortcuts.first().toString();
+        QString url;const auto thumbs=e.value(QStringLiteral("image")).toObject().value(QStringLiteral("thumbnails")).toArray();
+        if(!thumbs.isEmpty())url=thumbs.last().toObject().value(QStringLiteral("url")).toString();if(url.startsWith(QStringLiteral("//")))url.prepend(QStringLiteral("https:"));
+        QJsonObject item{{QStringLiteral("alt"),alt}};if(!url.isEmpty())item[QStringLiteral("url")]=url;out.append(item);
+    }
+    return out;
+}
 void YouTubeChatService::poll(){
     if(continuation_.isEmpty())return;
     QUrl u(QStringLiteral("https://www.youtube.com/youtubei/v1/live_chat/get_live_chat"));QUrlQuery q;q.addQueryItem(QStringLiteral("key"),apiKey_);q.addQueryItem(QStringLiteral("prettyPrint"),QStringLiteral("false"));u.setQuery(q);
@@ -77,12 +90,12 @@ void YouTubeChatService::poll(){
         const auto lcc=QJsonDocument::fromJson(r->readAll()).object().value(QStringLiteral("continuationContents")).toObject().value(QStringLiteral("liveChatContinuation")).toObject();r->deleteLater();
         const auto messageFromRenderer=[this](const QJsonObject&rend,bool paid=false){
             ChatMessage m;m.platform=platform_;m.user=rend.value(QStringLiteral("authorName")).toObject().value(QStringLiteral("simpleText")).toString(QStringLiteral("viewer"));
-            m.text=runsText(rend.value(QStringLiteral("message")).toObject());m.messageId=rend.value(QStringLiteral("id")).toString();m.userId=rend.value(QStringLiteral("authorExternalChannelId")).toString();
-            m.metadata={{QStringLiteral("video_id"),videoId_},{QStringLiteral("live_chat_id"),liveChatId_},{QStringLiteral("vertical"),verticalOnly_}};
+            const QJsonObject messageObject=rend.value(QStringLiteral("message")).toObject();m.text=runsText(messageObject);m.messageId=rend.value(QStringLiteral("id")).toString();m.userId=rend.value(QStringLiteral("authorExternalChannelId")).toString();
+            m.metadata={{QStringLiteral("video_id"),videoId_},{QStringLiteral("live_chat_id"),liveChatId_},{QStringLiteral("vertical"),verticalOnly_},{QStringLiteral("youtube_runs"),runsMetadata(messageObject)}};
             for(const auto&bv:rend.value(QStringLiteral("authorBadges")).toArray()){const QString tip=bv.toObject().value(QStringLiteral("liveChatAuthorBadgeRenderer")).toObject().value(QStringLiteral("tooltip")).toString().toLower();if(tip.contains(QStringLiteral("owner")))m.badges<<QStringLiteral("HOST");else if(tip.contains(QStringLiteral("moderator")))m.badges<<QStringLiteral("MOD");else if(tip.contains(QStringLiteral("member")))m.badges<<QStringLiteral("SUB");else if(tip.contains(QStringLiteral("verified")))m.badges<<QStringLiteral("CHECK");}
             if(paid)m.badges<<QStringLiteral("MONEY");return m;
         };
-        const findRenderer=[](const QJsonValue&rootValue){
+        const auto findRenderer=[](const QJsonValue&rootValue){
             QJsonObject found;QList<QJsonValue> pending{rootValue};
             while(!pending.isEmpty()&&found.isEmpty()){
                 const QJsonValue value=pending.takeLast();if(value.isArray()){for(const auto&v:value.toArray())pending<<v;continue;}if(!value.isObject())continue;

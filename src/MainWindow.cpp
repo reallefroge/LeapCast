@@ -189,7 +189,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const QString badges = badgeGlyphs(m.badges);
         const QString icon=controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool()?platformIconHtml(m.platform):QString();
         const QString html = QStringLiteral("%1%2%3 %4")
-            .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "),chatNameHtml(m),m.text.toHtmlEscaped());
+            .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "),chatNameHtml(m),chatMessageBodyHtml(m));
         // Stamped with an id (see appendChatMessage) so a right-click on
         // either view can be traced back to this message for moderation.
         const qint64 id = ++nextChatSeq_;
@@ -431,13 +431,16 @@ void MainWindow::closeEvent(QCloseEvent* e){
 
 void MainWindow::showFirstLaunchUpdateLog(){
     const QString version=QString::fromLatin1(leapcast::Version);
-    if(controller_->settings()->preference(QStringLiteral("update_log_seen_version")).toString()==version)return;
-    controller_->settings()->setPreference(QStringLiteral("update_log_seen_version"),version);
+    // Keep the user-visible version at 3.0.6 while allowing cumulative 3.0.6
+    // hotfix notes to appear once even if an earlier 3.0.6 note set was seen.
+    const QString notesRevision=version+QStringLiteral("-cumulative-r2");
+    if(controller_->settings()->preference(QStringLiteral("update_log_seen_revision")).toString()==notesRevision)return;
+    controller_->settings()->setPreference(QStringLiteral("update_log_seen_revision"),notesRevision);
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
     auto* title=label(QStringLiteral("WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("A quick summary of this update. This appears once per installed version."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Pinned chat support:** Twitch and YouTube/Shorts pinned messages can now appear as a pinned banner with a 📌 marker. A Settings switch controls the feature for all supported services.\n- **TikTok LIVE:** possibly fixed chat and viewer-count detection by widening current DOM/state detection and updating the embedded browser identity.\n- **Twitch sign-in:** possibly improved the unsupported-browser path by keeping account authorization in your normal system browser and handing the resulting Twitch authorization back to the clip editor as a best-effort session.\n- **Pop-out close button:** replaced the font glyph with a drawn X so it should no longer render as an empty box.\n- **Pop-out resizing:** all edges and corners can now resize the frameless pop-out, including at 0% background opacity.\n\nSome platform fixes are intentionally marked **possibly fixed** because Twitch/TikTok can change browser behavior and page markup without notice."));layout->addWidget(notes,1);
+    auto* summary=label(QStringLiteral("A quick summary of this cumulative 3.0.6 update. This note appears once for this revision."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Pinned messages:** Twitch and YouTube/Shorts pins can appear in chat with a 📌 indicator and can be enabled or disabled globally in Settings.\n- **TikTok compatibility possibly improved:** LIVE chat/view-count collection uses broader fallbacks, but TikTok changes its page frequently so this is not guaranteed.\n- **Twitch login possibly improved:** Twitch authorization stays in the normal system browser with a best-effort handoff back to the in-app Clips browser.\n- **Pop-out fixes:** the close X is drawn instead of relying on a font glyph, and every edge/corner can resize even at 0% opacity.\n- **AutoMod whitelist:** `smash`, `pass`, and `as` are allowed by default, the whitelist is editable, and normal English vocabulary is protected from substring/fuzzy false positives.\n- **YouTube custom emojis:** supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect.\n- **Build stability:** the earlier 3.0.6 YouTube pinned-message compile error is corrected."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
@@ -1005,6 +1008,14 @@ QWidget* MainWindow::buildModerationPage() {
         });
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
+
+        auto* whitelistNote=label(QStringLiteral("Word whitelist: allowed words/phrases bypass blocked-word matching only. ‘smash’ and ‘pass’ are included by default; other blocked content in the same message is still moderated."),"muted");
+        whitelistNote->setWordWrap(true);
+        automodLayout->addWidget(whitelistNote);
+        auto* editWhitelist=new QPushButton(QStringLiteral("Edit word whitelist"));
+        editWhitelist->setToolTip(QStringLiteral("Open the AutoMod whitelist. Add one allowed word or phrase per line."));
+        automodLayout->addWidget(editWhitelist);
+        connect(editWhitelist,&QPushButton::clicked,this,&MainWindow::editWhitelistedWords);
     }
     left->addWidget(tiktokCard);
     auto* rumbleCard=makePlatformCard(QStringLiteral("Rumble"),QStringLiteral("Moderate in the Rumble live chat"),QColor("#85c742"),QStringLiteral("Open Rumble moderation"));rumbleCard->setProperty("platform",QStringLiteral("rumble"));left->addWidget(rumbleCard);connect(rumbleCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{const QString link=controller_->settings()->link(QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?QStringLiteral("https://rumble.com/account/livestreams"):link));});left->addStretch();
@@ -1059,6 +1070,11 @@ void MainWindow::openTikTokModeration() {
 
 void MainWindow::editBlockedWords() {
     QDesktopServices::openUrl(QUrl::fromLocalFile(controller_->blockedWordsPath()));
+    controller_->reloadAutoMod();
+}
+
+void MainWindow::editWhitelistedWords() {
+    QDesktopServices::openUrl(QUrl::fromLocalFile(controller_->whitelistedWordsPath()));
     controller_->reloadAutoMod();
 }
 

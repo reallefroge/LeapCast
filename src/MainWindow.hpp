@@ -57,6 +57,7 @@ private:
     void configureYouTubeModeration();
     void openTikTokModeration();
     void editBlockedWords();
+    void editWhitelistedWords();
     // Right-click moderation menu for the dashboard's own chat views — same
     // idea as PopoutChat::showChatContextMenu, kept separate since it acts on
     // a different QTextBrowser (and its own message-id history) per tab.

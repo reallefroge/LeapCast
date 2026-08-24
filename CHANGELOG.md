@@ -8,7 +8,13 @@
 - **Possibly improved** Twitch sign-in when the embedded Twitch experience rejects its browser: Leapcast keeps Twitch authorization in the user's normal system browser and performs a best-effort authorization handoff back to the in-app clip editor.
 - Replaced the pop-out close button's font-dependent X glyph with a programmatically drawn X so missing-font boxes should no longer appear.
 - Added native edge/corner hit testing to the frameless pop-out, allowing resizing from every direction even when the chat background is at 0% opacity.
-- Updated the once-per-version launch notes to show the 3.0.6 changes and to label uncertain Twitch/TikTok compatibility work as **possibly fixed/improved** rather than guaranteed.
+- Corrected the MSVC source-build error in the YouTube pinned-message parser (`const auto findRenderer`) that affected the first 3.0.6 source package.
+- Added an editable **AutoMod word whitelist** alongside the blocked-word list. `smash`, `pass`, and `as` are included as safe defaults, and custom whitelist entries reload immediately after saving.
+- Whitelisting only exempts the allowed word or phrase; other genuinely blocked terms in the same message can still be moderated.
+- Fixed AutoMod false positives caused by substring/fuzzy matching and repeated-letter normalization. Normal vocabulary such as `as`, `class`, `classic`, `glass`, `grass`, `assignment`, and `assistant` is no longer blocked just because it contains or resembles a shorter banned sequence.
+- Kept bypass detection for separated, repeated-letter, leetspeak, and Unicode-confusable versions of genuinely blocked terms.
+- Added YouTube and YouTube Shorts custom-emoji run parsing so supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect instead of only showing `:emoji_name:` text. The text shortcut remains as a moderation/log fallback.
+- Updated the once-per-install launch notes with the cumulative 3.0.6 changes.
 
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 

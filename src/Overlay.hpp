@@ -3,6 +3,8 @@
 #include <QAbstractNativeEventFilter>
 #include <QContextMenuEvent>
 #include <QHash>
+#include <QNetworkAccessManager>
+#include <QSet>
 #include <QPoint>
 #include <QUrl>
 #include <QTcpServer>
@@ -27,15 +29,19 @@ class QCloseEvent;
 class ChatBrowser final : public QTextBrowser {
     Q_OBJECT
 public:
-    using QTextBrowser::QTextBrowser;
+    explicit ChatBrowser(QWidget* parent=nullptr);
 signals:
     void chatContextMenuRequested(const QPoint& globalPos);
 protected:
     void paintEvent(QPaintEvent* event) override;
+    QVariant loadResource(int type,const QUrl& name) override;
     void contextMenuEvent(QContextMenuEvent* event) override {
         emit chatContextMenuRequested(event->globalPos());
         event->accept();
     }
+private:
+    QNetworkAccessManager imageNetwork_;
+    QSet<QString> pendingImageUrls_;
 };
 
 // Embedded Chromium (Qt WebEngine) window used to open the Twitch clip editor

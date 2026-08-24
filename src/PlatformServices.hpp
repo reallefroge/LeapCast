@@ -26,6 +26,7 @@ private:
     void resolveViaLiveRedirect(const QString& base); void resolveViaStreamsScrape(const QString& base);
     static QStringList liveIds(const QByteArray& html);
     static QString runsText(const QJsonObject& message);
+    static QJsonArray runsMetadata(const QJsonObject& message);
     QNetworkAccessManager network_; QTimer retry_,pollTimer_,viewerTimer_;
     QString platform_,target_,videoId_,liveChatId_,apiKey_,clientVersion_,continuation_,pinnedMessageId_;
     bool verticalOnly_{}; bool explicitVideo_{}; QSet<QString> seen_; QHash<QString,ChatMessage> recentMessages_;

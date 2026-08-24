@@ -7,6 +7,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QUrl>
 
 QString badgeGlyphs(const QStringList& badges) {
     static const QHash<QString, QString> glyphs{
@@ -53,6 +54,28 @@ QString chatNameHtml(const ChatMessage& message) {
     return html+QStringLiteral("</b>");
 }
 
+QString chatMessageBodyHtml(const ChatMessage& message) {
+    const QJsonArray runs=message.metadata.value(QStringLiteral("youtube_runs")).toArray();
+    if((message.platform==QStringLiteral("youtube")||message.platform==QStringLiteral("yt_shorts"))&&!runs.isEmpty()) {
+        QString html;
+        for(const auto& value:runs) {
+            const QJsonObject run=value.toObject();
+            if(run.contains(QStringLiteral("text"))) {
+                html+=run.value(QStringLiteral("text")).toString().toHtmlEscaped();
+                continue;
+            }
+            const QString fallback=run.value(QStringLiteral("alt")).toString();
+            const QUrl url(run.value(QStringLiteral("url")).toString());
+            if(url.isValid()&&url.scheme()==QStringLiteral("https")) {
+                html+=QStringLiteral("<img src='%1' alt='%2' title='%2' width='24' height='24' style='vertical-align:-6px;margin:0 1px'>")
+                    .arg(url.toString(QUrl::FullyEncoded).toHtmlEscaped(),fallback.toHtmlEscaped());
+            } else html+=fallback.toHtmlEscaped();
+        }
+        if(!html.isEmpty()) return html;
+    }
+    return message.text.toHtmlEscaped();
+}
+
 QJsonObject ChatMessage::toJson() const {
     return {{QStringLiteral("user"), user}, {QStringLiteral("text"), text},
             {QStringLiteral("platform"), platform},
@@ -89,6 +112,7 @@ SettingsStore::SettingsStore(QObject* parent) : QObject(parent) {
         + QStringLiteral("/Lefroge/Multi-Chat Studio");
     for (const auto& fileName : {QStringLiteral("settings.json"),
                                  QStringLiteral("blocked_words.txt"),
+                                 QStringLiteral("word_whitelist.txt"),
                                  QStringLiteral("chat_history.jsonl"),
                                  QStringLiteral("stream_events.json")}) {
         const QString destination = directory_ + QLatin1Char('/') + fileName;
@@ -129,60 +153,108 @@ void SettingsStore::setModeration(const QJsonObject&v){root_["moderation"]=v;sav
 QString SettingsStore::dataDirectory()const{return directory_;}
 bool SettingsStore::save(){QSaveFile f(path_);if(!f.open(QIODevice::WriteOnly))return false;f.write(QJsonDocument(root_).toJson(QJsonDocument::Indented));if(!f.commit())return false;emit changed();return true;}
 
-AutoMod::AutoMod(SettingsStore*s,QObject*p):QObject(p),settings_(s){path_=s->dataDirectory()+"/blocked_words.txt";if(!QFile::exists(path_)){QFile f(path_);if(f.open(QIODevice::WriteOnly))f.write("# Add one word or phrase per line.\n# Leetspeak, separators, repeated letters and Unicode bypasses are checked.\n");}reload();watcher_.addPath(path_);connect(&watcher_,&QFileSystemWatcher::fileChanged,this,[this](const QString&changedPath){
+AutoMod::AutoMod(SettingsStore*s,QObject*p):QObject(p),settings_(s){
+    path_=s->dataDirectory()+QStringLiteral("/blocked_words.txt");
+    whitelistPath_=s->dataDirectory()+QStringLiteral("/word_whitelist.txt");
+    if(!QFile::exists(path_)){
+        QFile f(path_);
+        if(f.open(QIODevice::WriteOnly|QIODevice::Text))
+            f.write("# Add one word or phrase per line.\n# Leetspeak, separators, repeated letters and Unicode bypasses are checked.\n");
+    }
+    if(!QFile::exists(whitelistPath_)){
+        QFile f(whitelistPath_);
+        if(f.open(QIODevice::WriteOnly|QIODevice::Text))
+            f.write("# Words or phrases here are allowed through blocked-word matching.\n# This only exempts the whitelisted text; other blocked words in the same message are still moderated.\nsmash\npass\nas\n");
+    }
+    // v3.0.6 cumulative migration: existing installs keep their edited whitelist file,
+    // but gain the explicitly requested innocent word "as" once. The matcher
+    // fix below is the real protection for ordinary English vocabulary.
+    if(!s->preference(QStringLiteral("automod_vocab_306_vocab_seeded"),false).toBool()){
+        QFile f(whitelistPath_);QString contents;
+        if(f.open(QIODevice::ReadOnly|QIODevice::Text)){contents=QString::fromUtf8(f.readAll());f.close();}
+        bool hasAs=false;
+        for(const auto&line:contents.split(QLatin1Char('\n')))if(line.trimmed().compare(QStringLiteral("as"),Qt::CaseInsensitive)==0){hasAs=true;break;}
+        if(!hasAs&&f.open(QIODevice::Append|QIODevice::Text)){if(!contents.isEmpty()&&!contents.endsWith(QLatin1Char('\n')))f.write("\n");f.write("as\n");f.close();}
+        s->setPreference(QStringLiteral("automod_vocab_306_vocab_seeded"),true);
+    }
     reload();
-    // Most editors (Notepad included) save by replacing the file, which drops
-    // it from the watch list — re-add it so further edits keep reloading.
-    if(!watcher_.files().contains(changedPath)&&QFile::exists(changedPath))watcher_.addPath(changedPath);
-});}
+    for(const auto& watchedPath:{path_,whitelistPath_})
+        if(QFile::exists(watchedPath)&&!watcher_.files().contains(watchedPath))watcher_.addPath(watchedPath);
+    connect(&watcher_,&QFileSystemWatcher::fileChanged,this,[this](const QString&changedPath){
+        reload();
+        // Most editors save by replacing the file, which drops it from the
+        // watch list. Re-add it so every later save is picked up too.
+        if(!watcher_.files().contains(changedPath)&&QFile::exists(changedPath))watcher_.addPath(changedPath);
+    });
+}
 
 QString AutoMod::latinize(const QString& input){
     static const QHash<QChar,QChar> map{{'@','a'},{'4','a'},{'3','e'},{'1','i'},{'!','i'},{'0','o'},{'$','s'},{'5','s'},{'7','t'},{'+','t'},{'8','b'},{'9','g'},
         {u'а','a'},{u'α','a'},{u'с','c'},{u'е','e'},{u'ε','e'},{u'і','i'},{u'ι','i'},{u'о','o'},{u'ο','o'},{u'р','p'},{u'ρ','p'},{u'х','x'},{u'χ','x'},{u'у','y'}};
     QString out=input.normalized(QString::NormalizationForm_D).toLower();
     out.remove(QRegularExpression(QStringLiteral("[\\x{0300}-\\x{036f}\\x{200b}-\\x{200f}\\x{202a}-\\x{202e}\\x{2060}\\x{feff}]")));
-    for(auto& ch:out)if(map.contains(ch))ch=map.value(ch);return out;
-}
-QString AutoMod::normalize(const QString&t){QString s=latinize(t);s.replace(QRegularExpression("[^a-z0-9\\s]")," ");s.replace(QRegularExpression("(.)\\1+"),"\\1");return s.simplified();}
-QString AutoMod::compact(const QString&t){QString s=latinize(t);s.remove(QRegularExpression("[^a-z0-9]"));return s;}
-bool AutoMod::distanceAtMostOne(const QString&a0,const QString&b0){if(a0==b0)return true;if(qAbs(a0.size()-b0.size())>1)return false;QString a=a0,b=b0;if(a.size()>b.size())qSwap(a,b);int i=0,j=0,e=0;while(i<a.size()&&j<b.size()){if(a[i]==b[j]){++i;++j;}else{if(++e>1)return false;if(a.size()==b.size())++i;++j;}}return true;}
-bool AutoMod::reload(){
-    terms_.clear();
-    QFile f(path_);
-    if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return false;
-    while(!f.atEnd()){
-        QString line=QString::fromUtf8(f.readLine()).trimmed();
-        if(line.isEmpty()||line.startsWith('#'))continue;
-        QString c=compact(line);
-        if(c.isEmpty())continue;
-        QStringList chars;
-        for(const auto ch:c)chars<<QRegularExpression::escape(QString(ch))+"+";
-        // No word-boundary anchors: a blocked word buried inside a longer
-        // string ("xfuckx", "fuckdkciros") is a common evasion tactic, not
-        // something to guard against as a false positive.
-        terms_.append({normalize(line),c,QRegularExpression(chars.join("[^a-z0-9]*"),QRegularExpression::CaseInsensitiveOption)});
+    for(qsizetype i=0;i<out.size();++i){
+        const QChar ch=out.at(i);if(!map.contains(ch))continue;
+        // A trailing exclamation mark is punctuation, not an "i". Keep the
+        // leetspeak interpretation only when ! appears inside a token.
+        if(ch==QLatin1Char('!')&&(i==0||i+1>=out.size()||!out.at(i-1).isLetterOrNumber()||!out.at(i+1).isLetterOrNumber()))continue;
+        out[i]=map.value(ch);
     }
-    return true;
+    return out;
 }
-bool AutoMod::blockedMatch(const QString&t)const{
-    const QString canonical=latinize(t),norm=normalize(t);
-    const auto tokens=norm.split(' ',Qt::SkipEmptyParts);
-    // Compact tokens strip symbols entirely, unlike normalize()'s
-    // space-replacement — so a single embedded symbol ("f#ck") still forms
-    // one token ("fck") for the fuzzy check below, instead of fragmenting
-    // into "f"/"ck", each too short to compare against the blocked word.
-    QStringList compactTokens;
-    for(const auto&word:t.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts))
-        compactTokens<<compact(word);
-    for(const auto&term:terms_){
-        // No word-boundary requirement, matching reload()'s bypass regex.
-        if(norm.contains(term.normalized)||term.bypass.match(canonical).hasMatch())return true;
-        if(term.compact.size()>=4){
-            for(const auto&tok:tokens)
-                if(qAbs(tok.size()-term.compact.size())<=1&&distanceAtMostOne(tok,term.compact))return true;
-            for(const auto&tok:compactTokens)
-                if(qAbs(tok.size()-term.compact.size())<=1&&distanceAtMostOne(tok,term.compact))return true;
+QString AutoMod::normalize(const QString&t){QString s=latinize(t);s.replace(QRegularExpression("[^a-z0-9\\s]")," ");return s.simplified();}
+QString AutoMod::compact(const QString&t){QString s=latinize(t);s.remove(QRegularExpression("[^a-z0-9]"));return s;}
+bool AutoMod::reload(){
+    const auto loadTerms=[](const QString&filePath,QList<Term>&target){
+        target.clear();
+        QFile f(filePath);
+        if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return false;
+        while(!f.atEnd()){
+            QString line=QString::fromUtf8(f.readLine()).trimmed();
+            if(line.isEmpty()||line.startsWith('#'))continue;
+            QString c=compact(line);
+            if(c.isEmpty())continue;
+            const QString normalized=normalize(line);
+            QStringList words;for(const auto&word:normalized.split(QLatin1Char(' '),Qt::SkipEmptyParts))words<<QRegularExpression::escape(word);
+            QStringList chars;for(const auto ch:c)chars<<QRegularExpression::escape(QString(ch))+"+";
+            // Exact terms and separator/repetition bypasses are bounded as
+            // complete words/phrases. This prevents a blocked term such as
+            // "ass" from matching innocent words like class, glass, pass,
+            // assistant, or assignment merely because it appears inside them.
+            const QString left=QStringLiteral("(?<![a-z0-9])"),right=QStringLiteral("(?![a-z0-9])");
+            target.append({normalized,c,
+                QRegularExpression(left+words.join(QStringLiteral("\\s+"))+right,QRegularExpression::CaseInsensitiveOption),
+                QRegularExpression(left+chars.join(QStringLiteral("[^a-z0-9]*"))+right,QRegularExpression::CaseInsensitiveOption)});
         }
+        return true;
+    };
+    const bool blockedOk=loadTerms(path_,terms_);
+    const bool whitelistOk=loadTerms(whitelistPath_,whitelistTerms_);
+    return blockedOk&&whitelistOk;
+}
+
+QString AutoMod::maskWhitelisted(const QString&t)const{
+    // Mask allowed words before leetspeak translation so punctuation and
+    // separator variants of an explicitly allowed term remain exempt.
+    QString masked=t.normalized(QString::NormalizationForm_D).toLower();
+    masked.remove(QRegularExpression(QStringLiteral("[\\x{0300}-\\x{036f}\\x{200b}-\\x{200f}\\x{202a}-\\x{202e}\\x{2060}\\x{feff}]")));
+    for(const auto&term:whitelistTerms_){
+        QStringList words;for(const auto&word:term.normalized.split(QLatin1Char(' '),Qt::SkipEmptyParts))words<<QRegularExpression::escape(word);
+        const QRegularExpression allowed(
+            QStringLiteral("(?<![a-z0-9])")+words.join(QStringLiteral("\\s+"))+QStringLiteral("(?![a-z0-9])"),
+            QRegularExpression::CaseInsensitiveOption);
+        masked.replace(allowed,QStringLiteral(" "));
+    }
+    return latinize(masked);
+}
+
+bool AutoMod::blockedMatch(const QString&t)const{
+    // Remove only explicitly whitelisted words/phrases before scanning. The
+    // matcher itself now uses complete-word boundaries, so ordinary English
+    // vocabulary is safe without maintaining a huge dictionary whitelist.
+    const QString canonical=maskWhitelisted(t),norm=normalize(canonical);
+    for(const auto&term:terms_){
+        if(term.exact.match(norm).hasMatch()||term.bypass.match(canonical).hasMatch())return true;
     }
     return false;
 }

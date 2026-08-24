@@ -26,6 +26,7 @@ public:
     void moderateMessage(const ChatMessage& message, int seconds, const QString& reason);
     void deleteChatMessage(const ChatMessage& message);
     QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
+    QString whitelistedWordsPath() const { return automod_.whitelistedWordsPath(); }
     bool reloadAutoMod() { return automod_.reload(); }
 signals:
     void messageReady(const ChatMessage& message);
