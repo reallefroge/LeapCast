@@ -2,6 +2,8 @@
 
 ## Leapcast Studio 3.0.6
 
+- Corrected a Windows/MSVC build failure in the new birthday/seasonal celebration overlay where the constructor referenced the wrong theme variable. Also simplified a few date/decorative loops for safer MSVC compilation.
+
 - Added optional pinned-message display for Twitch and YouTube/YouTube Shorts. Supported pins appear in chat with a 📌 banner; one Settings switch controls pinned-message display across all applicable services.
 - Added Twitch pinned-message polling through Twitch's official pinned-chat API and YouTube pinned-banner detection from live-chat continuation actions.
 - **Possibly fixed** TikTok LIVE chat and viewer counts by updating the embedded browser identity and adding broader DOM, profile-link, text, and serialized-state fallbacks. TikTok can change its LIVE page without notice, so this is intentionally not described as guaranteed.
