@@ -21,6 +21,9 @@ public:
     void resolveTwitchAppeal(const QString& requestId, bool approved, const QString& resolutionText);
     void createTwitchClip();
     void setPinnedMessagesEnabled(bool enabled);
+    void testDiscordLiveNotification();
+    void startDiscordBot();
+    void stopDiscordBot();
     void regenerateNameColours();
     // Manual moderation triggered from a chat message's context menu, for the
     // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
@@ -48,12 +51,17 @@ signals:
     void twitchAuthorized(const QString& login);
     void twitchAuthorizationFailed(const QString& detail);
     void pinnedMessageChanged(const QString& platform, const ChatMessage& message, bool active);
+    void discordNotificationResult(bool success, const QString& detail);
+    void discordBotStatus(bool online, const QString& detail);
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
     static QString kickName(const QString& link);
     void receive(const ChatMessage& message);
     void autoModerate(const ChatMessage& message,const QString& reason);
+    void queueDiscordLivePlatform(const QString& platform);
+    void sendDiscordLiveNotification(const QSet<QString>& platforms, bool test = false);
+    void sendDiscordHeartbeat();
 public:
     void refreshTwitchAppeals();
     void loadTwitchUserHistory(const QString& userId,const QString& userName);
@@ -93,4 +101,15 @@ public:
     int nextPaletteVariation_{};
     int broadcastPaletteOffset_{-1};
     bool twitchAuthorizationRequested_{};
+    QNetworkAccessManager discordNetwork_;
+    QWebSocket discordGateway_;
+    QTimer discordHeartbeat_;
+    QTimer discordLiveDelay_;
+    QTimer discordLiveReset_;
+    QSet<QString> discordPendingPlatforms_;
+    bool discordBroadcastNotificationSent_{};
+    bool discordBotRequested_{};
+    bool discordHeartbeatAcknowledged_{true};
+    bool discordSequenceKnown_{};
+    qint64 discordSequence_{};
 };

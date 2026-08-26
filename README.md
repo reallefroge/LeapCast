@@ -9,7 +9,7 @@
 
   Follow Twitch, YouTube, YouTube Shorts, TikTok LIVE, Kick, and Rumble communities, moderate faster, show chat in OBS, and surface Streamlabs and Rumble alerts without juggling a wall of browser windows.
 
-  [Download for Windows](https://github.com/reallefroge/LeapCast/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/LeapCast/issues)
+ # ➤➤➤ [Download for Windows](https://github.com/reallefroge/LeapCast/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/LeapCast/issues)
 </div>
 
 > [!IMPORTANT]
@@ -85,7 +85,7 @@ The interface is organized into five focused areas:
 - Five-minute automated timeouts or mutes when AutoMod detects a configured violation.
 - AutoMod recognizes when it isn't a moderator on a connected channel (for example, a channel added just to watch or test chat) and stops retrying and re-warning after the first attempt, instead of repeating a warning dialog for every flagged message.
 - Editable blocked-word list with checks for common leetspeak, separators, repeated letters, Unicode lookalikes, and one-character misspellings.
-- Separate editable word whitelist for legitimate words/phrases that should bypass blocked-word matching; `smash` and `pass` are allowed by default.- Spam checks for repeated messages, floods, excessive capitals, follower/viewer promotion, and optionally links.
+- Spam checks for repeated messages, floods, excessive capitals, follower/viewer promotion, and optionally links.
 - Twitch ban and timeout retrieval and removal.
 - YouTube restriction history for moderation actions created by Leapcast Studio.
 - Local JSON audit history for visible chat messages, Streamlabs events, and Rumble follow/subscription alerts. Blocked Kick and Rumble messages are not stored.

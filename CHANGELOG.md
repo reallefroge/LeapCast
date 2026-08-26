@@ -1,5 +1,15 @@
 # Leapcast Studio Changelog
 
+<<<<<<< Updated upstream
+=======
+## Leapcast Studio 3.0.7
+
+- Added a shiny New Year transition that slides the previous year into the new year during the automatic New Year's celebration.
+- Added locally hosted Discord bot live notifications in Settings, including secure token entry, channel selection, explicit enablement, optional `@everyone`, and a test notification.
+- Added a clear notice that bot-token setup and recovery are not supported and that tokens must remain private.
+- Made Settings vertically scrollable, improved spacing, and lowered the minimum window size so every control remains usable without fullscreen.
+- Added a polished first-launch **What's New in 3.0.7** summary covering the release's visible changes.
+
 ## Leapcast Studio 3.0.6
 
 - **Pop-out crash hotfix:** moved birthday/holiday edge decorations off the frameless transparent top-level window and into a separate click-through child layer, applies the seasonal theme only after the pop-out is shown, and stops the native Windows event filter from forcing `winId()` creation while the pop-out is still being constructed. This hardens the first-open path while keeping the decorative strands and party accents.
@@ -30,13 +40,8 @@
 - Added date-driven **Seasonal & Holiday Effects** using the local system clock: Halloween (Oct 15–31), Christmas (Dec 10–28), Easter weekend, Independence Day (July 4), Veterans Day (Nov 11), and New Year's Eve/Day.
 - Added Independence Day/New Year fireworks, Veterans Day American-flag accents, and a New Year ball-drop animation restricted to the first minutes after local midnight on January 1. Phone Connect mirrors the currently active seasonal theme.
 
+>>>>>>> Stashed changes
 > A complete history of meaningful improvements, fixes, and creator-focused features.
-
-## Leapcast Studio 3.0.5
-
-- **Possibly fixed** Twitch rejecting the in-program Clips editor as an unsupported browser by updating the embedded browser profile. This was later revisited in 3.0.6 because Twitch could still reject the embedded login flow.
-- Added a dedicated persistent Twitch Clips browser profile with a current desktop browser identity, remembered Twitch login cookies, JavaScript, local storage, fullscreen support, and embedded playback.
-- Kept Twitch Clips inside Leapcast Studio without affecting the embedded TikTok collector.
 
 ## Leapcast Studio 3.0.4
 

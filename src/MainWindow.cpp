@@ -232,6 +232,7 @@ private:QString theme_;
 class CelebrationOverlay final : public QWidget {
 public:
     CelebrationOverlay(const QString& theme,bool ballDrop):theme_(theme),ballDrop_(ballDrop){
+        const QDate today=QDate::currentDate();newYear_=today.month()==12?today.year()+1:today.year();oldYear_=newYear_-1;
         setWindowFlags(Qt::Tool|Qt::FramelessWindowHint|Qt::WindowStaysOnTopHint|Qt::WindowTransparentForInput);
         setAttribute(Qt::WA_TranslucentBackground);setAttribute(Qt::WA_NoSystemBackground);setAttribute(Qt::WA_DeleteOnClose);setFocusPolicy(Qt::NoFocus);
         QRect virtualRect;for(auto*screen:QGuiApplication::screens())virtualRect=virtualRect.united(screen->geometry());setGeometry(virtualRect);
@@ -247,17 +248,24 @@ protected:
         if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("newyear")){for(int b=0;b<5;++b){const QPointF c(width()*(.14+.18*b),height()*(.16+.08*(b%2)));const qreal radius=20+std::fmod(t*85+b*23,120.0);QColor c1=b%2?QColor("#ffffff"):QColor("#ff445b");c1.setAlphaF(qMax(0.0,1.0-radius/145.0));p.setPen(QPen(c1,3));for(int a=0;a<16;++a){const qreal ang=a*6.283185307/16.0;p.drawLine(c+QPointF(std::cos(ang)*radius*.55,std::sin(ang)*radius*.55),c+QPointF(std::cos(ang)*radius,std::sin(ang)*radius));}}}
         for(int i=0;i<particles_.size();++i){auto&q=particles_[i];q.x+=q.vx;q.y+=q.vy;q.vy+=theme_==QStringLiteral("christmas")?.002:.006;if(q.y>height()+20){q.y=-20;q.x=QRandomGenerator::global()->bounded(qMax(1,width()));}p.save();p.translate(q.x,q.y);p.rotate(t*100*q.spin+i*11);p.setPen(Qt::NoPen);p.setBrush(theme_==QStringLiteral("christmas")?QColor(245,250,255,210):q.color);if(theme_==QStringLiteral("christmas"))p.drawEllipse(QPointF(0,0),q.size*.45,q.size*.45);else p.drawRect(QRectF(-q.size/2,-2,q.size,4));p.restore();}
         if(theme_==QStringLiteral("birthday")){p.setFont(QFont(QStringLiteral("Segoe UI"),24,QFont::Bold));p.setPen(QColor(255,255,255,220));p.drawText(QRect(0,40,width(),50),Qt::AlignCenter,QStringLiteral("HAPPY BIRTHDAY!"));}
+        if(theme_==QStringLiteral("newyear")){
+            const qreal slide=qBound<qreal>(0.0,(t-.35)/2.1,1.0);const qreal eased=1-std::pow(1-slide,3);
+            QFont yearFont(QStringLiteral("Segoe UI"),qMax(42,height()/10),QFont::Black);p.setFont(yearFont);
+            const int oldX=static_cast<int>(-eased*width()),newX=static_cast<int>((1-eased)*width());
+            p.setPen(QColor(255,245,190,static_cast<int>(255*(1-eased))));p.drawText(QRect(oldX,0,width(),height()),Qt::AlignCenter,QString::number(oldYear_));
+            QLinearGradient shine(newX+width()*.25,0,newX+width()*.75,0);shine.setColorAt(0,QColor("#a97819"));shine.setColorAt(.45,QColor("#fffbd1"));shine.setColorAt(.6,QColor("#ffd166"));shine.setColorAt(1,QColor("#a97819"));p.setPen(QPen(QBrush(shine),2));p.drawText(QRect(newX,0,width(),height()),Qt::AlignCenter,QString::number(newYear_));
+        }
         if(ballDrop_){const qreal progress=qBound<qreal>(0.0,t/5.0,1.0);const qreal y=-45+progress*(height()*.42+45);p.setPen(QPen(QColor("#f7e59b"),3));p.drawLine(width()/2,0,width()/2,y-28);QRadialGradient grad(QPointF(width()/2,y),34);grad.setColorAt(0,QColor("#fffbd1"));grad.setColorAt(1,QColor("#c4a33f"));p.setBrush(grad);p.drawEllipse(QPointF(width()/2,y),32,32);}
     }
 private:
-    struct Particle{qreal x{},y{},vx{},vy{},spin{},size{};QColor color;};QString theme_;bool ballDrop_{};QVector<Particle> particles_;QTimer timer_;QElapsedTimer elapsed_;
+    struct Particle{qreal x{},y{},vx{},vy{},spin{},size{};QColor color;};QString theme_;bool ballDrop_{};int oldYear_{},newYear_{};QVector<Particle> particles_;QTimer timer_;QElapsedTimer elapsed_;
 };
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("Leapcast Studio • Multi-Chat & Moderation"));
     resize(1280, 760);
-    setMinimumSize(1000, 620);
+    setMinimumSize(760, 520);
     setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
     controller_ = new AppController(this);
     applyTheme();
@@ -611,17 +619,15 @@ void MainWindow::closeEvent(QCloseEvent* e){
 
 void MainWindow::showFirstLaunchUpdateLog(){
     const QString version=QString::fromLatin1(leapcast::Version);
-    // Keep the user-visible version at 3.0.6 while allowing cumulative 3.0.6
-    // hotfix notes to appear once even if an earlier 3.0.6 note set was seen.
-    const QString notesRevision=version+QStringLiteral("-cumulative-r5");
+    const QString notesRevision=version+QStringLiteral("-release-notes-r1");
     if(controller_->settings()->preference(QStringLiteral("update_log_seen_revision")).toString()==notesRevision)return;
     controller_->settings()->setPreference(QStringLiteral("update_log_seen_revision"),notesRevision);
-    QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
-    auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
-    auto* title=label(QStringLiteral("WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("A quick summary of this cumulative 3.0.6 update. This note appears once for this revision."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Pinned messages:** Twitch and YouTube/Shorts pins can appear in chat with a 📌 indicator and can be enabled or disabled globally in Settings.\n- **TikTok compatibility possibly improved:** LIVE chat/view-count collection uses broader fallbacks, but TikTok changes its page frequently so this is not guaranteed.\n- **Twitch login possibly improved:** Twitch authorization stays in the normal system browser with a best-effort handoff back to the in-app Clips browser.\n- **Pop-out fixes:** the close X is drawn instead of relying on a font glyph, every edge/corner can resize even at 0% opacity, and a first-open crash from birthday/holiday decoration painting has been corrected by isolating the decorations in a safe transparent child layer.\n- **AutoMod whitelist:** `smash`, `pass`, and `as` are allowed by default, the whitelist is editable, and normal English vocabulary is protected from substring/fuzzy false positives.\n- **YouTube custom emojis:** supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect.\n- **Custom palette randomizer:** selected 2–8 color palettes can now generate a different stable variation for every chatter, with a one-click reroll. The custom palette editor, reorder/add/remove controls, and reroll controls are also available in Phone Connect.\n- **Birthday effects:** users can save a month/day for birthday effects. Leapcast checks the PC's local system clock and activates the celebration only on the day before and the birthday itself. The special 2026 birthday launch celebration runs only Aug 23–24.\n- **Birthday confetti playback:** choose **Every launch** (the default) to replay the party confetti once whenever Leapcast is relaunched during the birthday window, or **First launch only** to show it just once per active birthday date. The same control is available in Phone Connect.\n- **Birthday celebration visuals:** transparent screen-wide confetti, balloons, sparkles, streamers and party accents can animate outside the Leapcast window; party hats decorate the app and hanging confetti/streamers also decorate the transparent pop-out without covering chat.\n- **Seasonal & holiday themes:** Halloween runs Oct 15–31, Christmas Dec 10–28, Easter over Easter weekend, Independence Day on July 4 with fireworks, Veterans Day on Nov 11 with American-flag accents, and New Year's Eve/Day with fireworks. A New Year ball drop can play during the first minutes after the local system clock reaches midnight on Jan 1.\n- **Mobile seasonal controls:** Phone Connect includes the birthday field/toggles and mirrors the active seasonal theme.\n- **Build stability:** the earlier 3.0.6 YouTube pinned-message compile error and the birthday/seasonal overlay MSVC compile error are corrected."));layout->addWidget(notes,1);
-    auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
+    QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's New in Leapcast %1").arg(version));dialog.resize(560,430);dialog.setMinimumSize(440,330);
+    auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(22,20,22,20);layout->setSpacing(12);
+    auto* title=label(QStringLiteral("✨ WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
+    auto* summary=label(QStringLiteral("A cleaner Settings experience, Discord live alerts, and a little New Year sparkle."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **🎆 New Year transformation**  \n  Watch the previous year slide away as the new year arrives with a polished golden shine.\n\n- **🔔 Discord live notifications**  \n  Connect your own Discord bot in Settings, select a channel, test it, and optionally notify `@everyone` when your stream goes live. Leapcast hosts the notification connection locally while it is running.\n\n- **🔐 Clear bot-token safety**  \n  The token stays masked in Settings, with an explicit reminder that bot-token creation, retrieval, and recovery are not supported.\n\n- **🪟 Better at every window size**  \n  Settings now scrolls properly, controls have more breathing room, and the program no longer needs to be fullscreen to remain usable."));layout->addWidget(notes,1);
+    auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -907,7 +913,7 @@ QWidget* MainWindow::buildPhoneConnectPage(){
 }
 
 QWidget* MainWindow::buildSettingsPage(){
-    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(7);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(10);scroll->setWidget(body);outer->addWidget(scroll);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
 
     auto* appearance=new QFrame;appearance->setProperty("card",true);auto* appearanceLayout=new QVBoxLayout(appearance);
@@ -966,6 +972,26 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(birthdayMonth,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,birthdayMonth](int){controller_->settings()->setPreference(QStringLiteral("birthday_month"),birthdayMonth->currentData().toInt());updateSeasonalEffects(false);});
     connect(birthdayDay,qOverload<int>(&QSpinBox::valueChanged),this,[this](int day){controller_->settings()->setPreference(QStringLiteral("birthday_day"),day);updateSeasonalEffects(false);});
     layout->addWidget(seasonal);
+
+    auto* discordCard=new QFrame;discordCard->setProperty("card",true);auto* discordLayout=new QVBoxLayout(discordCard);discordLayout->addWidget(label(QStringLiteral("DISCORD LIVE NOTIFICATIONS"),"cardTitle"));
+    auto* discordHelp=label(QStringLiteral("Link a Discord bot hosted by Leapcast while this program is running. Leapcast watches linked Twitch, YouTube, Rumble, Kick, and direct TikTok LIVE profile feeds. After the first service goes live, it waits 5 seconds so other services can join the same single notification. The bot must already be invited with View Channel, Send Messages, and Mention Everyone permissions."),"muted");discordHelp->setWordWrap(true);discordLayout->addWidget(discordHelp);
+    auto* noSupport=label(QStringLiteral("Important: Leapcast does not provide support or instructions for creating, finding, or resetting a Discord bot token. Treat the token like a password and never share it."),"status");noSupport->setWordWrap(true);noSupport->setStyleSheet(QStringLiteral("color:#f6c85f"));discordLayout->addWidget(noSupport);
+    auto* tokenRow=new QHBoxLayout;tokenRow->addWidget(label(QStringLiteral("Bot token")));auto* discordToken=new QLineEdit(controller_->settings()->secret(QStringLiteral("discord_bot_token")));discordToken->setEchoMode(QLineEdit::Password);discordToken->setPlaceholderText(QStringLiteral("Paste bot token"));tokenRow->addWidget(discordToken,1);discordLayout->addLayout(tokenRow);
+    auto* channelRow=new QHBoxLayout;channelRow->addWidget(label(QStringLiteral("Channel ID")));auto* discordChannel=new QLineEdit(controller_->settings()->secret(QStringLiteral("discord_channel_id")));discordChannel->setPlaceholderText(QStringLiteral("Discord channel ID"));channelRow->addWidget(discordChannel,1);discordLayout->addLayout(channelRow);
+    auto* streamerRow=new QHBoxLayout;streamerRow->addWidget(label(QStringLiteral("Streamer name")));auto* discordStreamer=new QLineEdit(controller_->settings()->preference(QStringLiteral("discord_streamer_name"),QStringLiteral("Streamer")).toString());discordStreamer->setPlaceholderText(QStringLiteral("Name used for {user}"));streamerRow->addWidget(discordStreamer,1);discordLayout->addLayout(streamerRow);
+    auto* messageRow=new QHBoxLayout;messageRow->addWidget(label(QStringLiteral("Live message")));auto* discordMessage=new QLineEdit(controller_->settings()->preference(QStringLiteral("discord_live_message"),QStringLiteral("@everyone {user} is live on {Platforms}")).toString());discordMessage->setPlaceholderText(QStringLiteral("@everyone {user} is live on {Platforms}"));messageRow->addWidget(discordMessage,1);discordLayout->addLayout(messageRow);
+    auto* messageHelp=label(QStringLiteral("Placeholders: {user} uses the streamer name above. {Platforms} becomes Twitch, YouTube, Rumble, Kick, and/or TikTok LIVE, with “&” inserted naturally when several feeds are live. Matching stream links are added below the message automatically."),"muted");messageHelp->setWordWrap(true);discordLayout->addWidget(messageHelp);
+    auto* enableDiscord=new QCheckBox(QStringLiteral("Allow the linked bot to notify Discord when I go live"));enableDiscord->setChecked(controller_->settings()->preference(QStringLiteral("discord_live_notifications"),false).toBool());discordLayout->addWidget(enableDiscord);
+    auto* mentionEveryone=new QCheckBox(QStringLiteral("Include @everyone in live notifications"));mentionEveryone->setChecked(controller_->settings()->preference(QStringLiteral("discord_mention_everyone"),true).toBool());discordLayout->addWidget(mentionEveryone);
+    auto* discordActions=new QHBoxLayout;auto* saveDiscord=new QPushButton(QStringLiteral("Save Discord bot"));auto* runDiscord=new QPushButton(QStringLiteral("Run Bot"));runDiscord->setProperty("primary",true);auto* stopDiscord=new QPushButton(QStringLiteral("Stop Bot"));stopDiscord->setEnabled(false);auto* testDiscord=new QPushButton(QStringLiteral("Send test notification"));discordActions->addWidget(saveDiscord);discordActions->addWidget(runDiscord);discordActions->addWidget(stopDiscord);discordActions->addWidget(testDiscord);discordActions->addStretch();discordLayout->addLayout(discordActions);auto* botStatus=label(QStringLiteral("● Bot offline"),"status");botStatus->setStyleSheet(QStringLiteral("color:#ff637d"));discordLayout->addWidget(botStatus);auto* discordStatus=label(QStringLiteral("Notifications not tested"),"muted");discordStatus->setWordWrap(true);discordLayout->addWidget(discordStatus);
+    const auto saveDiscordSettings=[this,discordToken,discordChannel,discordStreamer,discordMessage,enableDiscord,mentionEveryone]{controller_->settings()->setSecret(QStringLiteral("discord_bot_token"),discordToken->text());controller_->settings()->setSecret(QStringLiteral("discord_channel_id"),discordChannel->text());controller_->settings()->setPreference(QStringLiteral("discord_streamer_name"),discordStreamer->text().trimmed());controller_->settings()->setPreference(QStringLiteral("discord_live_message"),discordMessage->text());controller_->settings()->setPreference(QStringLiteral("discord_live_notifications"),enableDiscord->isChecked());controller_->settings()->setPreference(QStringLiteral("discord_mention_everyone"),mentionEveryone->isChecked());};
+    connect(saveDiscord,&QPushButton::clicked,this,[saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Saved. The bot is hosted while Leapcast Studio is running."));discordStatus->setStyleSheet(QStringLiteral("color:#63e6be"));});
+    connect(runDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,botStatus]{saveDiscordSettings();botStatus->setText(QStringLiteral("● Bot connecting…"));botStatus->setStyleSheet(QStringLiteral("color:#f6c85f"));controller_->startDiscordBot();});
+    connect(stopDiscord,&QPushButton::clicked,controller_,&AppController::stopDiscordBot);
+    connect(testDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Sending test…"));controller_->testDiscordLiveNotification();});
+    connect(controller_,&AppController::discordNotificationResult,discordCard,[discordStatus](bool ok,const QString&detail){discordStatus->setText(detail);discordStatus->setStyleSheet(ok?QStringLiteral("color:#63e6be"):QStringLiteral("color:#ff637d"));});
+    connect(controller_,&AppController::discordBotStatus,discordCard,[runDiscord,stopDiscord,botStatus](bool online,const QString&detail){runDiscord->setEnabled(!online);stopDiscord->setEnabled(online);botStatus->setText(QStringLiteral("● ")+detail);botStatus->setStyleSheet(online?QStringLiteral("color:#63e6be"):detail.contains(QStringLiteral("Connecting"),Qt::CaseInsensitive)?QStringLiteral("color:#f6c85f"):QStringLiteral("color:#ff637d"));});
+    layout->addWidget(discordCard);
 
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();
