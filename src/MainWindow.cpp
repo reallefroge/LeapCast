@@ -531,6 +531,7 @@ void MainWindow::closeEvent(QCloseEvent* e){
 void MainWindow::showFirstLaunchUpdateLog(){
     const QString version=QString::fromLatin1(leapcast::Version);
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     if(controller_->settings()->preference(QStringLiteral("update_log_seen_version")).toString()==version)return;
     controller_->settings()->setPreference(QStringLiteral("update_log_seen_version"),version);
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
@@ -540,6 +541,8 @@ void MainWindow::showFirstLaunchUpdateLog(){
     auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Phone Connect control center** with Chat, Events, Moderation, and Settings navigation.\n- **Live stream events** now appear on the connected iPhone.\n- **Mobile moderation** includes bans, unban requests, approvals, rejections, timeouts, and message removal.\n- **Private QR connection** can be regenerated to invalidate an older link.\n- **Release notifications** appear on mobile only when a newer published Windows release is available.\n- Connection and Safari compatibility improvements."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 =======
+=======
+>>>>>>> Stashed changes
     const QString notesRevision=version+QStringLiteral("-release-notes-r1");
     if(controller_->settings()->preference(QStringLiteral("update_log_seen_revision")).toString()==notesRevision)return;
     controller_->settings()->setPreference(QStringLiteral("update_log_seen_revision"),notesRevision);
@@ -549,6 +552,9 @@ void MainWindow::showFirstLaunchUpdateLog(){
     auto* summary=label(QStringLiteral("A cleaner Settings experience, Discord live alerts, and a little New Year sparkle."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
     auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **🎆 New Year transformation**  \n  Watch the previous year slide away as the new year arrives with a polished golden shine.\n\n- **🔔 Discord live notifications**  \n  Connect your own Discord bot in Settings, select a channel, test it, and optionally notify `@everyone` when your stream goes live. Leapcast hosts the notification connection locally while it is running.\n\n- **🔐 Clear bot-token safety**  \n  The token stays masked in Settings, with an explicit reminder that bot-token creation, retrieval, and recovery are not supported.\n\n- **🪟 Better at every window size**  \n  Settings now scrolls properly, controls have more breathing room, and the program no longer needs to be fullscreen to remain usable."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 }
 
@@ -908,6 +914,9 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(controller_,&AppController::discordNotificationResult,discordCard,[discordStatus](bool ok,const QString&detail){discordStatus->setText(detail);discordStatus->setStyleSheet(ok?QStringLiteral("color:#63e6be"):QStringLiteral("color:#ff637d"));});
     layout->addWidget(discordCard);
 
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();

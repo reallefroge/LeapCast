@@ -47,6 +47,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&kick_,&KickLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("kick",s,d);});
     connect(&rumble_,&RumbleLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("rumble",s,d);});
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();});
     connect(&twitch_,&TwitchChatService::viewerCountChanged,this,[this](int n){emit viewerCount("twitch",n);});
     connect(&youtube_,&YouTubeChatService::viewerCountChanged,this,[this](int n){emit viewerCount("youtube",n);});
@@ -55,6 +56,8 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&kick_,&KickLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("kick",n);});
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("rumble",n);});
 =======
+=======
+>>>>>>> Stashed changes
     connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();regenerateNameColours();discordBroadcastNotificationSent_=false;queueDiscordLivePlatform(QStringLiteral("twitch"));});
     const auto viewers=[this](const QString& platform,int n){emit viewerCount(platform,n);queueDiscordLivePlatform(platform);};
     connect(&twitch_,&TwitchChatService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("twitch"),n);});
@@ -63,6 +66,9 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("tiktok"),n);});
     connect(&kick_,&KickLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("kick"),n);});
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("rumble"),n);});
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     connect(&tiktok_,&TikTokLiveService::activityReceived,this,&AppController::tiktokActivityReady);
     connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
@@ -130,7 +136,10 @@ void AppController::disconnectSource(const QString&p){
     emit sourceStatus(p,"warn","Disconnected");
 }
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
 
 void AppController::testDiscordLiveNotification(){
     QSet<QString> configured;for(const auto& platform:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("tiktok"),QStringLiteral("kick"),QStringLiteral("rumble")})if(!settings_.link(platform).isEmpty())configured.insert(platform);

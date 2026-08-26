@@ -54,6 +54,9 @@ signals:
 =======
     void pinnedMessageChanged(const QString& platform, const ChatMessage& message, bool active);
     void discordNotificationResult(bool success, const QString& detail);
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 private:
     static QString twitchName(const QString& link);
