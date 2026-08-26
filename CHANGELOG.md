@@ -1,5 +1,46 @@
 # Leapcast Studio Changelog
 
+<<<<<<< Updated upstream
+=======
+## Leapcast Studio 3.0.7
+
+- Added a shiny New Year transition that slides the previous year into the new year during the automatic New Year's celebration.
+- Added locally hosted Discord bot live notifications in Settings, including secure token entry, channel selection, explicit enablement, optional `@everyone`, and a test notification.
+- Added a clear notice that bot-token setup and recovery are not supported and that tokens must remain private.
+- Made Settings vertically scrollable, improved spacing, and lowered the minimum window size so every control remains usable without fullscreen.
+- Added a polished first-launch **What's New in 3.0.7** summary covering the release's visible changes.
+
+## Leapcast Studio 3.0.6
+
+- **Pop-out crash hotfix:** moved birthday/holiday edge decorations off the frameless transparent top-level window and into a separate click-through child layer, applies the seasonal theme only after the pop-out is shown, and stops the native Windows event filter from forcing `winId()` creation while the pop-out is still being constructed. This hardens the first-open path while keeping the decorative strands and party accents.
+- Added **Birthday confetti playback** with **Every launch** (default) and **First launch only** modes. Every launch replays the transparent birthday party animation once whenever Leapcast is reopened during an active birthday window; First launch only keeps the previous once-per-date behavior. The same setting is available from Phone Connect/mobile.
+- **Build stability hotfix:** split the expanded Phone Connect page into compiler-safe string chunks so MSVC no longer fails with `C2026: string too big, trailing characters truncated` in `Overlay.cpp`.
+
+- Corrected a Windows/MSVC build failure in the new birthday/seasonal celebration overlay where the constructor referenced the wrong theme variable. Also simplified a few date/decorative loops for safer MSVC compilation.
+
+- Added optional pinned-message display for Twitch and YouTube/YouTube Shorts. Supported pins appear in chat with a 📌 banner; one Settings switch controls pinned-message display across all applicable services.
+- Added Twitch pinned-message polling through Twitch's official pinned-chat API and YouTube pinned-banner detection from live-chat continuation actions.
+- **Possibly fixed** TikTok LIVE chat and viewer counts by updating the embedded browser identity and adding broader DOM, profile-link, text, and serialized-state fallbacks. TikTok can change its LIVE page without notice, so this is intentionally not described as guaranteed.
+- **Possibly improved** Twitch sign-in when the embedded Twitch experience rejects its browser: Leapcast keeps Twitch authorization in the user's normal system browser and performs a best-effort authorization handoff back to the in-app clip editor.
+- Replaced the pop-out close button's font-dependent X glyph with a programmatically drawn X so missing-font boxes should no longer appear.
+- Added native edge/corner hit testing to the frameless pop-out, allowing resizing from every direction even when the chat background is at 0% opacity.
+- Corrected the MSVC source-build error in the YouTube pinned-message parser (`const auto findRenderer`) that affected the first 3.0.6 source package.
+- Added an editable **AutoMod word whitelist** alongside the blocked-word list. `smash`, `pass`, and `as` are included as safe defaults, and custom whitelist entries reload immediately after saving.
+- Whitelisting only exempts the allowed word or phrase; other genuinely blocked terms in the same message can still be moderated.
+- Fixed AutoMod false positives caused by substring/fuzzy matching and repeated-letter normalization. Normal vocabulary such as `as`, `class`, `classic`, `glass`, `grass`, `assignment`, and `assistant` is no longer blocked just because it contains or resembles a shorter banned sequence.
+- Kept bypass detection for separated, repeated-letter, leetspeak, and Unicode-confusable versions of genuinely blocked terms.
+- Added YouTube and YouTube Shorts custom-emoji run parsing so supported channel/member emojis render as their actual inline images in dashboard chat, pop-out chat, OBS overlay, and Phone Connect instead of only showing `:emoji_name:` text. The text shortcut remains as a moderation/log fallback.
+- Updated the once-per-install launch notes with the cumulative 3.0.6 changes.
+- Added **custom palette randomization**: a selected 2–8 color palette can produce a stable, unique variation for each chatter during the broadcast, with a one-click reroll/regenerate control.
+- Expanded the desktop custom palette editor to accept 2–8 colors and added matching Phone Connect controls to add, remove, replace, and reorder palette colors, choose the name-color mode/pattern, toggle per-chatter palette randomization, and reroll assignments remotely.
+- Added **Birthday effects** settings on desktop and Phone Connect. Users save a month/day only; Leapcast verifies the Windows PC's local system date at runtime and activates birthday effects only on the day before and the birthday itself.
+- Added a temporary 2026 birthday celebration window that is limited to **August 23–24, 2026**.
+- Added transparent screen-wide birthday animation with confetti, balloons, sparkles, and streamers that can render outside the Leapcast launch/main window without adding an opaque background or blocking clicks.
+- Added persistent birthday accents around the application plus hanging confetti/streamer decorations in the pop-out chat while keeping chat text unobstructed.
+- Added date-driven **Seasonal & Holiday Effects** using the local system clock: Halloween (Oct 15–31), Christmas (Dec 10–28), Easter weekend, Independence Day (July 4), Veterans Day (Nov 11), and New Year's Eve/Day.
+- Added Independence Day/New Year fireworks, Veterans Day American-flag accents, and a New Year ball-drop animation restricted to the first minutes after local midnight on January 1. Phone Connect mirrors the currently active seasonal theme.
+
+>>>>>>> Stashed changes
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
 ## Leapcast Studio 3.0.4

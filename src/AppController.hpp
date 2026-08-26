@@ -20,6 +20,12 @@ public:
     void unbanYouTube(const QString& banId);
     void resolveTwitchAppeal(const QString& requestId, bool approved, const QString& resolutionText);
     void createTwitchClip();
+<<<<<<< Updated upstream
+=======
+    void setPinnedMessagesEnabled(bool enabled);
+    void testDiscordLiveNotification();
+    void regenerateNameColours();
+>>>>>>> Stashed changes
     // Manual moderation triggered from a chat message's context menu, for the
     // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
     void moderateMessage(const ChatMessage& message, int seconds, const QString& reason);
@@ -44,12 +50,19 @@ signals:
     void twitchAuthorizationUrl(const QUrl& url);
     void twitchAuthorized(const QString& login);
     void twitchAuthorizationFailed(const QString& detail);
+<<<<<<< Updated upstream
+=======
+    void pinnedMessageChanged(const QString& platform, const ChatMessage& message, bool active);
+    void discordNotificationResult(bool success, const QString& detail);
+>>>>>>> Stashed changes
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
     static QString kickName(const QString& link);
     void receive(const ChatMessage& message);
     void autoModerate(const ChatMessage& message,const QString& reason);
+    void queueDiscordLivePlatform(const QString& platform);
+    void sendDiscordLiveNotification(const QSet<QString>& platforms, bool test = false);
 public:
     void refreshTwitchAppeals();
     void loadTwitchUserHistory(const QString& userId,const QString& userName);
@@ -83,4 +96,9 @@ public:
     int nextBroadcastColour_{};
     int broadcastColourOffset_{-1};
     bool twitchAuthorizationRequested_{};
+    QNetworkAccessManager discordNetwork_;
+    QTimer discordLiveDelay_;
+    QTimer discordLiveReset_;
+    QSet<QString> discordPendingPlatforms_;
+    bool discordBroadcastNotificationSent_{};
 };

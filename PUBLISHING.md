@@ -4,6 +4,10 @@ The release process is designed so maintainers never edit version numbers in
 C++, CMake, Inno Setup, or GitHub Actions by hand. The root `VERSION` file is
 the single source of truth.
 
+Every completed user-facing update increments the patch/final digit by one
+(for example, `3.0.6` becomes `3.0.7`) and includes matching release notes plus
+a concise, polished first-launch **What's New** summary.
+
 ## Normal release
 
 Start from a clean `main` branch containing all changes for the release:

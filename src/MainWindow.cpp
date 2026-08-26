@@ -149,12 +149,113 @@ QString eventAction(const StreamEvent& event) {
     return QStringLiteral("subscribed");
 }
 QString platformIconHtml(const QString&platform){static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};return paths.contains(platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(paths.value(platform)):QString();}
+<<<<<<< Updated upstream
+=======
+
+QDate easterSunday(int year){
+    const int a=year%19,b=year/100,c=year%100,d=b/4,e=b%4,f=(b+8)/25,g=(b-f+1)/3;
+    const int h=(19*a+b-d-g+15)%30,i=c/4,k=c%4,l=(32+2*e+2*i-h-k)%7,m=(a+11*h+22*l)/451;
+    const int month=(h+l-7*m+114)/31,day=((h+l-7*m+114)%31)+1;return QDate(year,month,day);
+}
+
+bool birthdayWindow(SettingsStore* settings,const QDate& date){
+    if(!settings||!settings->preference(QStringLiteral("birthday_effects_enabled"),true).toBool())return false;
+    if(date>=QDate(2026,8,23)&&date<=QDate(2026,8,24))return true;
+    const int month=settings->preference(QStringLiteral("birthday_month"),0).toInt();
+    const int day=settings->preference(QStringLiteral("birthday_day"),0).toInt();
+    if(month<1||month>12||day<1)return false;
+    // Check this year's birthday and the next year's birthday so a Jan 1
+    // birthday also activates correctly on Dec 31 of the previous year.
+    const QDate thisYearsBirthday(date.year(), month, day);
+    if (thisYearsBirthday.isValid() &&
+        (date == thisYearsBirthday || date == thisYearsBirthday.addDays(-1))) return true;
+    const QDate nextYearsBirthday(date.year() + 1, month, day);
+    if (nextYearsBirthday.isValid() && date == nextYearsBirthday.addDays(-1)) return true;
+    return false;
+}
+
+QString seasonalThemeFor(SettingsStore* settings,const QDateTime& now){
+    if(!settings||!settings->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool())return {};
+    const QDate date=now.date();
+    if(birthdayWindow(settings,date))return QStringLiteral("birthday");
+    if(date.month()==10&&date.day()>=15&&date.day()<=31)return QStringLiteral("halloween");
+    if(date.month()==12&&date.day()>=10&&date.day()<=28)return QStringLiteral("christmas");
+    const QDate easter=easterSunday(date.year());if(date>=easter.addDays(-2)&&date<=easter.addDays(1))return QStringLiteral("easter");
+    if(date.month()==7&&date.day()==4)return QStringLiteral("july4");
+    if(date.month()==11&&date.day()==11)return QStringLiteral("veterans");
+    if((date.month()==12&&date.day()==31)||(date.month()==1&&date.day()==1))return QStringLiteral("newyear");
+    return {};
+}
+
+QString seasonalThemeLabel(const QString& theme){
+    if(theme==QStringLiteral("birthday"))return QStringLiteral("Birthday celebration");
+    if(theme==QStringLiteral("halloween"))return QStringLiteral("Halloween");
+    if(theme==QStringLiteral("christmas"))return QStringLiteral("Christmas");
+    if(theme==QStringLiteral("easter"))return QStringLiteral("Easter");
+    if(theme==QStringLiteral("july4"))return QStringLiteral("Independence Day");
+    if(theme==QStringLiteral("veterans"))return QStringLiteral("Veterans Day");
+    if(theme==QStringLiteral("newyear"))return QStringLiteral("New Year");
+    return {};
+}
+
+class SeasonalDecorationWidget final : public QWidget {
+public:
+    explicit SeasonalDecorationWidget(QWidget* parent):QWidget(parent){setAttribute(Qt::WA_TransparentForMouseEvents);setAttribute(Qt::WA_TranslucentBackground);setAttribute(Qt::WA_NoSystemBackground);hide();}
+    void setTheme(const QString& theme){theme_=theme;setVisible(!theme_.isEmpty());raise();update();}
+protected:
+    void paintEvent(QPaintEvent*) override {
+        if(theme_.isEmpty())return;QPainter p(this);p.setRenderHint(QPainter::Antialiasing);const QRect r=rect();
+        const auto hat=[&](QPointF at,double scale){QPainterPath path;path.moveTo(at.x(),at.y()+34*scale);path.lineTo(at.x()+18*scale,at.y());path.lineTo(at.x()+36*scale,at.y()+34*scale);path.closeSubpath();p.setBrush(QColor("#ff5ca8"));p.setPen(QPen(QColor("#ffd166"),2));p.drawPath(path);p.setBrush(QColor("#53cdf3"));p.drawEllipse(QRectF(at.x()+14*scale,at.y()-5*scale,8*scale,8*scale));p.setPen(QPen(QColor("#ffffff"),2));for(int i=1;i<4;++i)p.drawLine(QPointF(at.x()+i*8*scale,at.y()+29*scale),QPointF(at.x()+i*8*scale-8*scale,at.y()+14*scale));};
+        const auto streamer=[&](int y){static const QColor colors[]{QColor("#ff5ca8"),QColor("#53cdf3"),QColor("#ffd166"),QColor("#72efb0")};for(int x=20,i=0;x<r.width()-20;x+=54,++i){QPainterPath path;path.moveTo(x,y);path.cubicTo(x+12,y+12,x-12,y+24,x+8,y+38);p.setPen(QPen(colors[i%4],3,Qt::SolidLine,Qt::RoundCap));p.drawPath(path);}};
+        const auto flag=[&](QRectF f){p.setPen(Qt::NoPen);for(int i=0;i<7;++i){p.setBrush(i%2?Qt::white:QColor("#d82c3b"));p.drawRect(QRectF(f.x(),f.y()+i*f.height()/7.0,f.width(),f.height()/7.0));}p.setBrush(QColor("#21468b"));p.drawRect(QRectF(f.x(),f.y(),f.width()*0.43,f.height()*0.55));p.setPen(QColor("#ffffff"));p.setFont(QFont(QStringLiteral("Segoe UI"),5,QFont::Bold));p.drawText(QRectF(f.x()+2,f.y()+1,f.width()*0.4,f.height()*0.5),Qt::AlignCenter,QStringLiteral("★ ★ ★\n ★ ★"));};
+        if(theme_==QStringLiteral("birthday")){streamer(7);hat(QPointF(12,28),.85);hat(QPointF(r.width()-58,28),.85);p.setPen(QPen(QColor("#ff91a4"),2));for(int i=0;i<4;++i){const int x=(i%2)?r.width()-24:24,y=110+i*95;p.setBrush(i%2?QColor("#53cdf3"):QColor("#ff5ca8"));p.drawEllipse(QPointF(x,y),9,12);p.drawLine(x,y+12,x+(i%2?-6:6),y+32);}}
+        else if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("veterans")){flag(QRectF(10,10,62,36));flag(QRectF(r.width()-72,10,62,36));p.setPen(QColor("#ffffff"));p.setFont(QFont(QStringLiteral("Segoe UI"),9,QFont::Bold));if(theme_==QStringLiteral("veterans"))p.drawText(QRect(0,8,r.width(),32),Qt::AlignCenter,QStringLiteral("★  HONORING VETERANS  ★"));}
+        else if(theme_==QStringLiteral("halloween")){p.setPen(QPen(QColor("#ff8b2c"),3));const int pumpkinX[2]={18,r.width()-48};for(int x:pumpkinX){p.setBrush(QColor("#ff8b2c"));p.drawEllipse(QRectF(x,14,30,24));p.setBrush(QColor("#111111"));p.drawPolygon(QPolygonF{QPointF(x+7,24),QPointF(x+12,19),QPointF(x+15,25)});p.drawPolygon(QPolygonF{QPointF(x+19,25),QPointF(x+24,19),QPointF(x+27,24)});}p.setPen(QPen(QColor("#cfd6e8"),1));for(int i=0;i<5;++i)p.drawLine(r.width()/2,0,r.width()/2-60+i*30,45);}
+        else if(theme_==QStringLiteral("christmas")){for(int x=12,i=0;x<r.width()-12;x+=28,++i){p.setPen(QPen(QColor("#4a536d"),1));p.drawLine(x,0,x,9);p.setBrush(i%3==0?QColor("#ff5268"):i%3==1?QColor("#5ee8d3"):QColor("#ffd166"));p.setPen(Qt::NoPen);p.drawEllipse(QPointF(x,12),4,5);}QPainterPath tree;tree.moveTo(24,18);tree.lineTo(8,55);tree.lineTo(40,55);tree.closeSubpath();p.setBrush(QColor("#2ca66f"));p.drawPath(tree);p.setBrush(QColor("#f6c85f"));p.drawEllipse(QPointF(24,15),4,4);}
+        else if(theme_==QStringLiteral("easter")){const int eggX[2]={15,r.width()-42};for(int x:eggX){p.setPen(QPen(QColor("#f7a8d2"),2));p.setBrush(QColor("#fce1f0"));p.drawEllipse(QRectF(x,12,28,38));p.setPen(QPen(QColor("#7fd8d0"),2));p.drawArc(QRectF(x+4,23,20,12),0,180*16);}}
+        else if(theme_==QStringLiteral("newyear")){p.setPen(QColor("#ffd166"));p.setFont(QFont(QStringLiteral("Segoe UI"),11,QFont::Bold));p.drawText(QRect(0,7,r.width(),28),Qt::AlignCenter,QStringLiteral("✦  HAPPY NEW YEAR  ✦"));for(int i=0;i<8;++i){const QPointF c(i%2?r.width()-25:25,55+i*70);p.drawLine(c+QPointF(-8,0),c+QPointF(8,0));p.drawLine(c+QPointF(0,-8),c+QPointF(0,8));}}
+    }
+private:QString theme_;
+};
+
+class CelebrationOverlay final : public QWidget {
+public:
+    CelebrationOverlay(const QString& theme,bool ballDrop):theme_(theme),ballDrop_(ballDrop){
+        const QDate today=QDate::currentDate();newYear_=today.month()==12?today.year()+1:today.year();oldYear_=newYear_-1;
+        setWindowFlags(Qt::Tool|Qt::FramelessWindowHint|Qt::WindowStaysOnTopHint|Qt::WindowTransparentForInput);
+        setAttribute(Qt::WA_TranslucentBackground);setAttribute(Qt::WA_NoSystemBackground);setAttribute(Qt::WA_DeleteOnClose);setFocusPolicy(Qt::NoFocus);
+        QRect virtualRect;for(auto*screen:QGuiApplication::screens())virtualRect=virtualRect.united(screen->geometry());setGeometry(virtualRect);
+        const int count = theme_ == QStringLiteral("birthday") ? 150
+                        : theme_ == QStringLiteral("christmas") ? 110
+                        : 90;
+        particles_.reserve(count);
+        for(int i=0;i<count;++i){Particle q;q.x=QRandomGenerator::global()->bounded(qMax(1,width()));q.y=QRandomGenerator::global()->bounded(qMax(1,height()/2))-height()/2.0;q.vx=(QRandomGenerator::global()->bounded(200)-100)/100.0;q.vy=1.4+QRandomGenerator::global()->bounded(240)/100.0;q.spin=(QRandomGenerator::global()->bounded(200)-100)/100.0;q.size=4+QRandomGenerator::global()->bounded(8);q.color=QColor::fromHsv(QRandomGenerator::global()->bounded(360),180+QRandomGenerator::global()->bounded(70),245);particles_<<q;}
+        connect(&timer_,&QTimer::timeout,this,[this]{update();if(elapsed_.elapsed()>8500){timer_.stop();close();}});timer_.start(16);elapsed_.start();show();raise();
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {QPainter p(this);p.setRenderHint(QPainter::Antialiasing);const qreal t=elapsed_.elapsed()/1000.0;
+        if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("newyear")){for(int b=0;b<5;++b){const QPointF c(width()*(.14+.18*b),height()*(.16+.08*(b%2)));const qreal radius=20+std::fmod(t*85+b*23,120.0);QColor c1=b%2?QColor("#ffffff"):QColor("#ff445b");c1.setAlphaF(qMax(0.0,1.0-radius/145.0));p.setPen(QPen(c1,3));for(int a=0;a<16;++a){const qreal ang=a*6.283185307/16.0;p.drawLine(c+QPointF(std::cos(ang)*radius*.55,std::sin(ang)*radius*.55),c+QPointF(std::cos(ang)*radius,std::sin(ang)*radius));}}}
+        for(int i=0;i<particles_.size();++i){auto&q=particles_[i];q.x+=q.vx;q.y+=q.vy;q.vy+=theme_==QStringLiteral("christmas")?.002:.006;if(q.y>height()+20){q.y=-20;q.x=QRandomGenerator::global()->bounded(qMax(1,width()));}p.save();p.translate(q.x,q.y);p.rotate(t*100*q.spin+i*11);p.setPen(Qt::NoPen);p.setBrush(theme_==QStringLiteral("christmas")?QColor(245,250,255,210):q.color);if(theme_==QStringLiteral("christmas"))p.drawEllipse(QPointF(0,0),q.size*.45,q.size*.45);else p.drawRect(QRectF(-q.size/2,-2,q.size,4));p.restore();}
+        if(theme_==QStringLiteral("birthday")){p.setFont(QFont(QStringLiteral("Segoe UI"),24,QFont::Bold));p.setPen(QColor(255,255,255,220));p.drawText(QRect(0,40,width(),50),Qt::AlignCenter,QStringLiteral("HAPPY BIRTHDAY!"));}
+        if(theme_==QStringLiteral("newyear")){
+            const qreal slide=qBound<qreal>(0.0,(t-.35)/2.1,1.0);const qreal eased=1-std::pow(1-slide,3);
+            QFont yearFont(QStringLiteral("Segoe UI"),qMax(42,height()/10),QFont::Black);p.setFont(yearFont);
+            const int oldX=static_cast<int>(-eased*width()),newX=static_cast<int>((1-eased)*width());
+            p.setPen(QColor(255,245,190,static_cast<int>(255*(1-eased))));p.drawText(QRect(oldX,0,width(),height()),Qt::AlignCenter,QString::number(oldYear_));
+            QLinearGradient shine(newX+width()*.25,0,newX+width()*.75,0);shine.setColorAt(0,QColor("#a97819"));shine.setColorAt(.45,QColor("#fffbd1"));shine.setColorAt(.6,QColor("#ffd166"));shine.setColorAt(1,QColor("#a97819"));p.setPen(QPen(QBrush(shine),2));p.drawText(QRect(newX,0,width(),height()),Qt::AlignCenter,QString::number(newYear_));
+        }
+        if(ballDrop_){const qreal progress=qBound<qreal>(0.0,t/5.0,1.0);const qreal y=-45+progress*(height()*.42+45);p.setPen(QPen(QColor("#f7e59b"),3));p.drawLine(width()/2,0,width()/2,y-28);QRadialGradient grad(QPointF(width()/2,y),34);grad.setColorAt(0,QColor("#fffbd1"));grad.setColorAt(1,QColor("#c4a33f"));p.setBrush(grad);p.drawEllipse(QPointF(width()/2,y),32,32);}
+    }
+private:
+    struct Particle{qreal x{},y{},vx{},vy{},spin{},size{};QColor color;};QString theme_;bool ballDrop_{};int oldYear_{},newYear_{};QVector<Particle> particles_;QTimer timer_;QElapsedTimer elapsed_;
+};
+>>>>>>> Stashed changes
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("Leapcast Studio • Multi-Chat & Moderation"));
     resize(1280, 760);
-    setMinimumSize(1000, 620);
+    setMinimumSize(760, 520);
     setWindowIcon(QIcon(QStringLiteral(":/brand/lefroge_chat_icon.png")));
     controller_ = new AppController(this);
     applyTheme();
@@ -429,6 +530,7 @@ void MainWindow::closeEvent(QCloseEvent* e){
 
 void MainWindow::showFirstLaunchUpdateLog(){
     const QString version=QString::fromLatin1(leapcast::Version);
+<<<<<<< Updated upstream
     if(controller_->settings()->preference(QStringLiteral("update_log_seen_version")).toString()==version)return;
     controller_->settings()->setPreference(QStringLiteral("update_log_seen_version"),version);
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
@@ -437,6 +539,17 @@ void MainWindow::showFirstLaunchUpdateLog(){
     auto* summary=label(QStringLiteral("A quick summary of this update. This appears once per installed version."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
     auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Phone Connect control center** with Chat, Events, Moderation, and Settings navigation.\n- **Live stream events** now appear on the connected iPhone.\n- **Mobile moderation** includes bans, unban requests, approvals, rejections, timeouts, and message removal.\n- **Private QR connection** can be regenerated to invalidate an older link.\n- **Release notifications** appear on mobile only when a newer published Windows release is available.\n- Connection and Safari compatibility improvements."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
+=======
+    const QString notesRevision=version+QStringLiteral("-release-notes-r1");
+    if(controller_->settings()->preference(QStringLiteral("update_log_seen_revision")).toString()==notesRevision)return;
+    controller_->settings()->setPreference(QStringLiteral("update_log_seen_revision"),notesRevision);
+    QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's New in Leapcast %1").arg(version));dialog.resize(560,430);dialog.setMinimumSize(440,330);
+    auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(22,20,22,20);layout->setSpacing(12);
+    auto* title=label(QStringLiteral("✨ WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
+    auto* summary=label(QStringLiteral("A cleaner Settings experience, Discord live alerts, and a little New Year sparkle."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **🎆 New Year transformation**  \n  Watch the previous year slide away as the new year arrives with a polished golden shine.\n\n- **🔔 Discord live notifications**  \n  Connect your own Discord bot in Settings, select a channel, test it, and optionally notify `@everyone` when your stream goes live. Leapcast hosts the notification connection locally while it is running.\n\n- **🔐 Clear bot-token safety**  \n  The token stays masked in Settings, with an explicit reminder that bot-token creation, retrieval, and recovery are not supported.\n\n- **🪟 Better at every window size**  \n  Settings now scrolls properly, controls have more breathing room, and the program no longer needs to be fullscreen to remain usable."));layout->addWidget(notes,1);
+    auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
+>>>>>>> Stashed changes
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -722,7 +835,7 @@ QWidget* MainWindow::buildPhoneConnectPage(){
 }
 
 QWidget* MainWindow::buildSettingsPage(){
-    auto* page=new QWidget;auto* layout=new QVBoxLayout(page);layout->setContentsMargins(8,4,8,8);layout->setSpacing(7);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(10);scroll->setWidget(body);outer->addWidget(scroll);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
 
     auto* appearance=new QFrame;appearance->setProperty("card",true);auto* appearanceLayout=new QVBoxLayout(appearance);
@@ -763,6 +876,39 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(tiktokActivity,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("tiktok_popout_activity_enabled"),enabled);});
     layout->addWidget(popoutAppearance);
 
+<<<<<<< Updated upstream
+=======
+    auto* seasonal=new QFrame;seasonal->setProperty("card",true);auto* seasonalLayout=new QVBoxLayout(seasonal);seasonalLayout->addWidget(label(QStringLiteral("SEASONAL & BIRTHDAY EFFECTS"),"cardTitle"));
+    auto* seasonalEnabled=new QCheckBox(QStringLiteral("Enable seasonal and holiday effects"));seasonalEnabled->setChecked(controller_->settings()->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool());seasonalLayout->addWidget(seasonalEnabled);
+    auto* birthdayEnabled=new QCheckBox(QStringLiteral("Birthday effects — confetti, party hats, balloons, sparkles, and streamers"));birthdayEnabled->setChecked(controller_->settings()->preference(QStringLiteral("birthday_effects_enabled"),true).toBool());seasonalLayout->addWidget(birthdayEnabled);
+    auto* birthdayPlaybackRow=new QHBoxLayout;birthdayPlaybackRow->addWidget(label(QStringLiteral("Birthday confetti playback")));auto* birthdayPlayback=new QComboBox;birthdayPlayback->addItem(QStringLiteral("Every launch during birthday window"),QStringLiteral("always"));birthdayPlayback->addItem(QStringLiteral("First launch only (once per day)"),QStringLiteral("first"));birthdayPlayback->setCurrentIndex(qMax(0,birthdayPlayback->findData(controller_->settings()->preference(QStringLiteral("birthday_confetti_playback"),QStringLiteral("always")).toString())));birthdayPlaybackRow->addWidget(birthdayPlayback,1);seasonalLayout->addLayout(birthdayPlaybackRow);
+    auto* birthdayRow=new QHBoxLayout;birthdayRow->addWidget(label(QStringLiteral("Birthday (month / day)")));auto* birthdayMonth=new QComboBox;birthdayMonth->addItem(QStringLiteral("Not set"),0);for(int month=1;month<=12;++month)birthdayMonth->addItem(QLocale().monthName(month,QLocale::LongFormat),month);birthdayMonth->setCurrentIndex(qMax(0,birthdayMonth->findData(controller_->settings()->preference(QStringLiteral("birthday_month"),0))));birthdayRow->addWidget(birthdayMonth,1);auto* birthdayDay=new QSpinBox;birthdayDay->setRange(0,31);birthdayDay->setSpecialValueText(QStringLiteral("Day"));birthdayDay->setValue(controller_->settings()->preference(QStringLiteral("birthday_day"),0).toInt());birthdayRow->addWidget(birthdayDay);seasonalLayout->addLayout(birthdayRow);
+    auto* birthdayHelp=label(QStringLiteral("Birthday effects are date-only: they play on the day before and on the saved birthday, after Leapcast verifies the PC's local system date. 'Every launch' replays the party animation once each time Leapcast is reopened during that window; 'First launch only' limits it to once per active birthday date. Holiday themes are automatic: Halloween Oct 15–31, Christmas Dec 10–28, Easter weekend, July 4, Veterans Day Nov 11, and New Year's Eve/Day. The New Year ball drop is limited to the first minutes after local midnight on Jan 1."),"muted");birthdayHelp->setWordWrap(true);seasonalLayout->addWidget(birthdayHelp);
+    connect(seasonalEnabled,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("seasonal_effects_enabled"),enabled);updateSeasonalEffects(false);});
+    connect(birthdayEnabled,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("birthday_effects_enabled"),enabled);updateSeasonalEffects(false);});
+    connect(birthdayPlayback,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,birthdayPlayback](int){controller_->settings()->setPreference(QStringLiteral("birthday_confetti_playback"),birthdayPlayback->currentData().toString());syncMobileSettings();});
+    connect(birthdayMonth,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,birthdayMonth](int){controller_->settings()->setPreference(QStringLiteral("birthday_month"),birthdayMonth->currentData().toInt());updateSeasonalEffects(false);});
+    connect(birthdayDay,qOverload<int>(&QSpinBox::valueChanged),this,[this](int day){controller_->settings()->setPreference(QStringLiteral("birthday_day"),day);updateSeasonalEffects(false);});
+    layout->addWidget(seasonal);
+
+    auto* discordCard=new QFrame;discordCard->setProperty("card",true);auto* discordLayout=new QVBoxLayout(discordCard);discordLayout->addWidget(label(QStringLiteral("DISCORD LIVE NOTIFICATIONS"),"cardTitle"));
+    auto* discordHelp=label(QStringLiteral("Link a Discord bot hosted by Leapcast while this program is running. Leapcast watches linked Twitch, YouTube, Rumble, Kick, and direct TikTok LIVE profile feeds. After the first service goes live, it waits 5 seconds so other services can join the same single notification. The bot must already be invited with View Channel, Send Messages, and Mention Everyone permissions."),"muted");discordHelp->setWordWrap(true);discordLayout->addWidget(discordHelp);
+    auto* noSupport=label(QStringLiteral("Important: Leapcast does not provide support or instructions for creating, finding, or resetting a Discord bot token. Treat the token like a password and never share it."),"status");noSupport->setWordWrap(true);noSupport->setStyleSheet(QStringLiteral("color:#f6c85f"));discordLayout->addWidget(noSupport);
+    auto* tokenRow=new QHBoxLayout;tokenRow->addWidget(label(QStringLiteral("Bot token")));auto* discordToken=new QLineEdit(controller_->settings()->secret(QStringLiteral("discord_bot_token")));discordToken->setEchoMode(QLineEdit::Password);discordToken->setPlaceholderText(QStringLiteral("Paste bot token"));tokenRow->addWidget(discordToken,1);discordLayout->addLayout(tokenRow);
+    auto* channelRow=new QHBoxLayout;channelRow->addWidget(label(QStringLiteral("Channel ID")));auto* discordChannel=new QLineEdit(controller_->settings()->secret(QStringLiteral("discord_channel_id")));discordChannel->setPlaceholderText(QStringLiteral("Discord channel ID"));channelRow->addWidget(discordChannel,1);discordLayout->addLayout(channelRow);
+    auto* streamerRow=new QHBoxLayout;streamerRow->addWidget(label(QStringLiteral("Streamer name")));auto* discordStreamer=new QLineEdit(controller_->settings()->preference(QStringLiteral("discord_streamer_name"),QStringLiteral("Streamer")).toString());discordStreamer->setPlaceholderText(QStringLiteral("Name used for {user}"));streamerRow->addWidget(discordStreamer,1);discordLayout->addLayout(streamerRow);
+    auto* messageRow=new QHBoxLayout;messageRow->addWidget(label(QStringLiteral("Live message")));auto* discordMessage=new QLineEdit(controller_->settings()->preference(QStringLiteral("discord_live_message"),QStringLiteral("@everyone {user} is live on {Platforms}")).toString());discordMessage->setPlaceholderText(QStringLiteral("@everyone {user} is live on {Platforms}"));messageRow->addWidget(discordMessage,1);discordLayout->addLayout(messageRow);
+    auto* messageHelp=label(QStringLiteral("Placeholders: {user} uses the streamer name above. {Platforms} becomes Twitch, YouTube, Rumble, Kick, and/or TikTok LIVE, with “&” inserted naturally when several feeds are live. Matching stream links are added below the message automatically."),"muted");messageHelp->setWordWrap(true);discordLayout->addWidget(messageHelp);
+    auto* enableDiscord=new QCheckBox(QStringLiteral("Allow the linked bot to notify Discord when I go live"));enableDiscord->setChecked(controller_->settings()->preference(QStringLiteral("discord_live_notifications"),false).toBool());discordLayout->addWidget(enableDiscord);
+    auto* mentionEveryone=new QCheckBox(QStringLiteral("Include @everyone in live notifications"));mentionEveryone->setChecked(controller_->settings()->preference(QStringLiteral("discord_mention_everyone"),true).toBool());discordLayout->addWidget(mentionEveryone);
+    auto* discordActions=new QHBoxLayout;auto* saveDiscord=new QPushButton(QStringLiteral("Save Discord bot"));auto* testDiscord=new QPushButton(QStringLiteral("Send test notification"));discordActions->addWidget(saveDiscord);discordActions->addWidget(testDiscord);discordActions->addStretch();discordLayout->addLayout(discordActions);auto* discordStatus=label(QStringLiteral("Not tested"),"muted");discordStatus->setWordWrap(true);discordLayout->addWidget(discordStatus);
+    const auto saveDiscordSettings=[this,discordToken,discordChannel,discordStreamer,discordMessage,enableDiscord,mentionEveryone]{controller_->settings()->setSecret(QStringLiteral("discord_bot_token"),discordToken->text());controller_->settings()->setSecret(QStringLiteral("discord_channel_id"),discordChannel->text());controller_->settings()->setPreference(QStringLiteral("discord_streamer_name"),discordStreamer->text().trimmed());controller_->settings()->setPreference(QStringLiteral("discord_live_message"),discordMessage->text());controller_->settings()->setPreference(QStringLiteral("discord_live_notifications"),enableDiscord->isChecked());controller_->settings()->setPreference(QStringLiteral("discord_mention_everyone"),mentionEveryone->isChecked());};
+    connect(saveDiscord,&QPushButton::clicked,this,[saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Saved. The bot is hosted while Leapcast Studio is running."));discordStatus->setStyleSheet(QStringLiteral("color:#63e6be"));});
+    connect(testDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Sending test…"));controller_->testDiscordLiveNotification();});
+    connect(controller_,&AppController::discordNotificationResult,discordCard,[discordStatus](bool ok,const QString&detail){discordStatus->setText(detail);discordStatus->setStyleSheet(ok?QStringLiteral("color:#63e6be"):QStringLiteral("color:#ff637d"));});
+    layout->addWidget(discordCard);
+
+>>>>>>> Stashed changes
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();
     auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key==QStringLiteral("obs")?QStringLiteral("Chat Overlay"):key==QStringLiteral("phone")?QStringLiteral("Phone Connect"):key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);

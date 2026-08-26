@@ -4,6 +4,9 @@
 #include <QRegularExpression>
 #include <QRandomGenerator>
 #include <QTimer>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QJsonDocument>
 
 namespace {
 QString configuredTwitchClientId(SettingsStore& settings){
@@ -14,6 +17,9 @@ QString twitchRedemptionKey(const QString&rewardId,const QString&user,const QStr
 }
 
 AppController::AppController(QObject*p):QObject(p){
+    discordLiveDelay_.setSingleShot(true);discordLiveDelay_.setInterval(5000);
+    connect(&discordLiveDelay_,&QTimer::timeout,this,[this]{const auto platforms=discordPendingPlatforms_;discordPendingPlatforms_.clear();sendDiscordLiveNotification(platforms);});
+    discordLiveReset_.setSingleShot(true);discordLiveReset_.setInterval(90000);connect(&discordLiveReset_,&QTimer::timeout,this,[this]{discordBroadcastNotificationSent_=false;discordPendingPlatforms_.clear();});
     for(auto*service:{static_cast<QObject*>(&twitch_),static_cast<QObject*>(&youtube_),static_cast<QObject*>(&shorts_),static_cast<QObject*>(&tiktok_),static_cast<QObject*>(&kick_),static_cast<QObject*>(&rumble_)})Q_UNUSED(service);
     connect(&twitch_,&TwitchChatService::messageReceived,this,[this](const ChatMessage&message){
         const QString rewardId=message.metadata.value(QStringLiteral("custom_reward_id")).toString();
@@ -40,6 +46,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("tiktok",s,d);});
     connect(&kick_,&KickLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("kick",s,d);});
     connect(&rumble_,&RumbleLiveService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("rumble",s,d);});
+<<<<<<< Updated upstream
     connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();});
     connect(&twitch_,&TwitchChatService::viewerCountChanged,this,[this](int n){emit viewerCount("twitch",n);});
     connect(&youtube_,&YouTubeChatService::viewerCountChanged,this,[this](int n){emit viewerCount("youtube",n);});
@@ -47,6 +54,16 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("tiktok",n);});
     connect(&kick_,&KickLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("kick",n);});
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[this](int n){emit viewerCount("rumble",n);});
+=======
+    connect(&twitch_,&TwitchChatService::broadcastWentLive,this,[this]{twitchAutoModOffenses_.clear();regenerateNameColours();discordBroadcastNotificationSent_=false;queueDiscordLivePlatform(QStringLiteral("twitch"));});
+    const auto viewers=[this](const QString& platform,int n){emit viewerCount(platform,n);queueDiscordLivePlatform(platform);};
+    connect(&twitch_,&TwitchChatService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("twitch"),n);});
+    connect(&youtube_,&YouTubeChatService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("youtube"),n);});
+    connect(&shorts_,&YouTubeChatService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("yt_shorts"),n);});
+    connect(&tiktok_,&TikTokLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("tiktok"),n);});
+    connect(&kick_,&KickLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("kick"),n);});
+    connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("rumble"),n);});
+>>>>>>> Stashed changes
     connect(&tiktok_,&TikTokLiveService::activityReceived,this,&AppController::tiktokActivityReady);
     connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
@@ -109,8 +126,58 @@ void AppController::disconnectSource(const QString&p){
     // down manually (e.g. Twitch only reports "reconnecting" on an
     // *unexpected* drop, not a deliberate one), so Disconnect looked like it
     // did nothing. Tell the UI directly instead.
+    discordPendingPlatforms_.remove(p);if(discordPendingPlatforms_.isEmpty()&&!discordLiveDelay_.isActive())discordBroadcastNotificationSent_=false;
     emit sourceStatus(p,"warn","Disconnected");
 }
+<<<<<<< Updated upstream
+=======
+
+void AppController::testDiscordLiveNotification(){
+    QSet<QString> configured;for(const auto& platform:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("tiktok"),QStringLiteral("kick"),QStringLiteral("rumble")})if(!settings_.link(platform).isEmpty())configured.insert(platform);
+    if(configured.isEmpty())configured.insert(QStringLiteral("twitch"));sendDiscordLiveNotification(configured,true);
+}
+
+void AppController::queueDiscordLivePlatform(const QString& platform){
+    static const QSet<QString> supported{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts"),QStringLiteral("tiktok"),QStringLiteral("kick"),QStringLiteral("rumble")};
+    if(!supported.contains(platform)||!settings_.preference(QStringLiteral("discord_live_notifications"),false).toBool())return;discordLiveReset_.start();if(discordBroadcastNotificationSent_)return;
+    discordPendingPlatforms_.insert(platform==QStringLiteral("yt_shorts")?QStringLiteral("youtube"):platform);if(!discordLiveDelay_.isActive())discordLiveDelay_.start();
+}
+
+void AppController::sendDiscordLiveNotification(const QSet<QString>& platforms,bool test){
+    if(!settings_.preference(QStringLiteral("discord_live_notifications"),false).toBool()&&!test)return;
+    const QString token=settings_.secret(QStringLiteral("discord_bot_token"));
+    const QString channel=settings_.secret(QStringLiteral("discord_channel_id"));
+    if(token.isEmpty()||channel.isEmpty()){if(test)emit discordNotificationResult(false,QStringLiteral("Enter a bot token and channel ID first."));return;}
+    if(platforms.isEmpty()||(!test&&discordBroadcastNotificationSent_))return;
+    const QStringList order{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("rumble"),QStringLiteral("kick"),QStringLiteral("tiktok")};
+    const QHash<QString,QString> labels{{QStringLiteral("twitch"),QStringLiteral("Twitch")},{QStringLiteral("youtube"),QStringLiteral("YouTube")},{QStringLiteral("rumble"),QStringLiteral("Rumble")},{QStringLiteral("kick"),QStringLiteral("Kick")},{QStringLiteral("tiktok"),QStringLiteral("TikTok LIVE")}};
+    QStringList platformNames,links;for(const auto& key:order)if(platforms.contains(key)){platformNames<<labels.value(key);const QString link=settings_.link(key);if(!link.isEmpty())links<<QStringLiteral("%1: %2").arg(labels.value(key),link);}
+    QString joined;if(platformNames.size()==1)joined=platformNames.first();else if(platformNames.size()==2)joined=platformNames.join(QStringLiteral(" & "));else{joined=platformNames.mid(0,platformNames.size()-1).join(QStringLiteral(", "))+QStringLiteral(" & ")+platformNames.last();}
+    QString user=settings_.preference(QStringLiteral("discord_streamer_name"),QStringLiteral("Streamer")).toString().trimmed();if(user.isEmpty())user=QStringLiteral("Streamer");
+    const bool mention=settings_.preference(QStringLiteral("discord_mention_everyone"),true).toBool();
+    QString content=settings_.preference(QStringLiteral("discord_live_message"),QStringLiteral("@everyone {user} is live on {Platforms}")).toString();if(content.trimmed().isEmpty())content=QStringLiteral("@everyone {user} is live on {Platforms}");
+    content.replace(QStringLiteral("{user}"),user,Qt::CaseInsensitive);content.replace(QStringLiteral("{Platforms}"),joined,Qt::CaseInsensitive);if(!mention)content.replace(QRegularExpression(QStringLiteral("@everyone\\s*"),QRegularExpression::CaseInsensitiveOption),QString());
+    if(test)content=QStringLiteral("TEST • ")+content;if(!links.isEmpty())content+=QStringLiteral("\n")+links.join(QLatin1Char('\n'));
+    QNetworkRequest request(QUrl(QStringLiteral("https://discord.com/api/v10/channels/%1/messages").arg(channel)));
+    request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
+    request.setRawHeader("Authorization",QByteArray("Bot ")+token.toUtf8());
+    QJsonObject allowed{{QStringLiteral("parse"),mention?QJsonArray{QStringLiteral("everyone")}:QJsonArray{}}};
+    if(!test)discordBroadcastNotificationSent_=true;
+    auto* reply=discordNetwork_.post(request,QJsonDocument(QJsonObject{{QStringLiteral("content"),content},{QStringLiteral("allowed_mentions"),allowed}}).toJson(QJsonDocument::Compact));
+    connect(reply,&QNetworkReply::finished,this,[this,reply,test]{
+        const int code=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();const bool ok=reply->error()==QNetworkReply::NoError&&code>=200&&code<300;
+        if(!ok&&!test)discordBroadcastNotificationSent_=false;
+        QString detail=ok?(test?QStringLiteral("Test notification sent."):QStringLiteral("Combined Discord live notification sent.")):QStringLiteral("Discord rejected the notification (%1). Check the token, channel ID, bot access, and Mention Everyone permission.").arg(code);
+        emit discordNotificationResult(ok,detail);reply->deleteLater();
+    });
+}
+void AppController::setPinnedMessagesEnabled(bool enabled){
+    pinnedMessagesEnabled_=enabled;settings_.setPreference(QStringLiteral("show_pinned_messages"),enabled);
+    if(!enabled){twitchPinnedTimer_.stop();for(const auto&platform:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts")})emit pinnedMessageChanged(platform,ChatMessage{},false);return;}
+    twitchPinnedTimer_.start();for(auto it=currentPinnedMessages_.cbegin();it!=currentPinnedMessages_.cend();++it)emit pinnedMessageChanged(it.key(),it.value(),true);
+    const QString broadcaster=settings_.secret(QStringLiteral("twitch_broadcaster_id"));if(!twitch_.channel().isEmpty()&&!broadcaster.isEmpty())twitchMod_.getPinnedMessage(broadcaster);
+}
+>>>>>>> Stashed changes
 void AppController::authorizeTwitch(){twitchAuthorizationRequested_=true;twitchAuth_.authorize(configuredTwitchClientId(settings_));}
 void AppController::configureYouTubeModeration(const QString&t){settings_.setSecret("youtube_access_token",t);youtubeMod_.setAccessToken(t);emit sourceStatus("youtube","ok","moderation configured");}
 void AppController::connectStreamlabs(const QString&t){settings_.setSecret("streamlabs_socket_token",t);streamlabs_.connectToken(t);}
