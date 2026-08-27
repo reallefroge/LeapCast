@@ -1,7 +1,15 @@
 # Leapcast Studio Changelog
 
-<<<<<<< Updated upstream
-=======
+## Leapcast Studio 3.0.8
+
+- Repaired TikTok LIVE capture so chat rows are collected without mistaking Like and Follow controls for messages.
+- TikTok joins now appear in the pop-out while likes and follows stay hidden; the OBS overlay remains chat-only.
+- Applied stable random, single, gradient, and pattern name colors consistently in the OBS overlay.
+- Preserved the existing Phone Connect private link through automatic app updates, so an update does not require rescanning the QR code.
+- Removed the unnecessary Kick card from Keys and kept only a short explanation under Settings → Visible Platforms.
+- Recorded YouTube and Twitch timeouts in Bans with reversible entries and refreshed Twitch restrictions after moderation.
+- AutoMod now deletes the flagged message from YouTube and Twitch after applying the platform restriction.
+
 ## Leapcast Studio 3.0.7
 
 - Added a shiny New Year transition that slides the previous year into the new year during the automatic New Year's celebration.
@@ -40,7 +48,6 @@
 - Added date-driven **Seasonal & Holiday Effects** using the local system clock: Halloween (Oct 15–31), Christmas (Dec 10–28), Easter weekend, Independence Day (July 4), Veterans Day (Nov 11), and New Year's Eve/Day.
 - Added Independence Day/New Year fireworks, Veterans Day American-flag accents, and a New Year ball-drop animation restricted to the first minutes after local midnight on January 1. Phone Connect mirrors the currently active seasonal theme.
 
->>>>>>> Stashed changes
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
 ## Leapcast Studio 3.0.4

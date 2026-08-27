@@ -81,6 +81,7 @@ public:
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;
+    QHash<QString,int> pendingYouTubeSeconds_;
     // AutoMod's Twitch timeout escalation, keyed by Twitch user id: offenses
     // 1-5 use the configured base timeout, offense 6 doubles it, and offense
     // 7+ is a permanent ban. Reset when the channel
