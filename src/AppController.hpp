@@ -32,6 +32,9 @@ public:
     QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
     QString whitelistedWordsPath() const { return automod_.whitelistedWordsPath(); }
     bool reloadAutoMod() { return automod_.reload(); }
+    QStringList moderationWords(bool whitelist) const { return automod_.words(whitelist); }
+    bool addModerationWord(const QString& word,bool whitelist) { return automod_.addWord(word,whitelist); }
+    bool removeModerationWords(const QStringList& words,bool whitelist) { return automod_.removeWords(words,whitelist); }
 signals:
     void messageReady(const ChatMessage& message);
     // AutoMod held a message back instead of showing it — for a note in the

@@ -282,6 +282,9 @@ void AppController::receive(const ChatMessage&m){
         coloured.color=QColor(palette.first());coloured.metadata[QStringLiteral("name_color_mode")]=colourMode;coloured.metadata[QStringLiteral("name_color_palette")]=QJsonArray::fromStringList(palette);if(colourMode==QStringLiteral("pattern"))coloured.metadata[QStringLiteral("name_color_pattern")]=settings_.preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")).toString();
     }
     const bool omitBlockedFromLog=coloured.platform==QStringLiteral("kick")||coloured.platform==QStringLiteral("rumble");
+    const QString iconKey=QStringLiteral("custom_chatter_icons_")+coloured.platform;
+    const QStringList customIcons=settings_.preference(iconKey,QStringList{}).toStringList();
+    if(!customIcons.isEmpty())coloured.metadata[QStringLiteral("custom_chatter_icons")]=QJsonArray::fromStringList(customIcons.mid(0,3));
     if(!omitBlockedFromLog)audit_.appendMessage(coloured);
     QString reason;
     if(automod_.check(coloured,&reason)){

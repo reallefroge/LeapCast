@@ -9,8 +9,10 @@
 #include <cmath>
 
 #include <QAction>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QButtonGroup>
+#include <QBuffer>
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -25,6 +27,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QFrame>
+#include <QFileDialog>
 #include <QFontComboBox>
 #include <QComboBox>
 #include <QGridLayout>
@@ -315,7 +318,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     splitter->setSizes({850, 430});
     setCentralWidget(splitter);
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
-        const QString badges = badgeGlyphs(m.badges);
+        const QString badges = chatBadgeHtml(m);
         const QString icon=controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool()?platformIconHtml(m.platform):QString();
         const QString html = QStringLiteral("%1%2%3 %4")
             .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "),chatNameHtml(m),chatMessageBodyHtml(m));
@@ -913,7 +916,7 @@ QWidget* MainWindow::buildPhoneConnectPage(){
 }
 
 QWidget* MainWindow::buildSettingsPage(){
-    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(10);scroll->setWidget(body);outer->addWidget(scroll);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(7,3,7,7);layout->setSpacing(7);scroll->setWidget(body);outer->addWidget(scroll);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
 
     auto* appearance=new QFrame;appearance->setProperty("card",true);auto* appearanceLayout=new QVBoxLayout(appearance);
@@ -922,11 +925,13 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* fonts=new QFontComboBox;fonts->setCurrentFont(QFont(controller_->settings()->preference("ui_font_family","Segoe UI").toString()));fontRow->addWidget(fonts,1);
     auto* fontSize=new QSpinBox;fontSize->setRange(8,20);fontSize->setSuffix(QStringLiteral(" pt"));fontSize->setValue(controller_->settings()->preference("ui_font_size",10).toInt());fontRow->addWidget(fontSize);appearanceLayout->addLayout(fontRow);
     auto* scaleRow=new QHBoxLayout;scaleRow->addWidget(label(QStringLiteral("Button and control size")));
-    auto* controlScale=new QSlider(Qt::Horizontal);controlScale->setRange(80,160);controlScale->setValue(controller_->settings()->preference("ui_control_scale",100).toInt());scaleRow->addWidget(controlScale,1);
+    auto* controlScale=new QSlider(Qt::Horizontal);controlScale->setRange(80,160);controlScale->setValue(controller_->settings()->preference("ui_control_scale",92).toInt());scaleRow->addWidget(controlScale,1);
     auto* scaleValue=label(QString::number(controlScale->value())+QStringLiteral("%"));scaleRow->addWidget(scaleValue);appearanceLayout->addLayout(scaleRow);
+    auto* compactLayout=new QCheckBox(QStringLiteral("Compact layout (less spacing, same features)"));compactLayout->setChecked(controller_->settings()->preference(QStringLiteral("ui_compact_layout"),true).toBool());appearanceLayout->addWidget(compactLayout);
     connect(fonts,&QFontComboBox::currentFontChanged,this,[this](const QFont&font){controller_->settings()->setPreference("ui_font_family",font.family());applyTheme();});
     connect(fontSize,qOverload<int>(&QSpinBox::valueChanged),this,[this](int value){controller_->settings()->setPreference("ui_font_size",value);applyTheme();});
     connect(controlScale,&QSlider::valueChanged,this,[this,scaleValue](int value){scaleValue->setText(QString::number(value)+"%");controller_->settings()->setPreference("ui_control_scale",value);applyTheme();});
+    connect(compactLayout,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("ui_compact_layout"),enabled);applyTheme();});
     layout->addWidget(appearance);
 
     auto* popoutAppearance=new QFrame;popoutAppearance->setProperty("card",true);auto* popoutLayout=new QVBoxLayout(popoutAppearance);
@@ -942,6 +947,18 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(editPalette,&QPushButton::clicked,this,[this,paletteButtons]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();bool ok=false;const QString text=QInputDialog::getMultiLineText(this,QStringLiteral("Custom name palette"),QStringLiteral("One hex color per line (2–8 colors). Reorder the lines to reorder the palette."),palette.join(QLatin1Char('\n')),&ok);if(!ok)return;QStringList next;for(QString value:text.split(QRegularExpression(QStringLiteral("[\r\n,]+")),Qt::SkipEmptyParts)){value=value.trimmed();QColor c(value);if(c.isValid())next<<c.name();}if(next.size()<2||next.size()>8){QMessageBox::warning(this,QStringLiteral("Custom palette"),QStringLiteral("Choose between 2 and 8 valid colors."));return;}controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),next);controller_->regenerateNameColours();for(int i=0;i<paletteButtons.size();++i){QColor c(i<next.size()?next.at(i):QStringLiteral("#ffffff"));paletteButtons[i]->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(c.name(),c.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));}});
     connect(randomizePalette,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("chat_palette_randomize"),enabled);controller_->regenerateNameColours();});
     connect(rerollPalette,&QPushButton::clicked,this,[this,randomizePalette]{if(!randomizePalette->isChecked())randomizePalette->setChecked(true);controller_->regenerateNameColours();});
+    auto* iconRow=new QHBoxLayout;iconRow->addWidget(label(QStringLiteral("Custom chatter icons")));auto* iconPlatform=new QComboBox;
+    for(const auto&entry:QList<QPair<QString,QString>>{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"},{"kick","Kick"},{"rumble","Rumble"}})iconPlatform->addItem(entry.second,entry.first);
+    auto* manageIcons=new QPushButton(QStringLiteral("Manage (0/3)"));auto* clearIcons=new QPushButton(QStringLiteral("Clear"));iconRow->addWidget(iconPlatform,1);iconRow->addWidget(manageIcons);iconRow->addWidget(clearIcons);popoutLayout->addLayout(iconRow);
+    auto* iconHelp=label(QStringLiteral("Up to 3 PNG/JPG icons per platform. Custom icons replace standard chatter badges; moderator and Twitch subscriber badges remain."),"muted");iconHelp->setWordWrap(true);popoutLayout->addWidget(iconHelp);
+    const auto refreshIconCount=[this,iconPlatform,manageIcons]{const QString key=QStringLiteral("custom_chatter_icons_")+iconPlatform->currentData().toString();manageIcons->setText(QStringLiteral("Manage (%1/3)").arg(controller_->settings()->preference(key,QStringList{}).toStringList().size()));};
+    connect(iconPlatform,qOverload<int>(&QComboBox::currentIndexChanged),this,[refreshIconCount](int){refreshIconCount();});
+    connect(clearIcons,&QPushButton::clicked,this,[this,iconPlatform,refreshIconCount]{controller_->settings()->setPreference(QStringLiteral("custom_chatter_icons_")+iconPlatform->currentData().toString(),QStringList{});refreshIconCount();});
+    connect(manageIcons,&QPushButton::clicked,this,[this,iconPlatform,refreshIconCount]{
+        const QStringList files=QFileDialog::getOpenFileNames(this,QStringLiteral("Choose up to 3 chatter icons"),QString(),QStringLiteral("Images (*.png *.jpg *.jpeg *.webp)"));if(files.isEmpty())return;if(files.size()>3){QMessageBox::warning(this,QStringLiteral("Custom chatter icons"),QStringLiteral("Choose no more than 3 images for each platform."));return;}
+        QStringList encoded;for(const auto&path:files){QImage image(path);if(image.isNull())continue;image=image.scaled(48,48,Qt::KeepAspectRatio,Qt::SmoothTransformation);QByteArray bytes;QBuffer buffer(&bytes);buffer.open(QIODevice::WriteOnly);image.save(&buffer,"PNG");encoded<<QStringLiteral("data:image/png;base64,")+QString::fromLatin1(bytes.toBase64());}
+        if(encoded.isEmpty()){QMessageBox::warning(this,QStringLiteral("Custom chatter icons"),QStringLiteral("None of those image files could be read."));return;}controller_->settings()->setPreference(QStringLiteral("custom_chatter_icons_")+iconPlatform->currentData().toString(),encoded);refreshIconCount();
+    });refreshIconCount();
     auto* programIcons=new QCheckBox(QStringLiteral("Show platform icons in program chat and pop-out"));programIcons->setChecked(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());popoutLayout->addWidget(programIcons);
     auto* overlayIcons=new QCheckBox(QStringLiteral("Show platform icons in OBS overlay"));overlayIcons->setChecked(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());popoutLayout->addWidget(overlayIcons);
     auto* pinnedMessages=new QCheckBox(QStringLiteral("Show pinned messages for Twitch and YouTube/Shorts (📌)"));pinnedMessages->setChecked(controller_->settings()->preference(QStringLiteral("show_pinned_messages"),true).toBool());popoutLayout->addWidget(pinnedMessages);
@@ -1231,13 +1248,23 @@ QWidget* MainWindow::buildModerationPage() {
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
 
-        auto* whitelistNote=label(QStringLiteral("Word whitelist: allowed words/phrases bypass blocked-word matching only. ‘smash’ and ‘pass’ are included by default; other blocked content in the same message is still moderated."),"muted");
-        whitelistNote->setWordWrap(true);
-        automodLayout->addWidget(whitelistNote);
-        auto* editWhitelist=new QPushButton(QStringLiteral("Edit word whitelist"));
-        editWhitelist->setToolTip(QStringLiteral("Open the AutoMod whitelist. Add one allowed word or phrase per line."));
-        automodLayout->addWidget(editWhitelist);
-        connect(editWhitelist,&QPushButton::clicked,this,&MainWindow::editWhitelistedWords);
+        auto* wordTabs=new QTabWidget;wordTabs->setObjectName(QStringLiteral("wordManager"));
+        const auto buildWordTab=[this,wordTabs](bool whitelist){
+            auto* tab=new QWidget;auto* row=new QHBoxLayout(tab);row->setContentsMargins(6,6,6,6);row->setSpacing(6);
+            auto* input=new QLineEdit;input->setPlaceholderText(whitelist?QStringLiteral("Allow a word or phrase"):QStringLiteral("Block a word or phrase"));
+            auto* add=new QPushButton(QStringLiteral("Add"));add->setProperty("primary",true);auto* review=new QPushButton(QStringLiteral("Review Words"));
+            const auto addWord=[this,input,whitelist]{const QString word=input->text().trimmed();if(word.isEmpty())return;if(!controller_->addModerationWord(word,whitelist)){QMessageBox::warning(this,QStringLiteral("AutoMod words"),QStringLiteral("That word could not be saved."));return;}input->clear();};
+            connect(add,&QPushButton::clicked,this,addWord);connect(input,&QLineEdit::returnPressed,this,addWord);
+            connect(review,&QPushButton::clicked,this,[this,whitelist]{
+                QDialog dialog(this);dialog.setWindowTitle(whitelist?QStringLiteral("Review Whitelisted Words"):QStringLiteral("Review Blocked Words"));dialog.resize(430,480);auto* layout=new QVBoxLayout(&dialog);
+                auto* help=label(QStringLiteral("Select one or more words, then remove them."),"muted");layout->addWidget(help);
+                auto* list=new QListWidget;list->setSelectionMode(QAbstractItemView::ExtendedSelection);list->addItems(controller_->moderationWords(whitelist));layout->addWidget(list,1);
+                auto* buttons=new QDialogButtonBox(QDialogButtonBox::Close);auto* remove=buttons->addButton(QStringLiteral("Remove selected"),QDialogButtonBox::ActionRole);remove->setProperty("danger",true);layout->addWidget(buttons);
+                connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);connect(remove,&QPushButton::clicked,&dialog,[this,list,whitelist]{QStringList selected;for(auto*item:list->selectedItems())selected<<item->text();if(selected.isEmpty())return;if(controller_->removeModerationWords(selected,whitelist))for(auto*item:list->selectedItems())delete item;});dialog.exec();
+            });
+            row->addWidget(input,1);row->addWidget(add);row->addWidget(review);wordTabs->addTab(tab,whitelist?QStringLiteral("Whitelist"):QStringLiteral("Blocked"));
+        };
+        buildWordTab(false);buildWordTab(true);automodLayout->addWidget(wordTabs);
     }
     left->addWidget(tiktokCard);
     auto* rumbleCard=makePlatformCard(QStringLiteral("Rumble"),QStringLiteral("Moderate in the Rumble live chat"),QColor("#85c742"),QStringLiteral("Open Rumble moderation"));rumbleCard->setProperty("platform",QStringLiteral("rumble"));left->addWidget(rumbleCard);connect(rumbleCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{const QString link=controller_->settings()->link(QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?QStringLiteral("https://rumble.com/account/livestreams"):link));});left->addStretch();
@@ -1435,7 +1462,7 @@ QWidget* MainWindow::buildChatDock() {
 
     popoutClickThrough_ = new QCheckBox(QStringLiteral("Click-through (see and click what's behind it)"));
     layout->addWidget(popoutClickThrough_);
-    layout->addWidget(label(QStringLiteral("Press Esc or Alt+C, or click back into Leapcast Studio, to regain control of the pop-out."), "muted"));
+    layout->addWidget(label(QStringLiteral("Normal clicks pass through. Right-click messages to moderate; hold Alt while dragging to highlight. Esc or Alt+C exits click-through."), "muted"));
     connect(popoutClickThrough_, &QCheckBox::toggled, this, [ensurePopout](bool enabled) {
         auto* popout = ensurePopout();
         popout->setGhostMode(enabled);
@@ -1466,33 +1493,35 @@ QWidget* MainWindow::buildChatDock() {
 void MainWindow::applyTheme() {
     const QString family=controller_?controller_->settings()->preference("ui_font_family","Segoe UI").toString():QStringLiteral("Segoe UI");
     const int fontSize=controller_?controller_->settings()->preference("ui_font_size",10).toInt():10;
-    const int scale=controller_?controller_->settings()->preference("ui_control_scale",100).toInt():100;
+    const int requestedScale=controller_?controller_->settings()->preference("ui_control_scale",100).toInt():100;
+    const bool compact=controller_?controller_->settings()->preference(QStringLiteral("ui_compact_layout"),true).toBool():true;
+    const int scale=compact?qMin(requestedScale,92):requestedScale;
     QString sheet=QStringLiteral(R"(
         * { font-family:'__FONT__'; font-size:__SIZE__pt; color:#eef2ff; }
-        QMainWindow, QWidget { background:#0b0d15; }
-        QFrame#navigationRail, QFrame#chatDock { background:#111522; border:1px solid #242b3d; border-radius:14px; }
+        QMainWindow, QWidget { background:#090c14; }
+        QFrame#navigationRail, QFrame#chatDock { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #121827,stop:1 #0e1320); border:1px solid #293451; border-radius:14px; }
         QLabel[role='brand'] { font-size:11pt; font-weight:800; color:#f8fbff; qproperty-alignment:AlignCenter; }
         QLabel[role='version'] { background:#0b0e17; border-radius:5px; padding:4px; font-size:10pt; font-weight:700; color:#aeb8d0; }
         QLabel[role='pageTitle'] { font-size:11pt; font-weight:800; color:#f8fbff; }
-        QLabel[role='heroTitle'] { font-size:17pt; font-weight:800; }
+        QLabel[role='heroTitle'] { font-size:15pt; font-weight:800; color:#ffffff; }
         QLabel[role='muted'], QLabel[role='status'] { color:#9ca7bf; }
         QLabel[role='signal'] { color:#68e9d5; font-size:8pt; font-weight:700; }
         QLabel[role='cardTitle'] { font-size:12pt; font-weight:700; }
-        QFrame#safetyHero { background:#171d2d; border-left:5px solid #53cdf3; border-radius:12px; }
+        QFrame#safetyHero { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #17233a,stop:1 #17172e); border:1px solid #2d4266; border-left:4px solid #55dff7; border-radius:11px; }
         QFrame#welcomeCard { background:#171d2d; border:1px solid #283149; border-left:5px solid #63e6be; border-radius:12px; padding:4px; }
         QFrame#keyNotice { background:#2a2010; border:1px solid #775a20; border-left:5px solid #f6c85f; border-radius:12px; padding:4px; }
         QFrame#bansHero { background:#141a29; border:1px solid #28334a; border-left:5px solid #7667ef; border-radius:12px; }
-        QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
-        QPushButton { background:#20283a; border:0; border-radius:8px; padding:__VPAD__px __HPAD__px; font-weight:700; }
-        QPushButton:hover { background:#2b3650; }
-        QPushButton[nav='true'] { text-align:left; margin:2px 4px; padding:9px 8px; font-size:9pt; }
-        QPushButton[nav='true']:checked { background:#7667ef; color:white; }
-        QPushButton[primary='true'] { background:#53cdf3; color:#071018; }
+        QFrame[card='true'] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #161d2d,stop:1 #121725); border:1px solid #283550; border-radius:11px; }
+        QPushButton { background:#202a40; border:1px solid #2e3a56; border-radius:8px; padding:__VPAD__px __HPAD__px; font-weight:700; }
+        QPushButton:hover { background:#2c3957; border-color:#4a608a; }
+        QPushButton[nav='true'] { text-align:left; margin:1px 3px; padding:__NAVPAD__px 8px; font-size:9pt; }
+        QPushButton[nav='true']:checked { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #765df2,stop:1 #496fd9); color:white; border-color:#8878ff; }
+        QPushButton[primary='true'] { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #50def5,stop:1 #58bfff); color:#061018; border-color:#79e8f8; }
         QPushButton[danger='true'] { background:#44202b; color:#ff91a4; }
         QPushButton[danger='true']:hover { background:#5a2635; color:#ffd3da; }
         QTabWidget::pane { border:1px solid #242b3d; border-radius:9px; }
         QTabBar::tab { background:#171d2d; min-width:44px; min-height:38px; padding:4px 3px; margin-right:1px; }
-        QTabBar::tab:selected { background:#7667ef; }
+        QTabBar::tab:selected { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #765df2,stop:1 #526cdd); }
         QTabBar::tab:disabled { color:#565f78; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }
         QTabWidget#moderationTabs::pane { background:#101522; border:1px solid #283149; border-radius:10px; }
@@ -1504,10 +1533,17 @@ void MainWindow::applyTheme() {
         QLabel[role='restrictionReason'] { color:#c7cede; }
         QLabel[role='restrictionTime'] { color:#7f8ba5; font-size:9pt; }
         QSplitter::handle { background:#242b3d; width:2px; }
+        QLineEdit, QSpinBox, QComboBox, QFontComboBox { background:#0d1220; border:1px solid #2b3956; border-radius:7px; padding:5px 7px; selection-background-color:#725ff0; }
+        QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QFontComboBox:focus { border:1px solid #53cdf3; }
+        QScrollArea { border:0; }
+        QScrollBar:vertical { background:#0b0f19; width:9px; margin:2px; }
+        QScrollBar::handle:vertical { background:#34415f; min-height:26px; border-radius:4px; }
+        QTabWidget#wordManager::pane { border:1px solid #293651; border-radius:8px; background:#101624; }
     )");
     family.contains(QLatin1Char('\''))?sheet.replace("__FONT__",QStringLiteral("Segoe UI")):sheet.replace("__FONT__",family);
     sheet.replace("__SIZE__",QString::number(qBound(8,fontSize,20)));
     sheet.replace("__VPAD__",QString::number(qMax(5,10*scale/100)));
     sheet.replace("__HPAD__",QString::number(qMax(6,12*scale/100)));
+    sheet.replace("__NAVPAD__",QString::number(compact?6:9));
     qApp->setStyleSheet(sheet);
 }

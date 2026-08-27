@@ -26,6 +26,21 @@ QString badgeGlyphs(const QStringList& badges) {
     return out;
 }
 
+QString chatBadgeHtml(const ChatMessage& message) {
+    const QJsonArray custom=message.metadata.value(QStringLiteral("custom_chatter_icons")).toArray();
+    if(custom.isEmpty())return badgeGlyphs(message.badges);
+    QStringList retained;
+    for(const auto&badge:message.badges)if(badge==QStringLiteral("MOD")||(message.platform==QStringLiteral("twitch")&&badge==QStringLiteral("SUB")))retained<<badge;
+    QString html=badgeGlyphs(retained);
+    int count=0;
+    for(const auto&value:custom){
+        const QString data=value.toString();
+        if(++count>3||!data.startsWith(QStringLiteral("data:image/png;base64,")))continue;
+        html+=QStringLiteral("<img src='%1' width='20' height='20' style='vertical-align:-5px;margin:0 2px'>").arg(data.toHtmlEscaped());
+    }
+    return html;
+}
+
 QString chatNameHtml(const ChatMessage& message) {
     const QString mode=message.metadata.value(QStringLiteral("name_color_mode")).toString();
     QStringList palette;
@@ -231,6 +246,24 @@ bool AutoMod::reload(){
     const bool blockedOk=loadTerms(path_,terms_);
     const bool whitelistOk=loadTerms(whitelistPath_,whitelistTerms_);
     return blockedOk&&whitelistOk;
+}
+
+QStringList AutoMod::words(bool whitelist)const{
+    QFile f(whitelist?whitelistPath_:path_);QStringList result;
+    if(!f.open(QIODevice::ReadOnly|QIODevice::Text))return result;
+    while(!f.atEnd()){const QString line=QString::fromUtf8(f.readLine()).trimmed();if(!line.isEmpty()&&!line.startsWith(QLatin1Char('#')))result<<line;}
+    result.removeDuplicates();result.sort(Qt::CaseInsensitive);return result;
+}
+bool AutoMod::addWord(const QString&word,bool whitelist){
+    const QString clean=word.trimmed();if(clean.isEmpty()||clean.contains(QLatin1Char('\n'))||clean.contains(QLatin1Char('\r')))return false;
+    const QStringList existing=words(whitelist);for(const auto&item:existing)if(item.compare(clean,Qt::CaseInsensitive)==0)return true;
+    QFile f(whitelist?whitelistPath_:path_);if(!f.open(QIODevice::Append|QIODevice::Text))return false;f.write(clean.toUtf8());f.write("\n");f.close();return reload();
+}
+bool AutoMod::removeWords(const QStringList&remove,bool whitelist){
+    const QString filePath=whitelist?whitelistPath_:path_;QFile input(filePath);if(!input.open(QIODevice::ReadOnly|QIODevice::Text))return false;
+    const QStringList lines=QString::fromUtf8(input.readAll()).split(QLatin1Char('\n'));input.close();QSaveFile output(filePath);if(!output.open(QIODevice::WriteOnly|QIODevice::Text))return false;
+    for(const auto&line:lines){const QString clean=line.trimmed();bool drop=false;if(!clean.startsWith(QLatin1Char('#')))for(const auto&word:remove)if(clean.compare(word.trimmed(),Qt::CaseInsensitive)==0){drop=true;break;}if(!drop&&!line.isNull()){output.write(line.toUtf8());output.write("\n");}}
+    return output.commit()&&reload();
 }
 
 QString AutoMod::maskWhitelisted(const QString&t)const{

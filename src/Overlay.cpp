@@ -157,9 +157,9 @@ html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI'
 .m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}.pi{width:18px;height:18px;object-fit:contain;vertical-align:-4px;margin-right:6px}.ye{width:24px;height:24px;object-fit:contain;vertical-align:-6px;margin:0 1px}
 .m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}.kick{border-left:4px solid #53fc18}.rumble{border-left:4px solid #85c742}
 </style><main id=c></main><script>
-const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
+const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(m){let custom=(m.meta?.custom_chatter_icons||[]).filter(x=>String(x).startsWith('data:image/png;base64,')).slice(0,3),order=custom.length?(m.platform==='twitch'?['MOD','SUB']:['MOD']):BO,out=order.filter(k=>(m.badges||[]).includes(k)).map(k=>BG[k]).join('');return out+custom.map(src=>`<img class=ye src="${src}">`).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
 function body(el,m){let runs=m.meta?.youtube_runs;if(!Array.isArray(runs)||!runs.length){el.textContent=m.text;return}for(const r of runs){if(('text' in r))el.append(document.createTextNode(r.text||''));else if(r.url){let i=document.createElement('img');i.className='ye';i.src=r.url;i.alt=r.alt||'';i.title=r.alt||'';el.append(i)}else el.append(document.createTextNode(r.alt||''))}}
-function rgb(h){let s=String(h||'').replace('#','');if(!/^[0-9a-f]{6}$/i.test(s))return null;return[parseInt(s.slice(0,2),16),parseInt(s.slice(2,4),16),parseInt(s.slice(4,6),16)]}function hex(v){return'#'+v.map(n=>Math.round(n).toString(16).padStart(2,'0')).join('')}function name(el,m,prefix){el.append(document.createTextNode(prefix));let mode=m.meta?.name_color_mode,p=(m.meta?.name_color_palette||[]).map(rgb).filter(Boolean),u=m.user||'';if(!['gradient','pattern'].includes(mode)||p.length<2){let s=document.createElement('span');s.style.color=m.color;s.textContent=u;el.append(s);return}for(let i=0;i<u.length;i++){let color;if(mode==='gradient'){let z=u.length<2?0:i/(u.length-1)*(p.length-1),a=Math.min(Math.floor(z),p.length-2),q=z-a;color=hex(p[a].map((v,j)=>v+(p[a+1][j]-v)*q))}else{let pattern=m.meta?.name_color_pattern||'repeat',j=i%p.length;if(pattern==='blocks')j=Math.floor(i/2)%p.length;else if(pattern==='mirror'&&p.length>1){let cycle=p.length*2-2,k=i%cycle;j=k<p.length?k:cycle-k}color=hex(p[j])}let s=document.createElement('span');s.style.color=color;s.textContent=u[i];el.append(s)}}let n=0,clearGeneration=-1;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();if(clearGeneration<0)clearGeneration=d.clear_generation;else if(clearGeneration!==d.clear_generation){c.replaceChildren();clearGeneration=d.clear_generation}document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML=(d.show_platform_icons?'<img class=pi src="/platform-icon/'+m.platform+'">':'')+'<span class=u></span><span class=x></span>';let b=badges(m.badges),pin=m.meta?.pinned?'📌 ':'';name(x.querySelector('.u'),m,pin+(b?b+' ':''));body(x.querySelector('.x'),m);c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
+function rgb(h){let s=String(h||'').replace('#','');if(!/^[0-9a-f]{6}$/i.test(s))return null;return[parseInt(s.slice(0,2),16),parseInt(s.slice(2,4),16),parseInt(s.slice(4,6),16)]}function hex(v){return'#'+v.map(n=>Math.round(n).toString(16).padStart(2,'0')).join('')}function name(el,m,prefix){el.innerHTML=prefix;let mode=m.meta?.name_color_mode,p=(m.meta?.name_color_palette||[]).map(rgb).filter(Boolean),u=m.user||'';if(!['gradient','pattern'].includes(mode)||p.length<2){let s=document.createElement('span');s.style.color=m.color;s.textContent=u;el.append(s);return}for(let i=0;i<u.length;i++){let color;if(mode==='gradient'){let z=u.length<2?0:i/(u.length-1)*(p.length-1),a=Math.min(Math.floor(z),p.length-2),q=z-a;color=hex(p[a].map((v,j)=>v+(p[a+1][j]-v)*q))}else{let pattern=m.meta?.name_color_pattern||'repeat',j=i%p.length;if(pattern==='blocks')j=Math.floor(i/2)%p.length;else if(pattern==='mirror'&&p.length>1){let cycle=p.length*2-2,k=i%cycle;j=k<p.length?k:cycle-k}color=hex(p[j])}let s=document.createElement('span');s.style.color=color;s.textContent=u[i];el.append(s)}}let n=0,clearGeneration=-1;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();if(clearGeneration<0)clearGeneration=d.clear_generation;else if(clearGeneration!==d.clear_generation){c.replaceChildren();clearGeneration=d.clear_generation}document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML=(d.show_platform_icons?'<img class=pi src="/platform-icon/'+m.platform+'">':'')+'<span class=u></span><span class=x></span>';let b=badges(m),pin=m.meta?.pinned?'📌 ':'';name(x.querySelector('.u'),m,pin+(b?b+' ':''));body(x.querySelector('.x'),m);c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
 </script>)HTML";
 
 const char mobileHtml[]=R"HTML(<!doctype html><html><head><meta charset="utf-8">
@@ -341,7 +341,7 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     QTextCharFormat messageFormat=cursor.charFormat();
     messageFormat.setProperty(kMessageIdProperty,id);
     cursor.setCharFormat(messageFormat);
-    const QString badges=badgeGlyphs(m.badges);static const QHash<QString,QString> icons{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};const QString platformIcon=showPlatformIcons_&&icons.contains(m.platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(icons.value(m.platform)):QString();
+    const QString badges=chatBadgeHtml(m);static const QHash<QString,QString> icons{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};const QString platformIcon=showPlatformIcons_&&icons.contains(m.platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(icons.value(m.platform)):QString();
     // Chat lines remain unfilled so the game/stream is visible between and
     // behind every message. Font, size, and outline are applied after the
     // rich-text colors so the user's Pop-out Chat settings win consistently.
@@ -471,7 +471,9 @@ void PopoutChat::clearMessages(){chat_->clear();historyById_.clear();}
 void PopoutChat::setGhostMode(bool on){
     if(ghostMode_==on)return;
     ghostMode_=on;
+#ifndef Q_OS_WIN
     setWindowFlag(Qt::WindowTransparentForInput,on);
+#endif
     if(on)registerRestoreHotkeys();else unregisterRestoreHotkeys();
     show();
     emit ghostModeChanged(ghostMode_);
@@ -500,6 +502,9 @@ void PopoutChat::applyTextOutline(){
 
 ChatBrowser::ChatBrowser(QWidget*parent):QTextBrowser(parent){}
 QVariant ChatBrowser::loadResource(int type,const QUrl&name){
+    if(type==QTextDocument::ImageResource&&name.scheme()==QStringLiteral("data")){
+        const QString encoded=name.toString();const int comma=encoded.indexOf(QLatin1Char(','));if(comma>0){QImage image;image.loadFromData(QByteArray::fromBase64(encoded.mid(comma+1).toLatin1()));if(!image.isNull())return image;}
+    }
     if(type==QTextDocument::ImageResource&&name.scheme()==QStringLiteral("https")){
         const QString key=name.toString(QUrl::FullyEncoded);
         if(!pendingImageUrls_.contains(key)){
@@ -628,6 +633,13 @@ bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintp
 #ifdef Q_OS_WIN
     if(eventType=="windows_generic_MSG"||eventType=="windows_dispatcher_MSG"){
         auto*msg=static_cast<MSG*>(message);
+        if(nativeWindowId_!=0&&msg->hwnd==reinterpret_cast<HWND>(nativeWindowId_)&&msg->message==WM_NCHITTEST&&ghostMode_){
+            // Normal clicks pass through to the game/window underneath. A
+            // right-click still reaches chat moderation, and holding Alt
+            // temporarily enables selection/highlighting with the left mouse.
+            if((GetAsyncKeyState(VK_RBUTTON)&0x8000)||(GetAsyncKeyState(VK_MENU)&0x8000)){*result=HTCLIENT;return true;}
+            *result=HTTRANSPARENT;return true;
+        }
         if(nativeWindowId_!=0&&msg->hwnd==reinterpret_cast<HWND>(nativeWindowId_)&&msg->message==WM_NCHITTEST&&!ghostMode_){
             constexpr int border=9;const POINTS pt=MAKEPOINTS(msg->lParam);const QPoint local=mapFromGlobal(QPoint(pt.x,pt.y));const bool left=local.x()>=0&&local.x()<border,right=local.x()<=width()&&local.x()>width()-border,top=local.y()>=0&&local.y()<border,bottom=local.y()<=height()&&local.y()>height()-border;
             if(top&&left)*result=HTTOPLEFT;else if(top&&right)*result=HTTOPRIGHT;else if(bottom&&left)*result=HTBOTTOMLEFT;else if(bottom&&right)*result=HTBOTTOMRIGHT;else if(left)*result=HTLEFT;else if(right)*result=HTRIGHT;else if(top)*result=HTTOP;else if(bottom)*result=HTBOTTOM;else return false;return true;

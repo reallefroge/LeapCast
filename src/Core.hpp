@@ -36,6 +36,7 @@ Q_DECLARE_METATYPE(ChatMessage)
 // requires an authenticated API call and bundled images per badge set, so
 // this uses plain-text glyphs instead.
 QString badgeGlyphs(const QStringList& badges);
+QString chatBadgeHtml(const ChatMessage& message);
 // Formats a chat name using the message's selected single, gradient, or
 // repeating palette while keeping the original plain username intact for
 // moderation and platform API calls.
@@ -93,6 +94,9 @@ public:
     bool check(const ChatMessage& message, QString* reason = nullptr);
     QString blockedWordsPath() const { return path_; }
     QString whitelistedWordsPath() const { return whitelistPath_; }
+    QStringList words(bool whitelist) const;
+    bool addWord(const QString& word,bool whitelist);
+    bool removeWords(const QStringList& words,bool whitelist);
     static QString normalize(const QString& text);
 private:
     struct Term { QString normalized; QString compact; QRegularExpression exact; QRegularExpression bypass; };

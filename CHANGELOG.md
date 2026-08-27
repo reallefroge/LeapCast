@@ -1,5 +1,13 @@
 # Leapcast Studio Changelog
 
+## Leapcast Studio 3.0.9
+
+- Added quick Add fields for blocked and whitelisted words, with Enter-key support and Review Words removal lists.
+- Added up to three custom chatter icons per streaming platform in pop-out and OBS chat while retaining moderator and Twitch subscriber badges.
+- Improved pop-out click-through: normal clicks pass through, right-click moderation remains available, and Alt-drag enables text selection.
+- Kept full edge/corner pop-out resizing and the resize grip.
+- Added a compact layout mode and refreshed dark mode with layered navy surfaces, cyan/violet accents, clearer controls, and reduced clutter.
+
 ## Leapcast Studio 3.0.8
 
 - Repaired TikTok LIVE capture so chat rows are collected without mistaking Like and Follow controls for messages.
