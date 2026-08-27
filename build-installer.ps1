@@ -14,8 +14,8 @@ $ProjectRoot = $PSScriptRoot
 $VersionFile = Join-Path $ProjectRoot "VERSION"
 $Version = (Get-Content $VersionFile -Raw).Trim()
 
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "VERSION must contain a semantic version such as 2.0.3."
+if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+    throw "VERSION must contain three or four numeric parts, such as 3.0.9 or 3.0.9.1."
 }
 
 if ([string]::IsNullOrWhiteSpace($TwitchClientId)) {

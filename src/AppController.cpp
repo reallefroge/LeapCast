@@ -188,13 +188,20 @@ void AppController::sendDiscordLiveNotification(const QSet<QString>& platforms,b
     QNetworkRequest request(QUrl(QStringLiteral("https://discord.com/api/v10/channels/%1/messages").arg(channel)));
     request.setHeader(QNetworkRequest::ContentTypeHeader,QStringLiteral("application/json"));
     request.setRawHeader("Authorization",QByteArray("Bot ")+token.toUtf8());
+    request.setRawHeader("User-Agent",QStringLiteral("DiscordBot (https://github.com/reallefroge/LeapCast, %1)").arg(QString::fromLatin1(leapcast::Version)).toUtf8());
     QJsonObject allowed{{QStringLiteral("parse"),mention?QJsonArray{QStringLiteral("everyone")}:QJsonArray{}}};
     if(!test)discordBroadcastNotificationSent_=true;
     auto* reply=discordNetwork_.post(request,QJsonDocument(QJsonObject{{QStringLiteral("content"),content},{QStringLiteral("allowed_mentions"),allowed}}).toJson(QJsonDocument::Compact));
     connect(reply,&QNetworkReply::finished,this,[this,reply,test]{
         const int code=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();const bool ok=reply->error()==QNetworkReply::NoError&&code>=200&&code<300;
         if(!ok&&!test)discordBroadcastNotificationSent_=false;
-        QString detail=ok?(test?QStringLiteral("Test notification sent."):QStringLiteral("Combined Discord live notification sent.")):QStringLiteral("Discord rejected the notification (%1). Check the token, channel ID, bot access, and Mention Everyone permission.").arg(code);
+        QString detail;
+        if(ok)detail=test?QStringLiteral("Test notification sent."):QStringLiteral("Combined Discord live notification sent.");
+        else{
+            const QByteArray body=reply->readAll();const QJsonObject error=QJsonDocument::fromJson(body).object();const int discordCode=error.value(QStringLiteral("code")).toInt();QString message=error.value(QStringLiteral("message")).toString().trimmed();if(message.isEmpty())message=reply->errorString();
+            detail=discordCode>0?QStringLiteral("Discord error %1 (HTTP %2): %3").arg(discordCode).arg(code).arg(message):QStringLiteral("Discord rejected the notification (HTTP %1): %2").arg(code).arg(message);
+            if(discordCode==40333)detail+=QStringLiteral(" The request was blocked before reaching Discord; Leapcast now sends Discord's required bot User-Agent.");
+        }
         emit discordNotificationResult(ok,detail);reply->deleteLater();
     });
 }

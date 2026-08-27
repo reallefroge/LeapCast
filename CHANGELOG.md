@@ -1,5 +1,11 @@
 # Leapcast Studio Changelog
 
+## Leapcast Studio 3.0.9.1
+
+- Fixed Discord bot notifications being rejected before posting by adding Discord's required bot User-Agent.
+- Discord failures now show the exact API error code and message instead of a generic HTTP 403 notice.
+- Added support for four-part minor-fix versions such as `3.0.9.1` across builds, installers, releases, and automatic update comparisons.
+
 ## Leapcast Studio 3.0.9
 
 - Added quick Add fields for blocked and whitelisted words, with Enter-key support and Review Words removal lists.
