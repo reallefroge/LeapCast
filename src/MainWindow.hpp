@@ -7,6 +7,7 @@
 #include <QPoint>
 #include <QUrl>
 #include <QJsonArray>
+#include <QStringList>
 
 class QStackedWidget;
 class QTabWidget;
@@ -21,6 +22,8 @@ class QCloseEvent;
 class QShowEvent;
 class QTimer;
 class QVBoxLayout;
+class QDialog;
+class QPlainTextEdit;
 class AppController;
 class OverlayServer;
 class PopoutChat;
@@ -68,6 +71,11 @@ private:
     void reviewTwitchAppeal(bool approve);
     void showPostUpdateConnectionCheck();
     void showFirstLaunchUpdateLog();
+    // Shared raw-log window for the Discord and TikTok troubleshooting tools.
+    // Both write into the same ring buffer so a support copy/paste carries the
+    // whole picture.
+    void showDiagnosticsWindow(const QString& focus);
+    void appendDiagnostic(const QString& source,const QString& line);
     void refreshPinnedBanner();
     void syncMobileSettings();
     void updateSeasonalEffects(bool allowCelebration = true);
@@ -122,4 +130,7 @@ private:
     QString seasonalTheme_;
     bool birthdayCelebrationPlayedThisLaunch_{};
     bool silentUpdateCheck_{};
+    QStringList diagnosticLog_;
+    QDialog* diagnosticsWindow_{};
+    QPlainTextEdit* diagnosticsView_{};
 };

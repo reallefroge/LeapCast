@@ -44,6 +44,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProgressDialog>
 #include <QPainter>
 #include <QPainterPath>
@@ -68,6 +69,8 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTime>
+#include <QScrollBar>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
@@ -542,11 +545,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (silentUpdateCheck_) { silentUpdateCheck_=false; return; }
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
     });
+    connect(controller_, &AppController::discordDiagnostic, this,
+            [this](const QString& line){ appendDiagnostic(QStringLiteral("Discord"), line); });
+    connect(controller_, &AppController::tiktokDiagnostic, this,
+            [this](const QString& line){ appendDiagnostic(QStringLiteral("TikTok"), line); });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
     QTimer::singleShot(350, this, &MainWindow::showPostUpdateConnectionCheck);
     QTimer::singleShot(900, this, &MainWindow::showFirstLaunchUpdateLog);
     QTimer::singleShot(1600, this, [this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
-    QTimer::singleShot(2400, updater_, [this]{silentUpdateCheck_=true;updater_->check(false);});
+    if constexpr (leapcast::AutoUpdate) {
+        QTimer::singleShot(2400, updater_, [this]{silentUpdateCheck_=true;updater_->check(false);});
+    }
 }
 
 void MainWindow::syncMobileSettings(){
@@ -628,9 +637,49 @@ void MainWindow::showFirstLaunchUpdateLog(){
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's New in Leapcast %1").arg(version));dialog.resize(560,430);dialog.setMinimumSize(440,330);
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(22,20,22,20);layout->setSpacing(12);
     auto* title=label(QStringLiteral("✨ WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("A cleaner Settings experience, Discord live alerts, and a little New Year sparkle."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **🎆 New Year transformation**  \n  Watch the previous year slide away as the new year arrives with a polished golden shine.\n\n- **🔔 Discord live notifications**  \n  Connect your own Discord bot in Settings, select a channel, test it, and optionally notify `@everyone` when your stream goes live. Leapcast hosts the notification connection locally while it is running.\n\n- **🔐 Clear bot-token safety**  \n  The token stays masked in Settings, with an explicit reminder that bot-token creation, retrieval, and recovery are not supported.\n\n- **🪟 Better at every window size**  \n  Settings now scrolls properly, controls have more breathing room, and the program no longer needs to be fullscreen to remain usable."));layout->addWidget(notes,1);
+    auto* summary=label(QStringLiteral("A test build: automatic updates are off, TikTok chat collection is fixed, and Discord now tells you why a 403 happened."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **\U0001F6D1 Automatic updates are OFF**  \n  This is a test build. It will not contact GitHub at startup and will not replace itself with the published release. Check now is disabled too.\n\n- **\U0001F50E Discord \u2018Diagnose 403\u2019**  \n  Settings \u2192 Discord now checks your token, then the channel, then server membership, and names the step that fails. Administrator does not fix every 403, and this says which one you have.\n\n- **\U0001F4AC TikTok chat actually shows up**  \n  The hidden collector page had no viewport, so TikTok rendered zero chat rows. It now runs in a real off-screen window you can open, and sign in to, from Settings.\n\n- **\U0001F465 Sane TikTok viewer counts**  \n  The count no longer picks up numbers from recommended streams in the sidebar."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
+}
+
+void MainWindow::appendDiagnostic(const QString& source,const QString& line){
+    const QString stamped=QStringLiteral("[%1] %2  %3")
+                              .arg(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")),source,line);
+    diagnosticLog_.append(stamped);
+    while(diagnosticLog_.size()>600)diagnosticLog_.removeFirst();
+    if(diagnosticsView_){
+        diagnosticsView_->appendPlainText(stamped);
+        diagnosticsView_->verticalScrollBar()->setValue(diagnosticsView_->verticalScrollBar()->maximum());
+    }
+}
+
+void MainWindow::showDiagnosticsWindow(const QString& focus){
+    if(!diagnosticsWindow_){
+        diagnosticsWindow_=new QDialog(this);
+        diagnosticsWindow_->setWindowTitle(QStringLiteral("Leapcast diagnostics"));
+        diagnosticsWindow_->resize(820,460);
+        auto* layout=new QVBoxLayout(diagnosticsWindow_);
+        auto* hint=new QLabel(QStringLiteral("Raw responses from Discord and the TikTok collector. Copy this whole log when reporting a problem — it contains no tokens."));
+        hint->setWordWrap(true);layout->addWidget(hint);
+        diagnosticsView_=new QPlainTextEdit;diagnosticsView_->setReadOnly(true);
+        diagnosticsView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+        diagnosticsView_->setStyleSheet(QStringLiteral("background:#0b0d15;color:#cfe6ff;font-family:Consolas,monospace;"));
+        layout->addWidget(diagnosticsView_,1);
+        auto* buttons=new QHBoxLayout;
+        auto* copy=new QPushButton(QStringLiteral("Copy log"));
+        auto* clear=new QPushButton(QStringLiteral("Clear"));
+        auto* close=new QPushButton(QStringLiteral("Close"));
+        buttons->addWidget(copy);buttons->addWidget(clear);buttons->addStretch();buttons->addWidget(close);
+        layout->addLayout(buttons);
+        connect(copy,&QPushButton::clicked,this,[this]{QGuiApplication::clipboard()->setText(diagnosticLog_.join(QLatin1Char('\n')));});
+        connect(clear,&QPushButton::clicked,this,[this]{diagnosticLog_.clear();diagnosticsView_->clear();});
+        connect(close,&QPushButton::clicked,diagnosticsWindow_,&QDialog::hide);
+        diagnosticsView_->setPlainText(diagnosticLog_.join(QLatin1Char('\n')));
+    }
+    if(!focus.isEmpty())appendDiagnostic(focus,QStringLiteral("--- opened from the %1 panel ---").arg(focus));
+    diagnosticsWindow_->show();
+    diagnosticsWindow_->raise();
+    diagnosticsWindow_->activateWindow();
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -990,6 +1039,25 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(birthdayDay,qOverload<int>(&QSpinBox::valueChanged),this,[this](int day){controller_->settings()->setPreference(QStringLiteral("birthday_day"),day);updateSeasonalEffects(false);});
     layout->addWidget(seasonal);
 
+    auto* tiktokCard=new QFrame;tiktokCard->setProperty("card",true);auto* tiktokLayout=new QVBoxLayout(tiktokCard);
+    tiktokLayout->addWidget(label(QStringLiteral("TIKTOK COLLECTOR"),"cardTitle"));
+    auto* tiktokHelp=label(QStringLiteral("TikTok LIVE has no public chat API, so Leapcast reads chat from a hidden browser page. Open the collector to see exactly what that page is showing — a live chat panel, a login prompt, or a captcha. Signing in to TikTok inside this window is remembered between launches, and a signed-in page shows far more of chat."),"muted");tiktokHelp->setWordWrap(true);tiktokLayout->addWidget(tiktokHelp);
+    auto* tiktokActions=new QHBoxLayout;
+    auto* showCollector=new QPushButton(QStringLiteral("Show TikTok collector"));
+    auto* reloadCollector=new QPushButton(QStringLiteral("Reload collector"));
+    auto* tiktokLog=new QPushButton(QStringLiteral("View log"));
+    tiktokActions->addWidget(showCollector);tiktokActions->addWidget(reloadCollector);tiktokActions->addWidget(tiktokLog);tiktokActions->addStretch();
+    tiktokLayout->addLayout(tiktokActions);
+    auto* tiktokStatus=label(QStringLiteral("Collector is running off-screen."),"muted");tiktokStatus->setWordWrap(true);tiktokLayout->addWidget(tiktokStatus);
+    connect(showCollector,&QPushButton::clicked,this,[this]{controller_->setTikTokCollectorVisible(!controller_->tiktokCollectorVisible());});
+    connect(reloadCollector,&QPushButton::clicked,this,[this,tiktokStatus]{controller_->reloadTikTokCollector();tiktokStatus->setText(QStringLiteral("Reloading the TikTok LIVE page…"));});
+    connect(tiktokLog,&QPushButton::clicked,this,[this]{showDiagnosticsWindow(QStringLiteral("TikTok"));});
+    connect(controller_,&AppController::tiktokCollectorVisibilityChanged,tiktokCard,[showCollector,tiktokStatus](bool visible){
+        showCollector->setText(visible?QStringLiteral("Hide TikTok collector"):QStringLiteral("Show TikTok collector"));
+        tiktokStatus->setText(visible?QStringLiteral("Collector window is open. Sign in to TikTok here if it asks."):QStringLiteral("Collector is running off-screen."));
+    });
+    layout->addWidget(tiktokCard);
+
     auto* discordCard=new QFrame;discordCard->setProperty("card",true);auto* discordLayout=new QVBoxLayout(discordCard);discordLayout->addWidget(label(QStringLiteral("DISCORD LIVE NOTIFICATIONS"),"cardTitle"));
     auto* discordHelp=label(QStringLiteral("Link a Discord bot hosted by Leapcast while this program is running. Leapcast watches linked Twitch, YouTube, Rumble, Kick, and direct TikTok LIVE profile feeds. After the first service goes live, it waits 5 seconds so other services can join the same single notification. The bot must already be invited with View Channel, Send Messages, and Mention Everyone permissions."),"muted");discordHelp->setWordWrap(true);discordLayout->addWidget(discordHelp);
     auto* noSupport=label(QStringLiteral("Important: Leapcast does not provide support or instructions for creating, finding, or resetting a Discord bot token. Treat the token like a password and never share it."),"status");noSupport->setWordWrap(true);noSupport->setStyleSheet(QStringLiteral("color:#f6c85f"));discordLayout->addWidget(noSupport);
@@ -1000,12 +1068,14 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* messageHelp=label(QStringLiteral("Placeholders: {user} uses the streamer name above. {Platforms} becomes Twitch, YouTube, Rumble, Kick, and/or TikTok LIVE, with “&” inserted naturally when several feeds are live. Matching stream links are added below the message automatically."),"muted");messageHelp->setWordWrap(true);discordLayout->addWidget(messageHelp);
     auto* enableDiscord=new QCheckBox(QStringLiteral("Allow the linked bot to notify Discord when I go live"));enableDiscord->setChecked(controller_->settings()->preference(QStringLiteral("discord_live_notifications"),false).toBool());discordLayout->addWidget(enableDiscord);
     auto* mentionEveryone=new QCheckBox(QStringLiteral("Include @everyone in live notifications"));mentionEveryone->setChecked(controller_->settings()->preference(QStringLiteral("discord_mention_everyone"),true).toBool());discordLayout->addWidget(mentionEveryone);
-    auto* discordActions=new QHBoxLayout;auto* saveDiscord=new QPushButton(QStringLiteral("Save Discord bot"));auto* runDiscord=new QPushButton(QStringLiteral("Run Bot"));runDiscord->setProperty("primary",true);auto* stopDiscord=new QPushButton(QStringLiteral("Stop Bot"));stopDiscord->setEnabled(false);auto* testDiscord=new QPushButton(QStringLiteral("Send test notification"));discordActions->addWidget(saveDiscord);discordActions->addWidget(runDiscord);discordActions->addWidget(stopDiscord);discordActions->addWidget(testDiscord);discordActions->addStretch();discordLayout->addLayout(discordActions);auto* botStatus=label(QStringLiteral("● Bot offline"),"status");botStatus->setStyleSheet(QStringLiteral("color:#ff637d"));discordLayout->addWidget(botStatus);auto* discordStatus=label(QStringLiteral("Notifications not tested"),"muted");discordStatus->setWordWrap(true);discordLayout->addWidget(discordStatus);
+    auto* discordActions=new QHBoxLayout;auto* saveDiscord=new QPushButton(QStringLiteral("Save Discord bot"));auto* runDiscord=new QPushButton(QStringLiteral("Run Bot"));runDiscord->setProperty("primary",true);auto* stopDiscord=new QPushButton(QStringLiteral("Stop Bot"));stopDiscord->setEnabled(false);auto* testDiscord=new QPushButton(QStringLiteral("Send test notification"));auto* diagnoseDiscord=new QPushButton(QStringLiteral("Diagnose 403"));auto* discordLog=new QPushButton(QStringLiteral("View log"));discordActions->addWidget(saveDiscord);discordActions->addWidget(runDiscord);discordActions->addWidget(stopDiscord);discordActions->addWidget(testDiscord);discordActions->addWidget(diagnoseDiscord);discordActions->addWidget(discordLog);discordActions->addStretch();discordLayout->addLayout(discordActions);auto* botStatus=label(QStringLiteral("● Bot offline"),"status");botStatus->setStyleSheet(QStringLiteral("color:#ff637d"));discordLayout->addWidget(botStatus);auto* discordStatus=label(QStringLiteral("Notifications not tested"),"muted");discordStatus->setWordWrap(true);discordLayout->addWidget(discordStatus);
     const auto saveDiscordSettings=[this,discordToken,discordChannel,discordStreamer,discordMessage,enableDiscord,mentionEveryone]{controller_->settings()->setSecret(QStringLiteral("discord_bot_token"),discordToken->text());controller_->settings()->setSecret(QStringLiteral("discord_channel_id"),discordChannel->text());controller_->settings()->setPreference(QStringLiteral("discord_streamer_name"),discordStreamer->text().trimmed());controller_->settings()->setPreference(QStringLiteral("discord_live_message"),discordMessage->text());controller_->settings()->setPreference(QStringLiteral("discord_live_notifications"),enableDiscord->isChecked());controller_->settings()->setPreference(QStringLiteral("discord_mention_everyone"),mentionEveryone->isChecked());};
     connect(saveDiscord,&QPushButton::clicked,this,[saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Saved. The bot is hosted while Leapcast Studio is running."));discordStatus->setStyleSheet(QStringLiteral("color:#63e6be"));});
     connect(runDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,botStatus]{saveDiscordSettings();botStatus->setText(QStringLiteral("● Bot connecting…"));botStatus->setStyleSheet(QStringLiteral("color:#f6c85f"));controller_->startDiscordBot();});
     connect(stopDiscord,&QPushButton::clicked,controller_,&AppController::stopDiscordBot);
     connect(testDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Sending test…"));controller_->testDiscordLiveNotification();});
+    connect(diagnoseDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Checking token, channel, and server membership…"));discordStatus->setStyleSheet(QStringLiteral("color:#f6c85f"));showDiagnosticsWindow(QStringLiteral("Discord"));controller_->diagnoseDiscord();});
+    connect(discordLog,&QPushButton::clicked,this,[this]{showDiagnosticsWindow(QString());});
     connect(controller_,&AppController::discordNotificationResult,discordCard,[discordStatus](bool ok,const QString&detail){discordStatus->setText(detail);discordStatus->setStyleSheet(ok?QStringLiteral("color:#63e6be"):QStringLiteral("color:#ff637d"));});
     connect(controller_,&AppController::discordBotStatus,discordCard,[runDiscord,stopDiscord,botStatus](bool online,const QString&detail){runDiscord->setEnabled(!online);stopDiscord->setEnabled(online);botStatus->setText(QStringLiteral("● ")+detail);botStatus->setStyleSheet(online?QStringLiteral("color:#63e6be"):detail.contains(QStringLiteral("Connecting"),Qt::CaseInsensitive)?QStringLiteral("color:#f6c85f"):QStringLiteral("color:#ff637d"));});
     layout->addWidget(discordCard);
@@ -1023,17 +1093,30 @@ QWidget* MainWindow::buildSettingsPage(){
     layout->addWidget(platforms);
 
     auto* updateCard = new QFrame; updateCard->setProperty("card", true);
-    auto* updateLayout = new QHBoxLayout(updateCard);
+    auto* updateOuter = new QVBoxLayout(updateCard);
+    auto* updateRow = new QHBoxLayout;
     auto* updateText = new QVBoxLayout;
     updateText->addWidget(label(QStringLiteral("AUTOMATIC UPDATES"), "cardTitle"));
-    updateLayout->addLayout(updateText, 1);
+    updateRow->addLayout(updateText, 1);
     auto* releases = new QPushButton(QStringLiteral("Open Releases"));
     auto* checkNow = new QPushButton(QStringLiteral("Check now"));
-    updateLayout->addWidget(releases); updateLayout->addWidget(checkNow);
+    updateRow->addWidget(releases); updateRow->addWidget(checkNow);
+    updateOuter->addLayout(updateRow);
     connect(releases, &QPushButton::clicked, this, [] {
         QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/reallefroge/LeapCast/releases")));
     });
-    connect(checkNow, &QPushButton::clicked, this, [this] { silentUpdateCheck_=false;updater_->check(true); });
+    if constexpr (leapcast::AutoUpdate) {
+        connect(checkNow, &QPushButton::clicked, this, [this] { silentUpdateCheck_=false;updater_->check(true); });
+    } else {
+        // Updating is switched off entirely for this test build so a locally
+        // built binary can never be overwritten by the published release.
+        checkNow->setEnabled(false);
+        checkNow->setToolTip(QStringLiteral("Updates are disabled in this build."));
+        auto* updateOff = label(QStringLiteral("Updates are disabled in this build (v%1). Nothing is downloaded or installed automatically, and the Check now button is switched off. Rebuild with -DLEAPCAST_AUTO_UPDATE=ON to turn updating back on.").arg(QString::fromLatin1(leapcast::Version)), "muted");
+        updateOff->setWordWrap(true);
+        updateOff->setStyleSheet(QStringLiteral("color:#f6c85f"));
+        updateOuter->addWidget(updateOff);
+    }
     layout->addWidget(updateCard);
     layout->addStretch();
     return page;
