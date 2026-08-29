@@ -221,10 +221,14 @@ TikTokLiveService::TikTokLiveService(QObject*p):QObject(p){
         }
         if(type=="viewers"){emit diagnostic(QStringLiteral("viewers=%1 (from %2)").arg(o["count"].toInt()).arg(o["source"].toString()));emit viewerCountChanged(o["count"].toInt());return;}
         const QString id=o["id"].toString();
-        if(type=="join"){
+        if(type=="activity"||type=="join"){
             if(!id.isEmpty()&&activitySeen_.contains(id))return;
-            if(!id.isEmpty())activitySeen_.insert(id);
-            StreamEvent e;e.eventId=id;e.kind=QStringLiteral("tiktok_join");e.platform=QStringLiteral("tiktok");e.user=o["user"].toString("Someone");e.message=o["text"].toString();e.raw=o;
+            if(!id.isEmpty()){activitySeen_.insert(id);if(activitySeen_.size()>4000)activitySeen_.clear();}
+            // join / like / follow / gift / share, all from the same feed.
+            const QString kind=o["kind"].toString(QStringLiteral("join"));
+            StreamEvent e;e.eventId=id;e.kind=QStringLiteral("tiktok_")+kind;e.platform=QStringLiteral("tiktok");
+            e.user=o["user"].toString("Someone");e.message=o["text"].toString();e.raw=o;
+            emit diagnostic(QStringLiteral("%1: %2").arg(kind,e.user));
             emit activityReceived(e);return;
         }
         if(type!="comment")return;
@@ -281,7 +285,7 @@ void TikTokLiveService::installBridge(){
     //     inside the live room element, or the current room's own serialized
     //     stats as a one-time seed.
     page_->runJavaScript(QStringLiteral(R"JS((()=>{
-if(window.__leapcastTikTokBridgeV7)return;window.__leapcastTikTokBridgeV7=true;
+if(window.__leapcastTikTokBridgeV8)return;window.__leapcastTikTokBridgeV8=true;
 let seq=0,activityReady=false,lastViewer=-1,seedUsed=false,debugTick=0,discovered=null,discoveredLabel='';
 const send=o=>console.log('LEFROGE_CHAT:'+JSON.stringify(o));
 const text=n=>(n?.innerText||n?.textContent||'').trim();
@@ -292,69 +296,92 @@ const guard=v=>{if(v.dataset.leapcastGuarded)return;v.dataset.leapcastGuarded='1
 const userSel='[data-e2e="message-owner-name"],[data-e2e="chat-message-user"],[data-e2e*="user-name"],[data-e2e*="username"],[class*="SpanUserName"],[class*="UserName"],[class*="user-name"],[class*="NickName"],[class*="nickname"],a[href*="/@"]';
 const bodySel='[data-e2e="message-text"],[data-e2e="chat-message-comment"],[data-e2e="comment-level-1"],[data-e2e*="message-text"],[data-e2e*="comment-text"],[class*="DivComment"],[class*="CommentText"],[class*="MessageText"],[class*="message-text"],[class*="DivChatContent"],[class*="ChatContent"]';
 const itemSel='[data-e2e="chat-message"],[data-e2e="chat-room-message"],[data-e2e="live-chat-message"],[data-e2e*="chat-message"],[data-e2e*="comment-item"],[class*="DivChatMessage"],[class*="ChatMessage"],[class*="chat-message"],[class*="CommentItem"],[class*="comment-item"],[class*="DivChatItem"],[class*="ChatItem"]';
-const activitySel='[data-e2e*="join"],[class*="JoinMessage"]';
-// Rank and level chips ("No. 1", "TOP 3", "Lv 18") render as their own leaf
-// elements inside a chat row. They appear and disappear as TikTok re-renders,
-// so leaving them in the text made the same message look like a new one and it
-// posted twice. Strip them, and any image or SVG badge, before reading.
-const chipText=/^(?:no\.?\s*\d+|top\s*\d+|lv\.?\s*\d+|level\s*\d+|#\d+|\d{1,3})$/i;
-const cleanCopy=row=>{
-  const copy=row.cloneNode(true);
-  copy.querySelectorAll('img,svg,picture,canvas').forEach(n=>n.remove());
-  copy.querySelectorAll('*').forEach(n=>{
-    if(n.children.length)return;
-    if(n.closest&&n.closest(bodySel))return;   // never strip the message itself
-    if(chipText.test((n.textContent||'').trim()))n.remove();
-  });
-  return copy};
-// Decorated TikTok names arrive with astral glyphs that land as U+FFFD here.
-const cleanName=s=>String(s||'').replace(/�/g,'').replace(/\s+/g,' ').trim();
-const cleanBody=s=>String(s||'').replace(/\s+/g,' ').trim();
-const normalize=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-const keyFor=(user,message)=>{const k=normalize(user)+'|'+normalize(message);let h=0;for(let i=0;i<k.length;i++){h=(h*31+k.charCodeAt(i))|0}return 'k'+(h>>>0)};
-// Two layers, because the same message can be read twice in two different ways:
-// the row itself remembers the content it was last posted with (TikTok recycles
-// rows, so a marker alone was wrong), and a short global window catches the
-// same content arriving through two different elements in one burst. The window
-// is deliberately short so somebody genuinely repeating themselves still shows.
+const activitySel='[data-e2e*="join"],[class*="JoinMessage"],[class*="DivSocialMessage"],[class*="SocialMessage"],[class*="GiftMessage"],[class*="DivGift"]';
+// A TikTok display name is full of astral emoji. An UNPAIRED surrogate is what
+// turns into U+FFFD by the time it reaches the app, so drop only those and
+// leave every properly paired emoji intact.
+const surrogateSafe=s=>String(s||'')
+  .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g,'')
+  .replace(/(^|[^\uD800-\uDBFF])([\uDC00-\uDFFF])/g,'$1');
+// Rank and level chips ("No. 1", "TOP 3", "Lv 18") are separate elements that
+// come and go as TikTok re-renders. Trim them off the ends of the strings for
+// display, and ignore them entirely when building the de-duplication key, so a
+// chip appearing does not make an old message look new.
+const chipRun='(?:no\\.?\\s*\\d+|top\\s*\\d+|lv\\.?\\s*\\d+|level\\s*\\d+|#\\d+)';
+const trimChips=s=>String(s||'')
+  .replace(new RegExp('^(?:\\s*'+chipRun+'\\b)+\\s*','i'),'')
+  .replace(new RegExp('(?:\\s*'+chipRun+'\\b)+\\s*$','i'),'')
+  .replace(/\s+/g,' ').trim();
+const clean=s=>trimChips(surrogateSafe(s));
+const normalize=s=>surrogateSafe(s).toLowerCase()
+  .replace(new RegExp(chipRun,'gi'),' ')
+  .replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+// An emoji-only message normalises to nothing, so fall back to the cleaned
+// text itself rather than collapsing every such message onto one key.
+const keyPart=s=>normalize(s)||trimChips(surrogateSafe(s));
+const keyFor=(a,b)=>{const k=keyPart(a)+'|'+keyPart(b);let h=0;for(let i=0;i<k.length;i++){h=(h*31+k.charCodeAt(i))|0}return 'k'+(h>>>0)};
+// Two layers: the row remembers the content it was last posted with (TikTok
+// recycles rows, so a plain "seen" flag was wrong), and a short global window
+// catches the same content arriving through two different elements in one
+// burst. Short on purpose, so a genuine repeat still shows.
 const recent=new Map();
 const burstFresh=key=>{const now=Date.now();
   if(recent.size>800){for(const [k,t] of recent)if(now-t>15000)recent.delete(k)}
   const prior=recent.get(key);if(prior&&now-prior<15000)return false;recent.set(key,now);return true};
-const emitComment=(row,user,message,userNode,source)=>{
-  user=cleanName(user);message=cleanBody(message);
-  if(!user||!message||message===user||message.length>600)return false;
-  if(/^(?:0|[0-9,.]+[kmb]?)\s+likes?$/i.test(message)||/^follow(?:ing)?$/i.test(message))return false;
-  if(chipText.test(message))return false;
-  const key=keyFor(user,message);
+const claim=(row,key)=>{
   if(row&&row.dataset&&row.dataset.leapcastKey===key)return false;
   if(!burstFresh(key))return false;
   if(row&&row.dataset)row.dataset.leapcastKey=key;
+  return true};
+// Activity rows carry no comment body, just a sentence about what happened.
+const activityKind=(lower,structure)=>{
+  if(/\bjoined\b/.test(lower)||/join/.test(structure))return 'join';
+  if(/\bliked\b|\bsent\s+likes?\b|\blikes?\s+the\s+live\b/.test(lower))return 'like';
+  if(/\bfollowed\b|\bstarted\s+following\b|\bis\s+now\s+following\b/.test(lower))return 'follow';
+  if(/\bsent\b.*\b(rose|roses|gift|gifts|coin|coins|heart|hearts)\b/.test(lower)||/gift/.test(structure))return 'gift';
+  if(/\bshared\b.*\blive\b/.test(lower))return 'share';
+  return ''};
+const activityUser=(row,raw)=>{
+  const node=row.querySelector?.(userSel);
+  const name=clean(text(node));
+  if(name)return name;
+  return clean(raw.split(/\s+(?:joined|liked|followed|sent|shared|started)\b/i)[0])||'Someone'};
+const emitActivity=(row,kind,user,raw)=>{
+  const key=keyFor(kind+'|'+user,raw);
+  if(!claim(row,key))return false;
+  if(!activityReady)return true;
+  send({type:'activity',kind,id:key,user,text:clean(raw)});
+  return true};
+const emitComment=(row,user,message,userNode,source)=>{
+  user=clean(user);message=clean(message);
+  if(!user||!message||message===user||message.length>600)return false;
+  if(/^(?:0|[0-9,.]+[kmb]?)\s+likes?$/i.test(message)||/^follow(?:ing)?$/i.test(message))return false;
+  const key=keyFor(user,message);
+  if(!claim(row,key))return false;
   const href=userNode?.closest?.('a[href*="/@"]')?.getAttribute('href')||userNode?.getAttribute?.('href')||'';
   const unique=(href.match(/\/@([^/?]+)/)||[])[1]||userNode?.getAttribute?.('data-unique-id')||'';
   send({type:'comment',id:key,user,text:message,userId:userNode?.getAttribute?.('data-user-id')||'',roomId:location.pathname,uniqueId:unique,source});
   return true};
-const process=(n,allowActivity,source)=>{
+// Read from the LIVE node. An earlier version read from a detached clone to
+// strip badges, but innerText on a detached node collapses to textContent and
+// lost the separation between the name and the message, which stopped chat
+// working entirely. Badge trimming is done on the strings instead.
+const process=(n,source)=>{
   if(!n||n.nodeType!==1)return false;
   const raw=text(n);if(!raw||raw.length>1200)return false;
   const structure=sig(n),lower=raw.toLowerCase();
-  if(/join/.test(structure)||/\bjoined(?:\s+the\s+live)?[.!]?$/i.test(lower)){
-    const key=keyFor('join',raw);
-    if(n.dataset&&n.dataset.leapcastKey===key)return false;
-    if(!burstFresh(key))return false;
-    if(n.dataset)n.dataset.leapcastKey=key;
-    if(allowActivity)send({type:'join',id:key,user:cleanName(raw.split(/\s+joined\b/i)[0])||'Someone',text:raw});
-    return true}
-  const copy=cleanCopy(n);
-  const userNode=copy.querySelector?.(userSel);
-  const bodyNode=copy.querySelector?.(bodySel);
-  const whole=text(copy);
+  const bodyNode=n.querySelector?.(bodySel);
+  const userNode=n.querySelector?.(userSel);
+  if(!bodyNode){
+    const kind=activityKind(lower,structure);
+    if(kind)return emitActivity(n,kind,activityUser(n,raw),raw);
+  }
   let user=text(userNode);
   let message=text(bodyNode);
-  if(!message&&user){message=whole.startsWith(user)?whole.slice(user.length).replace(/^\s*[:：·-]?\s*/,'').trim():whole.replace(user,'').trim()}
+  if(!message&&user){message=raw.startsWith(user)?raw.slice(user.length).replace(/^\s*[:：·-]?\s*/,'').trim():raw.replace(user,'').trim()}
   if(!user||!message)return false;
-  return emitComment(n,user,message,n.querySelector?.(userSel),source||'selector')};
-const profileFallback=root=>{all(root,'a[href*="/@"]').forEach(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){if(/chat|comment|message/.test(sig(n))&&text(n).length<1200){process(n,activityReady,'profile');break}}})};
+  return emitComment(n,user,message,userNode,source||'selector')};
+const profileFallback=root=>{all(root,'a[href*="/@"]').forEach(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){if(/chat|comment|message/.test(sig(n))&&text(n).length<1200){process(n,'profile');break}}})};
 const churn=new Map();
 const noteChurn=target=>{if(!target||target.nodeType!==1)return;const s=sig(target);
   if(/video|player|progress|seek|caption|toolbar/.test(s))return;
@@ -369,20 +396,22 @@ const pickDiscovered=()=>{
     if(!sample||sample.length<10||sample.length>20000)continue;
     if(score>bestScore){bestScore=score;best=node}}
   return best};
-const scanDiscovered=allowActivity=>{
+const scanDiscovered=()=>{
   if(!discovered||!discovered.isConnected){discovered=pickDiscovered();
     if(discovered){discoveredLabel=(discovered.getAttribute('data-e2e')||'')+' '+(typeof discovered.className==='string'?discovered.className:'');
       send({type:'discovery',label:discoveredLabel.trim().slice(0,300),children:discovered.children.length})}}
   if(!discovered)return 0;
   let handled=0;
   for(const row of Array.from(discovered.children)){
-    if(process(row,allowActivity,'discovered')){handled++;continue}
-    const copy=cleanCopy(row);const whole=text(copy);
-    if(!whole||whole.length>600)continue;
+    if(process(row,'discovered')){handled++;continue}
+    const raw=text(row);
+    if(!raw||raw.length>600)continue;
+    const kind=activityKind(raw.toLowerCase(),sig(row));
+    if(kind){if(emitActivity(row,kind,activityUser(row,raw),raw))handled++;continue}
     let user='',message='';
-    const colon=whole.match(/^([^\n:：]{1,40})[:：]\s*(.+)$/s);
+    const colon=raw.match(/^([^\n:：]{1,40})[:：]\s*(.+)$/s);
     if(colon){user=colon[1].trim();message=colon[2].trim()}
-    else if(copy.children&&copy.children.length>=2){user=text(copy.children[0]);message=whole.startsWith(user)?whole.slice(user.length).trim():text(copy.children[1])}
+    else if(row.children&&row.children.length>=2){user=text(row.children[0]);message=raw.startsWith(user)?raw.slice(user.length).trim():text(row.children[1])}
     if(user&&message&&emitComment(row,user,message,null,'discovered'))handled++;
   }
   return handled};
@@ -410,38 +439,28 @@ const offlineWords=/(went offline|is offline|live has ended|ended the live|not l
 const loginWall=()=>!!document.querySelector('[data-e2e="login-modal"],[id*="login-modal"],[class*="LoginModal"],[class*="login-modal"],[class*="Captcha"],[id*="captcha"],[class*="verify-bar"]');
 const snapshot=()=>{
   const body=document.body?document.body.innerText||'':'';
-  return {type:'snapshot',url:location.href,title:document.title,
-    ready:document.readyState,
+  return {type:'snapshot',url:location.href,title:document.title,ready:document.readyState,
     videos:document.querySelectorAll('video').length,
     iframes:document.querySelectorAll('iframe').length,
     items:document.querySelectorAll(itemSel).length,
     users:document.querySelectorAll(userSel).length,
     bodies:document.querySelectorAll(bodySel).length,
-    room:!!roomRoot(),
-    liveBadge:/\bLIVE\b/.test(body),
-    offline:offlineWords.test(body),
-    loginWall:loginWall(),
-    discovered:discoveredLabel.trim().slice(0,200),
-    bodyChars:body.length,
-    bodySample:body.replace(/\s+/g,' ').slice(0,400)}};
+    room:!!roomRoot(),liveBadge:/\bLIVE\b/.test(body),offline:offlineWords.test(body),
+    loginWall:loginWall(),discovered:discoveredLabel.trim().slice(0,200),
+    bodyChars:body.length,bodySample:body.replace(/\s+/g,' ').slice(0,400)}};
 let lastViewerSource='none';
 const scan=(root,allowActivity=true)=>{
   all(root,'video').forEach(guard);
-  const items=all(root,itemSel);
-  items.forEach(n=>process(n,allowActivity));
-  all(root,activitySel).forEach(n=>process(n,allowActivity));
-  // Only a fallback. Running it alongside the selector pass read the same
-  // message a second time at a different level of the DOM, which is the other
-  // half of why messages appeared twice.
-  if(document.querySelectorAll(itemSel).length===0){profileFallback(root);scanDiscovered(allowActivity)}
+  all(root,itemSel).forEach(n=>process(n));
+  all(root,activitySel).forEach(n=>process(n));
+  profileFallback(root);
+  scanDiscovered();
   lastViewerSource=scanViewers()};
 scan(document,false);activityReady=true;
 new MutationObserver(ms=>ms.forEach(m=>{
-  if(m.addedNodes&&m.addedNodes.length){noteChurn(m.target);m.addedNodes.forEach(n=>{if(n.nodeType===1)scan(n,activityReady)})}
+  if(m.addedNodes&&m.addedNodes.length){noteChurn(m.target);m.addedNodes.forEach(n=>{if(n.nodeType===1)scan(n)})}
 })).observe(document.documentElement,{childList:true,subtree:true});
-setInterval(()=>{scan(document,activityReady);
-  if(++debugTick%10===0)send(snapshot());
-},2000);
+setInterval(()=>{scan(document);if(++debugTick%10===0)send(snapshot())},2000);
 send(snapshot());
 })())JS"));
 }

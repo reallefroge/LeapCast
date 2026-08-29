@@ -37,6 +37,8 @@ public:
 
 protected:
     bool event(QEvent* e) override;
+    // Left-click on a username in a chat view opens that chatter's card.
+    bool eventFilter(QObject* watched, QEvent* e) override;
     void closeEvent(QCloseEvent* e) override;
     void showEvent(QShowEvent* e) override;
 
@@ -68,6 +70,10 @@ private:
     // idea as PopoutChat::showChatContextMenu, kept separate since it acts on
     // a different QTextBrowser (and its own message-id history) per tab.
     void showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos);
+    // Chatter card opened by left-clicking a name in chat: who they are, the
+    // quick toggles, moderation actions, and their recent messages. The
+    // right-click menu above stays as it is for message-level actions.
+    void showUserCard(const ChatMessage& message);
     void reviewTwitchAppeal(bool approve);
     void showPostUpdateConnectionCheck();
     void showFirstLaunchUpdateLog();

@@ -1,6 +1,10 @@
 #pragma once
 
 #include <QColor>
+#include <QImage>
+#include <QNetworkAccessManager>
+#include <QPointer>
+#include <QUrl>
 #include <QDateTime>
 #include <QFileSystemWatcher>
 #include <QHash>
@@ -13,6 +17,8 @@
 #include <QSet>
 #include <QStringList>
 #include <QVariant>
+
+class QTextDocument;
 
 struct ChatMessage {
     QString user;
@@ -41,10 +47,34 @@ QString chatBadgeHtml(const ChatMessage& message);
 // repeating palette while keeping the original plain username intact for
 // moderation and platform API calls.
 QString chatNameHtml(const ChatMessage& message);
-// Escapes normal chat text and renders trusted YouTube custom-emoji runs as
-// inline images. The plain ChatMessage::text stays intact for moderation,
-// copying, logs, and accessibility fallbacks.
+// Escapes normal chat text and renders trusted emote runs as inline images -
+// YouTube custom emoji via "youtube_runs", Twitch and third-party emotes via
+// "runs". The plain ChatMessage::text stays intact for moderation, copying,
+// logs, and accessibility fallbacks.
 QString chatMessageBodyHtml(const ChatMessage& message);
+
+// QTextBrowser will not fetch an https image on its own, so emote pictures have
+// to be downloaded once and handed to each chat document as a resource. Bind a
+// document once and every emote that arrives later is added to it and the
+// affected text re-laid out.
+class EmoteImageCache final : public QObject {
+    Q_OBJECT
+public:
+    static EmoteImageCache& instance();
+    // Registers a chat document to receive emote images as they download.
+    void bind(QTextDocument* document);
+    // Ensures the picture behind this URL is downloaded. Returns true when it
+    // is already available, so the first sighting of a new emote still renders
+    // (as its name) instead of leaving a gap.
+    bool ensure(const QUrl& url);
+private:
+    explicit EmoteImageCache(QObject* parent=nullptr);
+    void deliver(const QUrl& url,const QImage& image);
+    QNetworkAccessManager network_;
+    QHash<QUrl,QImage> images_;
+    QSet<QUrl> pending_;
+    QList<QPointer<QTextDocument>> documents_;
+};
 
 struct StreamEvent {
     QString eventId;

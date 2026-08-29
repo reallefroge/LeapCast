@@ -1,7 +1,59 @@
 # Leapcast Studio Changelog
 
-<<<<<<< Updated upstream
-=======
+## Leapcast Studio 3.0.9.3
+
+- **Automatic updates are switched off in this build.** The splash screen no longer contacts GitHub at startup, the background check is gone, and Check now is disabled, so a locally built test binary can never be replaced by the published release. Rebuild with `-DLEAPCAST_AUTO_UPDATE=ON` to turn updating back on.
+- Added a Diagnose 403 button to the Discord card. It checks the bot token, then whether the bot can see the channel, then whether the bot is a member of that server, and names the step that fails instead of returning a bare HTTP 403.
+- Discord failures now explain the likely cause in plain English for every 403 code, including the ones Administrator does not fix: Missing Access (50001), AutoMod blocking the bot (200000), member timeouts, and network-level Cloudflare blocks.
+- A pasted channel link is now accepted anywhere a Channel ID is expected.
+- Added a shared diagnostics log window with the raw Discord and TikTok responses, and a Copy log button for reporting problems.
+- Fixed TikTok chat not appearing. The collector page had no browser view, so it had a zero-size viewport and TikTok's virtualised chat list rendered no rows at all; it now runs in a real off-screen 1280x900 view.
+- Fixed TikTok chat stopping after the first screenful. Messages are now de-duplicated by sender and text rather than by a flag on the chat row, which TikTok recycles for later messages.
+- Fixed wildly wrong TikTok viewer counts. The count no longer falls back to a whole-page text search or to the last `user_count` found anywhere in the page scripts, both of which matched recommended streams in the sidebar; it now reads only a counter inside the live room.
+- TikTok viewer counts written as `1.234` or `1,234` are no longer read as 1.
+- Added a TikTok collector card in Settings: show the hidden page, reload it, and sign in to TikTok once, with the sign-in remembered between launches.
+- The TikTok source status now says when the page is showing a login wall or a captcha instead of silently collecting nothing.
+- CI test builds no longer fail when the repository has no bundled Twitch application ID. Keys then shows a Twitch Application Client ID box so Twitch Connect can be pointed at your own Twitch app; releases still require the bundled ID.
+- Removed the duplicate Windows build workflow that ran a second, outdated build on every push.
+- Fixed TikTok chat posting every message twice. Rank and level chips ("No. 1", "Lv 18") are separate elements that appear and disappear as TikTok re-renders, so the same message kept producing two different texts; they are now ignored when matching a message against what was already shown.
+- Fixed TikTok chat stopping altogether, caused by reading rows from a detached copy of the page where the name and the message ran together.
+- TikTok likes, follows, gifts and shares now appear in the pop-out alongside joins.
+- Emoji in TikTok display names now survive and render, instead of arriving as replacement boxes.
+- Twitch emotes now render as images in the program chat, the pop-out and the OBS overlay, including BetterTTV, FrankerFaceZ and 7TV emotes for the connected channel.
+- YouTube custom emoji now actually load in the program and pop-out chat; they previously resolved to nothing because Qt will not fetch a remote image on its own.
+- The Discord bot now comes online automatically when a token is saved, instead of waiting for Run Bot to be pressed.
+- Live notifications now wait a full minute into the broadcast before posting, rather than five seconds, so a false start never announces a stream.
+- Left-clicking a name in the program chat opens a chatter card: account id, account age, follower count, whether they follow the channel and since when, subscription tier and months, and their Twitch badges.
+- The card carries Block, Ignore highlights, auto-saving private notes, links to the Twitch usercard and channel, the full timeout ladder (1s to 1w) with Unban and Ban, and that chatter's recent messages.
+- Twitch reconnection is required once for the new card: the app now also asks for the follower, subscription and block-list scopes.
+- Fixed the chatter card not opening. Inserting HTML rebuilds the character formatting from the markup and discards whatever was set beforehand, so neither a link around the name nor a marker set ahead of it survived. The name is now tagged after it is inserted, by merging the marker over the range it occupies, which keeps the per-character name colours intact. The pointer turns into a hand over a name, and a click that ends a text selection is ignored.
+- Fixed emotes showing as their names. Every emote was rendered as text the first time it appeared, because the picture was only emitted once the image had finished downloading — and the chat view already downloads images itself.
+- Added an Emotes line to the diagnostics log showing what Twitch tagged on each message and how many emote pictures came out of it.
+
+## Leapcast Studio 3.0.9.1
+
+- Fixed Discord bot notifications being rejected before posting by adding Discord's required bot User-Agent.
+- Discord failures now show the exact API error code and message instead of a generic HTTP 403 notice.
+- Added support for four-part minor-fix versions such as `3.0.9.1` across builds, installers, releases, and automatic update comparisons.
+
+## Leapcast Studio 3.0.9
+
+- Added quick Add fields for blocked and whitelisted words, with Enter-key support and Review Words removal lists.
+- Added up to three custom chatter icons per streaming platform in pop-out and OBS chat while retaining moderator and Twitch subscriber badges.
+- Improved pop-out click-through: normal clicks pass through, right-click moderation remains available, and Alt-drag enables text selection.
+- Kept full edge/corner pop-out resizing and the resize grip.
+- Added a compact layout mode and refreshed dark mode with layered navy surfaces, cyan/violet accents, clearer controls, and reduced clutter.
+
+## Leapcast Studio 3.0.8
+
+- Repaired TikTok LIVE capture so chat rows are collected without mistaking Like and Follow controls for messages.
+- TikTok joins now appear in the pop-out while likes and follows stay hidden; the OBS overlay remains chat-only.
+- Applied stable random, single, gradient, and pattern name colors consistently in the OBS overlay.
+- Preserved the existing Phone Connect private link through automatic app updates, so an update does not require rescanning the QR code.
+- Removed the unnecessary Kick card from Keys and kept only a short explanation under Settings → Visible Platforms.
+- Recorded YouTube and Twitch timeouts in Bans with reversible entries and refreshed Twitch restrictions after moderation.
+- AutoMod now deletes the flagged message from YouTube and Twitch after applying the platform restriction.
+
 ## Leapcast Studio 3.0.7
 
 - Added a shiny New Year transition that slides the previous year into the new year during the automatic New Year's celebration.
@@ -40,7 +92,6 @@
 - Added date-driven **Seasonal & Holiday Effects** using the local system clock: Halloween (Oct 15–31), Christmas (Dec 10–28), Easter weekend, Independence Day (July 4), Veterans Day (Nov 11), and New Year's Eve/Day.
 - Added Independence Day/New Year fireworks, Veterans Day American-flag accents, and a New Year ball-drop animation restricted to the first minutes after local midnight on January 1. Phone Connect mirrors the currently active seasonal theme.
 
->>>>>>> Stashed changes
 > A complete history of meaningful improvements, fixes, and creator-focused features.
 
 ## Leapcast Studio 3.0.4

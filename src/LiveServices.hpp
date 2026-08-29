@@ -93,8 +93,17 @@ public:
     // "Clip" button on twitch.tv. Only requires the clips:edit scope, not
     // moderator status, so it works while watching any live channel.
     void createClip(const QString& broadcasterId);
+    // Gathers everything the user card shows about one chatter: account age,
+    // whether they follow this channel and since when, and their subscription
+    // tier. Each piece is a separate Helix call and any of them may be refused
+    // (Twitch no longer exposes another channel's follower total publicly), so
+    // the parts that succeed are emitted and the rest simply stay absent.
+    void fetchUserCard(const QString& broadcasterId, const QString& userId);
+    // Twitch account-level block list, which is what the card's Block box sets.
+    void setUserBlocked(const QString& userId, bool blocked);
 signals:
     void broadcasterResolved(const QString& login, const QString& id);
+    void userCardReady(const QString& userId, const QJsonObject& card);
     void actionFinished(const QString& action, bool success, const QString& detail);
     void bansReceived(const QJsonArray& bans);
     void unbanRequestsReceived(const QJsonArray& requests);
@@ -105,6 +114,10 @@ private:
     void watch(QNetworkReply* reply, const QString& action);
     QNetworkAccessManager network_;
     QString clientId_, token_, moderatorId_;
+    // One card is assembled from several replies that land in any order, so the
+    // partial result is held here until the last of them settles.
+    QHash<QString,QJsonObject> pendingCards_;
+    QHash<QString,int> pendingCardParts_;
     // Broadcasters we've already been told (via HTTP 401/403) we can't moderate.
     // Prevents autoModerate() from retrying — and re-warning the user about —
     // the same permission failure on every subsequent chat message.
@@ -151,4 +164,37 @@ private:
     QWebSocket socket_;
     QTimer reconnect_;
     QString token_;
+};
+
+// Resolves a Twitch chat line into text + emote-image runs.
+//
+// Twitch's own emotes arrive in the IRC "emotes" tag as id:start-end ranges,
+// indexed in CODE POINTS, so a message containing an astral emoji shifts every
+// later range if you index UTF-16 units instead. Third-party emotes (BTTV,
+// FrankerFaceZ, 7TV) have no tag at all - they are plain words that have to be
+// matched against a per-channel word list fetched from each provider.
+class TwitchEmoteService final : public QObject {
+    Q_OBJECT
+public:
+    explicit TwitchEmoteService(QObject* parent=nullptr);
+    // Broadcaster id, which the IRC "room-id" tag already carries, so no extra
+    // Twitch API call is needed to start loading.
+    void loadForChannel(const QString& broadcasterId);
+    bool ready() const { return loaded_; }
+    // Returns a runs array: {"text":...} and {"url":...,"alt":...} pieces.
+    QJsonArray buildRuns(const QString& text,const QString& emotesTag) const;
+    int emoteWordCount() const { return words_.size(); }
+    // Pure parsers over each provider's response shape, public so they can be
+    // exercised against captured fixtures without touching the network.
+    void absorbBttv(const QJsonDocument& document);
+    void absorbFfz(const QJsonDocument& document);
+    void absorbSeventv(const QJsonDocument& document);
+signals:
+    void wordsUpdated(int count);
+private:
+    void fetch(const QUrl& url,const QString& source);
+    QNetworkAccessManager network_;
+    QHash<QString,QString> words_;   // emote code -> image URL
+    QString broadcasterId_;
+    bool loaded_{};
 };

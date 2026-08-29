@@ -58,9 +58,14 @@ QString discordCauseFor(int httpCode,int discordCode){
 }
 
 AppController::AppController(QObject*p):QObject(p){
-    discordLiveDelay_.setSingleShot(true);discordLiveDelay_.setInterval(5000);
+    // Hold the announcement until the broadcast has been up for a minute: long
+    // enough for the other services to come online and for a false start to be
+    // cancelled, rather than firing five seconds in.
+    discordLiveDelay_.setSingleShot(true);discordLiveDelay_.setInterval(60000);
     connect(&discordLiveDelay_,&QTimer::timeout,this,[this]{const auto platforms=discordPendingPlatforms_;discordPendingPlatforms_.clear();sendDiscordLiveNotification(platforms);});
-    discordLiveReset_.setSingleShot(true);discordLiveReset_.setInterval(90000);connect(&discordLiveReset_,&QTimer::timeout,this,[this]{discordBroadcastNotificationSent_=false;discordPendingPlatforms_.clear();});
+    // Must outlast the announcement delay, or the pending platforms would be
+    // cleared while the app is still waiting to post.
+    discordLiveReset_.setSingleShot(true);discordLiveReset_.setInterval(300000);connect(&discordLiveReset_,&QTimer::timeout,this,[this]{discordBroadcastNotificationSent_=false;discordPendingPlatforms_.clear();});
     connect(&discordHeartbeat_,&QTimer::timeout,this,&AppController::sendDiscordHeartbeat);
     connect(&discordGateway_,&QWebSocket::textMessageReceived,this,[this](const QString& text){
         const auto payload=QJsonDocument::fromJson(text.toUtf8()).object();const int op=payload.value(QStringLiteral("op")).toInt(-1);if(!payload.value(QStringLiteral("s")).isNull()&&!payload.value(QStringLiteral("s")).isUndefined()){discordSequence_=payload.value(QStringLiteral("s")).toVariant().toLongLong();discordSequenceKnown_=true;}
@@ -121,6 +126,8 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("rumble"),n);});
     connect(&tiktok_,&TikTokLiveService::activityReceived,this,&AppController::tiktokActivityReady);
     connect(&tiktok_,&TikTokLiveService::diagnostic,this,&AppController::tiktokDiagnostic);
+    connect(&twitchMod_,&TwitchModerationService::userCardReady,this,&AppController::twitchUserCardReady);
+    connect(&twitchEmotes_,&TwitchEmoteService::wordsUpdated,this,[this](int count){emit discordDiagnostic(QStringLiteral("Third-party emotes loaded: %1 words (BTTV/FFZ/7TV)").arg(count));});
     connect(&tiktok_,&TikTokLiveService::collectorVisibilityChanged,this,&AppController::tiktokCollectorVisibilityChanged);
     connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
@@ -173,7 +180,11 @@ AppController::AppController(QObject*p):QObject(p){
 QString AppController::twitchName(const QString&l){auto m=QRegularExpression("twitch\\.tv/([A-Za-z0-9_]+)").match(l);if(m.hasMatch())return m.captured(1).toLower();return QRegularExpression("^[A-Za-z0-9_]{3,25}$").match(l).hasMatch()?l.toLower():QString();}
 QString AppController::tiktokName(const QString&l){auto m=QRegularExpression("tiktok\\.com/@([A-Za-z0-9._]+)").match(l);if(m.hasMatch())return m.captured(1);return l.startsWith('@')?l.mid(1):QString();}
 QString AppController::kickName(const QString&l){auto m=QRegularExpression("kick\\.com/([A-Za-z0-9_-]+)").match(l);if(m.hasMatch())return m.captured(1).toLower();return QRegularExpression("^[A-Za-z0-9_-]+$").match(l).hasMatch()?l.toLower():QString();}
-void AppController::startConfiguredSources(){for(const auto&p:{"twitch","youtube","yt_shorts","tiktok","kick","rumble"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
+void AppController::startConfiguredSources(){
+    // A saved bot is a connected bot: bring it online with everything else, so
+    // the streamer never has to remember to press Run Bot before going live.
+    if(!settings_.secret(QStringLiteral("discord_bot_token")).isEmpty())startDiscordBot();
+    for(const auto&p:{"twitch","youtube","yt_shorts","tiktok","kick","rumble"})if(settings_.enabled(p)&&!settings_.link(p).isEmpty())connectSource(p,settings_.link(p));const auto token=settings_.secret("streamlabs_socket_token");if(!token.isEmpty())streamlabs_.connectToken(token);}
 void AppController::connectSource(const QString&p,const QString&l){settings_.setLink(p,l);if(p=="twitch"){const QString name=twitchName(l);twitch_.connectChannel(name);if(!settings_.secret("twitch_access_token").isEmpty()){twitchMod_.configure(configuredTwitchClientId(settings_),settings_.secret("twitch_access_token"),settings_.secret("twitch_moderator_id"));twitchMod_.resolveBroadcaster(name);}}else if(p=="youtube")youtube_.connectTarget(l);else if(p=="yt_shorts")shorts_.connectTarget(l);else if(p=="tiktok")tiktok_.connectUser(tiktokName(l));else if(p=="kick")kick_.connectChannel(kickName(l));else if(p=="rumble")rumble_.connectApi(QUrl(settings_.secret("rumble_api_url")));}
 void AppController::disconnectSource(const QString&p){
     if(p=="twitch"){twitch_.disconnectChannel();twitchEvents_.disconnectService();currentPinnedMessages_.remove(QStringLiteral("twitch"));if(pinnedMessagesEnabled_)emit pinnedMessageChanged(QStringLiteral("twitch"),ChatMessage{},false);}
@@ -471,6 +482,21 @@ void AppController::createTwitchClip(){
 void AppController::unbanYouTube(const QString&id){if(id.isEmpty())return;youtubeMod_.removeBan(id);for(int i=youtubeRestrictions_.size()-1;i>=0;--i)if(youtubeRestrictions_[i].toObject()["id"].toString()==id)youtubeRestrictions_.removeAt(i);QVariantList saved;for(const auto&v:youtubeRestrictions_)saved<<v.toObject().toVariantMap();settings_.setPreference("youtube_restrictions",saved);emit bansUpdated("youtube",youtubeRestrictions_);}
 void AppController::receive(const ChatMessage&m){
     ChatMessage coloured=m;
+    if(coloured.platform==QStringLiteral("twitch")){
+        // The IRC room-id tag is the broadcaster id, so the third-party emote
+        // lists can start loading off the first message with no extra Twitch
+        // API call and no access token.
+        twitchEmotes_.loadForChannel(coloured.metadata.value(QStringLiteral("room_id")).toString());
+        const QString emotesTag=coloured.metadata.value(QStringLiteral("emotes")).toString();
+        const QJsonArray runs=twitchEmotes_.buildRuns(coloured.text,emotesTag);
+        if(!runs.isEmpty())coloured.metadata[QStringLiteral("runs")]=runs;
+        // Emote trouble is otherwise invisible: this says whether Twitch tagged
+        // the line at all and how many pictures came out of it.
+        if(!emotesTag.isEmpty()||!runs.isEmpty())
+            emit emoteDiagnostic(QStringLiteral("tag[%1] -> %2 run(s), %3 third-party words loaded")
+                                     .arg(emotesTag.isEmpty()?QStringLiteral("none"):emotesTag)
+                                     .arg(runs.size()).arg(twitchEmotes_.emoteWordCount()));
+    }
     // Assign every chatter a vivid, stable pseudo-random name colour. Using
     // the platform plus account id avoids collisions between services, while
     // falling back to the displayed name still covers guests without an id.
@@ -567,6 +593,8 @@ void AppController::moderateMessage(const ChatMessage&m,int seconds,const QStrin
 }
 void AppController::refreshTwitchAppeals(){const QString id=settings_.secret("twitch_broadcaster_id");if(id.isEmpty()){emit moderationResult("twitch",false,"Connect Twitch and choose a channel first.");return;}twitchMod_.listUnbanRequests(id);}
 void AppController::loadTwitchUserHistory(const QString&userId,const QString&userName){emit userChatHistoryReady(userId,audit_.messagesForUser("twitch",userId,userName));}
+void AppController::loadTwitchUserCard(const QString&userId){twitchMod_.fetchUserCard(settings_.secret(QStringLiteral("twitch_broadcaster_id")),userId);}
+void AppController::setTwitchUserBlocked(const QString&userId,bool blocked){twitchMod_.setUserBlocked(userId,blocked);}
 void AppController::deleteChatMessage(const ChatMessage&m){
     if(m.platform=="twitch"){
         const auto broadcaster=m.metadata["room_id"].toString();

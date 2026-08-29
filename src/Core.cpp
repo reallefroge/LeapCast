@@ -1,4 +1,7 @@
 #include "Core.hpp"
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QTextDocument>
 
 #include <QDir>
 #include <QFile>
@@ -70,8 +73,12 @@ QString chatNameHtml(const ChatMessage& message) {
 }
 
 QString chatMessageBodyHtml(const ChatMessage& message) {
-    const QJsonArray runs=message.metadata.value(QStringLiteral("youtube_runs")).toArray();
-    if((message.platform==QStringLiteral("youtube")||message.platform==QStringLiteral("yt_shorts"))&&!runs.isEmpty()) {
+    // "runs" carries Twitch and third-party emotes; "youtube_runs" is the older
+    // YouTube-only shape. Either is a list of {text} and {url,alt} pieces.
+    QJsonArray runs=message.metadata.value(QStringLiteral("runs")).toArray();
+    if(runs.isEmpty()&&(message.platform==QStringLiteral("youtube")||message.platform==QStringLiteral("yt_shorts")))
+        runs=message.metadata.value(QStringLiteral("youtube_runs")).toArray();
+    if(!runs.isEmpty()) {
         QString html;
         for(const auto& value:runs) {
             const QJsonObject run=value.toObject();
@@ -82,6 +89,12 @@ QString chatMessageBodyHtml(const ChatMessage& message) {
             const QString fallback=run.value(QStringLiteral("alt")).toString();
             const QUrl url(run.value(QStringLiteral("url")).toString());
             if(url.isValid()&&url.scheme()==QStringLiteral("https")) {
+                // Always emit the picture. ChatBrowser::loadResource fetches an
+                // https image itself and re-lays the text out once it arrives,
+                // so gating on a local cache only made the FIRST sighting of
+                // every emote fall back to its name — which is every emote, the
+                // first time you use it.
+                EmoteImageCache::instance().ensure(url);
                 html+=QStringLiteral("<img src='%1' alt='%2' title='%2' width='24' height='24' style='vertical-align:-6px;margin:0 1px'>")
                     .arg(url.toString(QUrl::FullyEncoded).toHtmlEscaped(),fallback.toHtmlEscaped());
             } else html+=fallback.toHtmlEscaped();
@@ -89,6 +102,53 @@ QString chatMessageBodyHtml(const ChatMessage& message) {
         if(!html.isEmpty()) return html;
     }
     return message.text.toHtmlEscaped();
+}
+
+EmoteImageCache& EmoteImageCache::instance(){static EmoteImageCache cache;return cache;}
+EmoteImageCache::EmoteImageCache(QObject* parent):QObject(parent){}
+
+void EmoteImageCache::bind(QTextDocument* document){
+    if(!document)return;
+    for(const auto& existing:documents_)if(existing==document)return;
+    documents_.append(QPointer<QTextDocument>(document));
+    // Anything already downloaded has to be handed to a document that binds
+    // later, otherwise its earlier emotes never appear.
+    for(auto it=images_.cbegin();it!=images_.cend();++it)
+        document->addResource(QTextDocument::ImageResource,it.key(),it.value());
+}
+
+bool EmoteImageCache::ensure(const QUrl& url){
+    if(images_.contains(url))return true;
+    if(pending_.contains(url))return false;
+    if(!url.isValid()||url.scheme()!=QStringLiteral("https"))return false;
+    pending_.insert(url);
+    QNetworkRequest request(url);
+    request.setRawHeader("User-Agent","LeapcastStudio");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto* reply=network_.get(request);
+    QObject::connect(reply,&QNetworkReply::finished,this,[this,reply,url]{
+        pending_.remove(url);
+        const QByteArray bytes=reply->readAll();
+        reply->deleteLater();
+        QImage image;
+        // Emotes are small; anything huge or unreadable is simply skipped and
+        // the message keeps showing the emote name.
+        if(bytes.size()<=2*1024*1024&&image.loadFromData(bytes)&&!image.isNull())deliver(url,image);
+    });
+    return false;
+}
+
+void EmoteImageCache::deliver(const QUrl& url,const QImage& image){
+    images_.insert(url,image);
+    if(images_.size()>1200)images_.clear();
+    for(int i=documents_.size()-1;i>=0;--i){
+        QTextDocument* document=documents_.at(i);
+        if(!document){documents_.removeAt(i);continue;}
+        document->addResource(QTextDocument::ImageResource,url,image);
+        // The image was laid out at zero size while it was missing, so the
+        // affected text has to be re-laid out for it to appear.
+        document->markContentsDirty(0,document->characterCount());
+    }
 }
 
 QJsonObject ChatMessage::toJson() const {
