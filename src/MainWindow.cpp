@@ -6,10 +6,13 @@
 #include "qrcodegen.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QAction>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QButtonGroup>
+#include <QBuffer>
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -17,14 +20,18 @@
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTime>
+#include <QElapsedTimer>
+#include <QDate>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QEvent>
 #include <QFrame>
+#include <QFileDialog>
 #include <QFontComboBox>
 #include <QComboBox>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QImage>
@@ -33,11 +40,20 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProgressDialog>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPolygon>
+#include <QRadialGradient>
+#include <QRandomGenerator>
+#include <QRegularExpression>
+#include <QScreen>
+#include <QShowEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -53,8 +69,11 @@
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTime>
+#include <QScrollBar>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVector>
 
 namespace {
 QPixmap phoneQrCode(const QUrl& url,int pixels=236){
@@ -149,8 +168,6 @@ QString eventAction(const StreamEvent& event) {
     return QStringLiteral("subscribed");
 }
 QString platformIconHtml(const QString&platform){static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};return paths.contains(platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(paths.value(platform)):QString();}
-<<<<<<< Updated upstream
-=======
 
 QDate easterSunday(int year){
     const int a=year%19,b=year/100,c=year%100,d=b/4,e=b%4,f=(b+8)/25,g=(b-f+1)/3;
@@ -249,7 +266,6 @@ protected:
 private:
     struct Particle{qreal x{},y{},vx{},vy{},spin{},size{};QColor color;};QString theme_;bool ballDrop_{};int oldYear_{},newYear_{};QVector<Particle> particles_;QTimer timer_;QElapsedTimer elapsed_;
 };
->>>>>>> Stashed changes
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -272,9 +288,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(overlay_,&OverlayServer::mobileRefreshModerationRequested,this,[this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
     connect(overlay_,&OverlayServer::mobileUnbanRequested,this,[this](const QString&platform,const QString&id){if(platform==QStringLiteral("twitch"))controller_->unbanTwitch(id);else if(platform==QStringLiteral("youtube"))controller_->unbanYouTube(id);});
     connect(overlay_,&OverlayServer::mobileAppealRequested,this,[this](const QString&id,bool approved){controller_->resolveTwitchAppeal(id,approved,approved?QStringLiteral("Approved from Phone Connect"):QStringLiteral("Rejected from Phone Connect"));});
-    connect(overlay_,&OverlayServer::mobileSettingRequested,this,[this](const QString&name,const QVariant&value){if(name==QStringLiteral("overlay_fade_seconds"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),3600));else if(name==QStringLiteral("overlay_background_opacity"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),100));else if(name==QStringLiteral("chat_outline_thickness"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),8));else if(name==QStringLiteral("automod_enabled")){auto moderation=controller_->settings()->moderation();moderation[QStringLiteral("enabled")]=value.toBool();controller_->settings()->setModeration(moderation);}overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt());overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",overlay_->fadeSeconds()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});});
-    overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",overlay_->fadeSeconds()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});
-    connect(controller_->settings(),&SettingsStore::changed,this,[this]{overlay_->setMobileSettings(QJsonObject{{"overlay_fade_seconds",controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt()},{"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},{"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},{"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)}});});
+    connect(overlay_,&OverlayServer::mobileSettingRequested,this,[this](const QString&name,const QVariant&value){
+        if(name==QStringLiteral("overlay_fade_seconds"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),3600));
+        else if(name==QStringLiteral("overlay_background_opacity"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),100));
+        else if(name==QStringLiteral("chat_outline_thickness"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),8));
+        else if(name==QStringLiteral("automod_enabled")){auto moderation=controller_->settings()->moderation();moderation[QStringLiteral("enabled")]=value.toBool();controller_->settings()->setModeration(moderation);}
+        else if(name==QStringLiteral("chat_colour_mode")){const QString mode=value.toString();if(QStringList{QStringLiteral("random"),QStringLiteral("single"),QStringLiteral("gradient"),QStringLiteral("pattern")}.contains(mode))controller_->settings()->setPreference(name,mode);}
+        else if(name==QStringLiteral("chat_name_pattern")){const QString pattern=value.toString();if(QStringList{QStringLiteral("repeat"),QStringLiteral("mirror"),QStringLiteral("blocks")}.contains(pattern))controller_->settings()->setPreference(name,pattern);}
+        else if(name==QStringLiteral("chat_name_colour")){const QColor color(value.toString());if(color.isValid())controller_->settings()->setPreference(name,color.name());}
+        else if(name==QStringLiteral("chat_name_palette")){QStringList palette=value.toStringList();palette.erase(std::remove_if(palette.begin(),palette.end(),[](const QString&v){return !QColor(v).isValid();}),palette.end());if(palette.size()>=2){while(palette.size()>8)palette.removeLast();controller_->settings()->setPreference(name,palette);controller_->regenerateNameColours();}}
+        else if(name==QStringLiteral("chat_palette_randomize")){controller_->settings()->setPreference(name,value.toBool());controller_->regenerateNameColours();}
+        else if(name==QStringLiteral("regenerate_name_colors")){controller_->regenerateNameColours();}
+        else if(name==QStringLiteral("seasonal_effects_enabled")||name==QStringLiteral("birthday_effects_enabled"))controller_->settings()->setPreference(name,value.toBool());
+        else if(name==QStringLiteral("birthday_confetti_playback")){const QString mode=value.toString();if(mode==QStringLiteral("always")||mode==QStringLiteral("first"))controller_->settings()->setPreference(name,mode);}
+        else if(name==QStringLiteral("birthday_month"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),12));
+        else if(name==QStringLiteral("birthday_day"))controller_->settings()->setPreference(name,qBound(0,value.toInt(),31));
+        overlay_->setFadeSeconds(controller_->settings()->preference(QStringLiteral("overlay_fade_seconds"),0).toInt());
+        overlay_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt(),controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt());
+        updateSeasonalEffects(false);syncMobileSettings();
+    });
+    syncMobileSettings();
+    connect(controller_->settings(),&SettingsStore::changed,this,[this]{syncMobileSettings();});
     updater_ = new UpdateService(this);
     connect(overlay_,&OverlayServer::mobileInstallUpdateRequested,this,[this]{if(mobileUpdateAsset_.isValid())updater_->downloadAndInstall(mobileUpdateAsset_,mobileUpdateName_,mobileUpdateDigest_);});
 
@@ -287,10 +321,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     splitter->setSizes({850, 430});
     setCentralWidget(splitter);
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
-        const QString badges = badgeGlyphs(m.badges);
+        const QString badges = chatBadgeHtml(m);
         const QString icon=controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool()?platformIconHtml(m.platform):QString();
         const QString html = QStringLiteral("%1%2%3 %4")
-            .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "),chatNameHtml(m),m.text.toHtmlEscaped());
+            .arg(icon,badges.isEmpty() ? QString() : badges + QStringLiteral(" "),chatNameHtml(m),chatMessageBodyHtml(m));
         // Stamped with an id (see appendChatMessage) so a right-click on
         // either view can be traced back to this message for moderation.
         const qint64 id = ++nextChatSeq_;
@@ -301,6 +335,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
+    connect(controller_,&AppController::pinnedMessageChanged,this,[this](const QString&platform,const ChatMessage&message,bool active){if(active)pinnedMessages_[platform]=message;else pinnedMessages_.remove(platform);refreshPinnedBanner();if(popout_)popout_->setPinnedMessage(platform,message,active);});
     connect(controller_, &AppController::messageModerated, this, [this](const ChatMessage& m, const QString& reason) {
         // Deliberately never touches overlay_ — viewers never see this note,
         // and since the original message was never ingested either, nothing
@@ -313,7 +348,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         appendTrimmed(chatViews_.value(m.platform), note);
         if (popout_) popout_->appendModerationNote(m.user, reason);
     });
-    connect(controller_,&AppController::tiktokActivityReady,this,[this](const StreamEvent&e){if(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool()&&popout_)popout_->showTikTokActivity(e);});
+    connect(controller_,&AppController::tiktokActivityReady,this,[this](const StreamEvent&e){if(e.kind==QStringLiteral("tiktok_join")&&controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),true).toBool()&&popout_)popout_->showTikTokActivity(e);});
     connect(controller_,&AppController::twitchAppealsUpdated,this,[this](const QJsonArray&appeals){
         overlay_->setMobileAppeals(appeals);
         if(!twitchAppeals_)return;twitchAppeals_->clear();
@@ -456,6 +491,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if(twitchModerationStatus_)twitchModerationStatus_->setText(QStringLiteral("Connected as %1").arg(login));
         if(twitchConnectButton_){twitchConnectButton_->setText(QStringLiteral("Reconnect Twitch"));twitchConnectButton_->setEnabled(true);}
         if(popout_)popout_->setClipAvailable(true);
+        if(clipEditor_)clipEditor_->setTwitchAccessToken(controller_->settings()->secret(QStringLiteral("twitch_access_token")));
         QMessageBox::information(this,QStringLiteral("Twitch connected"),QStringLiteral("You're all set. Leapcast Studio is connected to Twitch as %1.").arg(login));
     });
     connect(controller_,&AppController::twitchAuthorizationFailed,this,[this](const QString&detail){
@@ -509,18 +545,83 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (silentUpdateCheck_) { silentUpdateCheck_=false; return; }
         QMessageBox::warning(this, QStringLiteral("Update check"), detail);
     });
+    connect(controller_, &AppController::discordDiagnostic, this,
+            [this](const QString& line){ appendDiagnostic(QStringLiteral("Discord"), line); });
+    connect(controller_, &AppController::tiktokDiagnostic, this,
+            [this](const QString& line){ appendDiagnostic(QStringLiteral("TikTok"), line); });
     QTimer::singleShot(0, controller_, &AppController::startConfiguredSources);
     QTimer::singleShot(350, this, &MainWindow::showPostUpdateConnectionCheck);
     QTimer::singleShot(900, this, &MainWindow::showFirstLaunchUpdateLog);
     QTimer::singleShot(1600, this, [this]{controller_->refreshBans(QStringLiteral("twitch"));controller_->refreshBans(QStringLiteral("youtube"));controller_->refreshTwitchAppeals();});
-    QTimer::singleShot(2400, updater_, [this]{silentUpdateCheck_=true;updater_->check(false);});
+    if constexpr (leapcast::AutoUpdate) {
+        QTimer::singleShot(2400, updater_, [this]{silentUpdateCheck_=true;updater_->check(false);});
+    }
+}
+
+void MainWindow::syncMobileSettings(){
+    if(!overlay_||!controller_)return;
+    QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();
+    QJsonArray paletteJson;for(const auto&value:palette)if(QColor(value).isValid())paletteJson.append(QColor(value).name());
+    const QString theme=seasonalThemeFor(controller_->settings(),QDateTime::currentDateTime());
+    overlay_->setMobileSettings(QJsonObject{
+        {"overlay_fade_seconds",overlay_->fadeSeconds()},
+        {"overlay_background_opacity",controller_->settings()->preference(QStringLiteral("overlay_background_opacity"),0).toInt()},
+        {"chat_outline_thickness",controller_->settings()->preference(QStringLiteral("chat_outline_thickness"),2).toInt()},
+        {"automod_enabled",controller_->settings()->moderation().value(QStringLiteral("enabled")).toBool(true)},
+        {"chat_colour_mode",controller_->settings()->preference(QStringLiteral("chat_colour_mode"),QStringLiteral("random")).toString()},
+        {"chat_name_colour",controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString()},
+        {"chat_name_pattern",controller_->settings()->preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")).toString()},
+        {"chat_name_palette",paletteJson},
+        {"chat_palette_randomize",controller_->settings()->preference(QStringLiteral("chat_palette_randomize"),false).toBool()},
+        {"seasonal_effects_enabled",controller_->settings()->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool()},
+        {"birthday_effects_enabled",controller_->settings()->preference(QStringLiteral("birthday_effects_enabled"),true).toBool()},
+        {"birthday_confetti_playback",controller_->settings()->preference(QStringLiteral("birthday_confetti_playback"),QStringLiteral("always")).toString()},
+        {"birthday_month",controller_->settings()->preference(QStringLiteral("birthday_month"),0).toInt()},
+        {"birthday_day",controller_->settings()->preference(QStringLiteral("birthday_day"),0).toInt()},
+        {"seasonal_theme",theme},
+        {"seasonal_theme_label",seasonalThemeLabel(theme)}
+    });
+}
+
+void MainWindow::updateSeasonalEffects(bool allowCelebration){
+    if(!controller_)return;const QDateTime now=QDateTime::currentDateTime();const QString theme=seasonalThemeFor(controller_->settings(),now);seasonalTheme_=theme;
+    if(!seasonalDecoration_){seasonalDecoration_=new SeasonalDecorationWidget(this);seasonalDecoration_->setGeometry(rect());}
+    static_cast<SeasonalDecorationWidget*>(seasonalDecoration_)->setTheme(theme);seasonalDecoration_->setGeometry(rect());seasonalDecoration_->raise();
+    if(popout_)popout_->setSeasonalTheme(theme);
+    syncMobileSettings();
+    if(!allowCelebration||theme.isEmpty()||theme==QStringLiteral("veterans"))return;
+    const QString dateKey=now.date().toString(Qt::ISODate);
+    const QString seenKey=QStringLiteral("seasonal_effect_seen_")+theme;
+    if(theme==QStringLiteral("birthday")){
+        const QString playback=controller_->settings()->preference(QStringLiteral("birthday_confetti_playback"),QStringLiteral("always")).toString();
+        if(playback==QStringLiteral("always")){
+            // The 30-second seasonal timer also checks this function. Keep
+            // "Every launch" to exactly one party animation per running
+            // Leapcast process; reopening the app resets this flag.
+            if(birthdayCelebrationPlayedThisLaunch_)return;
+            birthdayCelebrationPlayedThisLaunch_=true;
+        }else{
+            if(controller_->settings()->preference(seenKey).toString()==dateKey)return;
+            controller_->settings()->setPreference(seenKey,dateKey);
+        }
+    }else{
+        if(controller_->settings()->preference(seenKey).toString()==dateKey)return;
+        controller_->settings()->setPreference(seenKey,dateKey);
+    }
+    const bool ballDrop=theme==QStringLiteral("newyear")&&now.date().month()==1&&now.date().day()==1&&now.time().hour()==0&&now.time().minute()<5;
+    new CelebrationOverlay(theme,ballDrop);
 }
 
 bool MainWindow::event(QEvent* e) {
-    if (e->type() == QEvent::WindowActivate && popout_ && popout_->ghostMode()) {
-        popout_->setGhostMode(false);
-    }
+    if (e->type() == QEvent::WindowActivate && popout_ && popout_->ghostMode()) popout_->setGhostMode(false);
+    if(e->type()==QEvent::Resize&&seasonalDecoration_){seasonalDecoration_->setGeometry(rect());seasonalDecoration_->raise();}
     return QMainWindow::event(e);
+}
+
+void MainWindow::showEvent(QShowEvent* e){
+    QMainWindow::showEvent(e);
+    if(!seasonalTimer_){seasonalTimer_=new QTimer(this);seasonalTimer_->setInterval(30000);connect(seasonalTimer_,&QTimer::timeout,this,[this]{updateSeasonalEffects(true);});seasonalTimer_->start();}
+    QTimer::singleShot(250,this,[this]{updateSeasonalEffects(true);});
 }
 
 void MainWindow::closeEvent(QCloseEvent* e){
@@ -530,32 +631,55 @@ void MainWindow::closeEvent(QCloseEvent* e){
 
 void MainWindow::showFirstLaunchUpdateLog(){
     const QString version=QString::fromLatin1(leapcast::Version);
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    if(controller_->settings()->preference(QStringLiteral("update_log_seen_version")).toString()==version)return;
-    controller_->settings()->setPreference(QStringLiteral("update_log_seen_version"),version);
-    QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's new in Leapcast %1").arg(version));dialog.resize(500,390);dialog.setMinimumSize(420,310);
-    auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(18,16,18,16);layout->setSpacing(10);
-    auto* title=label(QStringLiteral("WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("A quick summary of this update. This appears once per installed version."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setMarkdown(QStringLiteral("- **Phone Connect control center** with Chat, Events, Moderation, and Settings navigation.\n- **Live stream events** now appear on the connected iPhone.\n- **Mobile moderation** includes bans, unban requests, approvals, rejections, timeouts, and message removal.\n- **Private QR connection** can be regenerated to invalidate an older link.\n- **Release notifications** appear on mobile only when a newer published Windows release is available.\n- Connection and Safari compatibility improvements."));layout->addWidget(notes,1);
-    auto* close=new QPushButton(QStringLiteral("Got it"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
-=======
-=======
->>>>>>> Stashed changes
     const QString notesRevision=version+QStringLiteral("-release-notes-r1");
     if(controller_->settings()->preference(QStringLiteral("update_log_seen_revision")).toString()==notesRevision)return;
     controller_->settings()->setPreference(QStringLiteral("update_log_seen_revision"),notesRevision);
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's New in Leapcast %1").arg(version));dialog.resize(560,430);dialog.setMinimumSize(440,330);
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(22,20,22,20);layout->setSpacing(12);
     auto* title=label(QStringLiteral("✨ WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("A cleaner Settings experience, Discord live alerts, and a little New Year sparkle."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **🎆 New Year transformation**  \n  Watch the previous year slide away as the new year arrives with a polished golden shine.\n\n- **🔔 Discord live notifications**  \n  Connect your own Discord bot in Settings, select a channel, test it, and optionally notify `@everyone` when your stream goes live. Leapcast hosts the notification connection locally while it is running.\n\n- **🔐 Clear bot-token safety**  \n  The token stays masked in Settings, with an explicit reminder that bot-token creation, retrieval, and recovery are not supported.\n\n- **🪟 Better at every window size**  \n  Settings now scrolls properly, controls have more breathing room, and the program no longer needs to be fullscreen to remain usable."));layout->addWidget(notes,1);
+    auto* summary=label(QStringLiteral("A test build: automatic updates are off, TikTok chat collection is fixed, and Discord now tells you why a 403 happened."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **\U0001F6D1 Automatic updates are OFF**  \n  This is a test build. It will not contact GitHub at startup and will not replace itself with the published release. Check now is disabled too.\n\n- **\U0001F50E Discord \u2018Diagnose 403\u2019**  \n  Settings \u2192 Discord now checks your token, then the channel, then server membership, and names the step that fails. Administrator does not fix every 403, and this says which one you have.\n\n- **\U0001F4AC TikTok chat actually shows up**  \n  The hidden collector page had no viewport, so TikTok rendered zero chat rows. It now runs in a real off-screen window you can open, and sign in to, from Settings.\n\n- **\U0001F465 Sane TikTok viewer counts**  \n  The count no longer picks up numbers from recommended streams in the sidebar."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
+}
+
+void MainWindow::appendDiagnostic(const QString& source,const QString& line){
+    const QString stamped=QStringLiteral("[%1] %2  %3")
+                              .arg(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")),source,line);
+    diagnosticLog_.append(stamped);
+    while(diagnosticLog_.size()>600)diagnosticLog_.removeFirst();
+    if(diagnosticsView_){
+        diagnosticsView_->appendPlainText(stamped);
+        diagnosticsView_->verticalScrollBar()->setValue(diagnosticsView_->verticalScrollBar()->maximum());
+    }
+}
+
+void MainWindow::showDiagnosticsWindow(const QString& focus){
+    if(!diagnosticsWindow_){
+        diagnosticsWindow_=new QDialog(this);
+        diagnosticsWindow_->setWindowTitle(QStringLiteral("Leapcast diagnostics"));
+        diagnosticsWindow_->resize(820,460);
+        auto* layout=new QVBoxLayout(diagnosticsWindow_);
+        auto* hint=new QLabel(QStringLiteral("Raw responses from Discord and the TikTok collector. Copy this whole log when reporting a problem — it contains no tokens."));
+        hint->setWordWrap(true);layout->addWidget(hint);
+        diagnosticsView_=new QPlainTextEdit;diagnosticsView_->setReadOnly(true);
+        diagnosticsView_->setLineWrapMode(QPlainTextEdit::NoWrap);
+        diagnosticsView_->setStyleSheet(QStringLiteral("background:#0b0d15;color:#cfe6ff;font-family:Consolas,monospace;"));
+        layout->addWidget(diagnosticsView_,1);
+        auto* buttons=new QHBoxLayout;
+        auto* copy=new QPushButton(QStringLiteral("Copy log"));
+        auto* clear=new QPushButton(QStringLiteral("Clear"));
+        auto* close=new QPushButton(QStringLiteral("Close"));
+        buttons->addWidget(copy);buttons->addWidget(clear);buttons->addStretch();buttons->addWidget(close);
+        layout->addLayout(buttons);
+        connect(copy,&QPushButton::clicked,this,[this]{QGuiApplication::clipboard()->setText(diagnosticLog_.join(QLatin1Char('\n')));});
+        connect(clear,&QPushButton::clicked,this,[this]{diagnosticLog_.clear();diagnosticsView_->clear();});
+        connect(close,&QPushButton::clicked,diagnosticsWindow_,&QDialog::hide);
+        diagnosticsView_->setPlainText(diagnosticLog_.join(QLatin1Char('\n')));
+    }
+    if(!focus.isEmpty())appendDiagnostic(focus,QStringLiteral("--- opened from the %1 panel ---").arg(focus));
+    diagnosticsWindow_->show();
+    diagnosticsWindow_->raise();
+    diagnosticsWindow_->activateWindow();
 }
 
 QWidget* MainWindow::buildSidebar() { return new QWidget; }
@@ -841,7 +965,7 @@ QWidget* MainWindow::buildPhoneConnectPage(){
 }
 
 QWidget* MainWindow::buildSettingsPage(){
-    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(8,4,8,8);layout->setSpacing(10);scroll->setWidget(body);outer->addWidget(scroll);
+    auto* page=new QWidget;auto* outer=new QVBoxLayout(page);outer->setContentsMargins(0,0,0,0);auto* scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);auto* body=new QWidget;auto* layout=new QVBoxLayout(body);layout->setContentsMargins(7,3,7,7);layout->setSpacing(7);scroll->setWidget(body);outer->addWidget(scroll);
     layout->addWidget(label(QStringLiteral("SETTINGS"),"heroTitle"));
 
     auto* appearance=new QFrame;appearance->setProperty("card",true);auto* appearanceLayout=new QVBoxLayout(appearance);
@@ -850,11 +974,13 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* fonts=new QFontComboBox;fonts->setCurrentFont(QFont(controller_->settings()->preference("ui_font_family","Segoe UI").toString()));fontRow->addWidget(fonts,1);
     auto* fontSize=new QSpinBox;fontSize->setRange(8,20);fontSize->setSuffix(QStringLiteral(" pt"));fontSize->setValue(controller_->settings()->preference("ui_font_size",10).toInt());fontRow->addWidget(fontSize);appearanceLayout->addLayout(fontRow);
     auto* scaleRow=new QHBoxLayout;scaleRow->addWidget(label(QStringLiteral("Button and control size")));
-    auto* controlScale=new QSlider(Qt::Horizontal);controlScale->setRange(80,160);controlScale->setValue(controller_->settings()->preference("ui_control_scale",100).toInt());scaleRow->addWidget(controlScale,1);
+    auto* controlScale=new QSlider(Qt::Horizontal);controlScale->setRange(80,160);controlScale->setValue(controller_->settings()->preference("ui_control_scale",92).toInt());scaleRow->addWidget(controlScale,1);
     auto* scaleValue=label(QString::number(controlScale->value())+QStringLiteral("%"));scaleRow->addWidget(scaleValue);appearanceLayout->addLayout(scaleRow);
+    auto* compactLayout=new QCheckBox(QStringLiteral("Compact layout (less spacing, same features)"));compactLayout->setChecked(controller_->settings()->preference(QStringLiteral("ui_compact_layout"),true).toBool());appearanceLayout->addWidget(compactLayout);
     connect(fonts,&QFontComboBox::currentFontChanged,this,[this](const QFont&font){controller_->settings()->setPreference("ui_font_family",font.family());applyTheme();});
     connect(fontSize,qOverload<int>(&QSpinBox::valueChanged),this,[this](int value){controller_->settings()->setPreference("ui_font_size",value);applyTheme();});
     connect(controlScale,&QSlider::valueChanged,this,[this,scaleValue](int value){scaleValue->setText(QString::number(value)+"%");controller_->settings()->setPreference("ui_control_scale",value);applyTheme();});
+    connect(compactLayout,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("ui_compact_layout"),enabled);applyTheme();});
     layout->addWidget(appearance);
 
     auto* popoutAppearance=new QFrame;popoutAppearance->setProperty("card",true);auto* popoutLayout=new QVBoxLayout(popoutAppearance);
@@ -866,9 +992,26 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* nameColourRow=new QHBoxLayout;nameColourRow->addWidget(label(QStringLiteral("Specific name color")));auto* nameColourButton=new QPushButton(nameColour.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(nameColour.name(),nameColour.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));nameColourButton->setEnabled(colourMode->currentData().toString()==QStringLiteral("single"));nameColourRow->addWidget(nameColourButton);popoutLayout->addLayout(nameColourRow);
     QStringList namePalette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(namePalette.size()<4)namePalette<<QStringLiteral("#ffffff");
     auto* paletteRow=new QHBoxLayout;auto* paletteLabel=label(QStringLiteral("Multi-color palette"));paletteRow->addWidget(paletteLabel);QList<QPushButton*> paletteButtons;for(int index=0;index<4;++index){QColor color(namePalette.at(index));if(!color.isValid())color=Qt::white;auto*button=new QPushButton(QString::number(index+1));button->setToolTip(QStringLiteral("Choose palette color %1").arg(index+1));button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(color.name(),color.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));paletteButtons<<button;paletteRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,button,index]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();while(palette.size()<4)palette<<QStringLiteral("#ffffff");QColor current(palette.at(index));const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Name palette color %1").arg(index+1));if(!chosen.isValid())return;palette[index]=chosen.name();controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),palette);button->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});}auto*patternStyle=new QComboBox;patternStyle->addItem(QStringLiteral("Repeat"),QStringLiteral("repeat"));patternStyle->addItem(QStringLiteral("Mirror"),QStringLiteral("mirror"));patternStyle->addItem(QStringLiteral("Color blocks"),QStringLiteral("blocks"));patternStyle->setCurrentIndex(qMax(0,patternStyle->findData(controller_->settings()->preference(QStringLiteral("chat_name_pattern"),QStringLiteral("repeat")))));paletteRow->addWidget(patternStyle);popoutLayout->addLayout(paletteRow);
+    auto* randomizePalette=new QCheckBox(QStringLiteral("Unique randomized palette variation per chatter"));randomizePalette->setChecked(controller_->settings()->preference(QStringLiteral("chat_palette_randomize"),false).toBool());popoutLayout->addWidget(randomizePalette);auto* paletteActionRow=new QHBoxLayout;auto* editPalette=new QPushButton(QStringLiteral("Edit custom palette (2–8 colors)"));auto* rerollPalette=new QPushButton(QStringLiteral("Randomize palette for chatters"));paletteActionRow->addWidget(editPalette,1);paletteActionRow->addWidget(rerollPalette,1);popoutLayout->addLayout(paletteActionRow);
+    connect(editPalette,&QPushButton::clicked,this,[this,paletteButtons]{QStringList palette=controller_->settings()->preference(QStringLiteral("chat_name_palette"),QStringList{QStringLiteral("#6c4cff"),QStringLiteral("#18dfd1"),QStringLiteral("#ff5ca8"),QStringLiteral("#ffd166")}).toStringList();bool ok=false;const QString text=QInputDialog::getMultiLineText(this,QStringLiteral("Custom name palette"),QStringLiteral("One hex color per line (2–8 colors). Reorder the lines to reorder the palette."),palette.join(QLatin1Char('\n')),&ok);if(!ok)return;QStringList next;for(QString value:text.split(QRegularExpression(QStringLiteral("[\r\n,]+")),Qt::SkipEmptyParts)){value=value.trimmed();QColor c(value);if(c.isValid())next<<c.name();}if(next.size()<2||next.size()>8){QMessageBox::warning(this,QStringLiteral("Custom palette"),QStringLiteral("Choose between 2 and 8 valid colors."));return;}controller_->settings()->setPreference(QStringLiteral("chat_name_palette"),next);controller_->regenerateNameColours();for(int i=0;i<paletteButtons.size();++i){QColor c(i<next.size()?next.at(i):QStringLiteral("#ffffff"));paletteButtons[i]->setStyleSheet(QStringLiteral("background:%1;color:%2;min-width:52px;").arg(c.name(),c.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));}});
+    connect(randomizePalette,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("chat_palette_randomize"),enabled);controller_->regenerateNameColours();});
+    connect(rerollPalette,&QPushButton::clicked,this,[this,randomizePalette]{if(!randomizePalette->isChecked())randomizePalette->setChecked(true);controller_->regenerateNameColours();});
+    auto* iconRow=new QHBoxLayout;iconRow->addWidget(label(QStringLiteral("Custom chatter icons")));auto* iconPlatform=new QComboBox;
+    for(const auto&entry:QList<QPair<QString,QString>>{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"},{"kick","Kick"},{"rumble","Rumble"}})iconPlatform->addItem(entry.second,entry.first);
+    auto* manageIcons=new QPushButton(QStringLiteral("Manage (0/3)"));auto* clearIcons=new QPushButton(QStringLiteral("Clear"));iconRow->addWidget(iconPlatform,1);iconRow->addWidget(manageIcons);iconRow->addWidget(clearIcons);popoutLayout->addLayout(iconRow);
+    auto* iconHelp=label(QStringLiteral("Up to 3 PNG/JPG icons per platform. Custom icons replace standard chatter badges; moderator and Twitch subscriber badges remain."),"muted");iconHelp->setWordWrap(true);popoutLayout->addWidget(iconHelp);
+    const auto refreshIconCount=[this,iconPlatform,manageIcons]{const QString key=QStringLiteral("custom_chatter_icons_")+iconPlatform->currentData().toString();manageIcons->setText(QStringLiteral("Manage (%1/3)").arg(controller_->settings()->preference(key,QStringList{}).toStringList().size()));};
+    connect(iconPlatform,qOverload<int>(&QComboBox::currentIndexChanged),this,[refreshIconCount](int){refreshIconCount();});
+    connect(clearIcons,&QPushButton::clicked,this,[this,iconPlatform,refreshIconCount]{controller_->settings()->setPreference(QStringLiteral("custom_chatter_icons_")+iconPlatform->currentData().toString(),QStringList{});refreshIconCount();});
+    connect(manageIcons,&QPushButton::clicked,this,[this,iconPlatform,refreshIconCount]{
+        const QStringList files=QFileDialog::getOpenFileNames(this,QStringLiteral("Choose up to 3 chatter icons"),QString(),QStringLiteral("Images (*.png *.jpg *.jpeg *.webp)"));if(files.isEmpty())return;if(files.size()>3){QMessageBox::warning(this,QStringLiteral("Custom chatter icons"),QStringLiteral("Choose no more than 3 images for each platform."));return;}
+        QStringList encoded;for(const auto&path:files){QImage image(path);if(image.isNull())continue;image=image.scaled(48,48,Qt::KeepAspectRatio,Qt::SmoothTransformation);QByteArray bytes;QBuffer buffer(&bytes);buffer.open(QIODevice::WriteOnly);image.save(&buffer,"PNG");encoded<<QStringLiteral("data:image/png;base64,")+QString::fromLatin1(bytes.toBase64());}
+        if(encoded.isEmpty()){QMessageBox::warning(this,QStringLiteral("Custom chatter icons"),QStringLiteral("None of those image files could be read."));return;}controller_->settings()->setPreference(QStringLiteral("custom_chatter_icons_")+iconPlatform->currentData().toString(),encoded);refreshIconCount();
+    });refreshIconCount();
     auto* programIcons=new QCheckBox(QStringLiteral("Show platform icons in program chat and pop-out"));programIcons->setChecked(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());popoutLayout->addWidget(programIcons);
     auto* overlayIcons=new QCheckBox(QStringLiteral("Show platform icons in OBS overlay"));overlayIcons->setChecked(controller_->settings()->preference(QStringLiteral("overlay_show_platform_icons"),true).toBool());popoutLayout->addWidget(overlayIcons);
-    auto* tiktokActivity=new QCheckBox(QStringLiteral("Show TikTok joins, follows, and likes in pop-out only"));tiktokActivity->setChecked(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),false).toBool());popoutLayout->addWidget(tiktokActivity);
+    auto* pinnedMessages=new QCheckBox(QStringLiteral("Show pinned messages for Twitch and YouTube/Shorts (📌)"));pinnedMessages->setChecked(controller_->settings()->preference(QStringLiteral("show_pinned_messages"),true).toBool());popoutLayout->addWidget(pinnedMessages);
+    auto* tiktokActivity=new QCheckBox(QStringLiteral("Show TikTok joins in pop-out only"));tiktokActivity->setChecked(controller_->settings()->preference(QStringLiteral("tiktok_popout_activity_enabled"),true).toBool());popoutLayout->addWidget(tiktokActivity);
     const auto applyPopoutAppearance=[this,popoutFont,popoutSize,popoutOutline]{if(popout_)popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),popoutOutline->value(),popoutFont->currentFont().family(),popoutSize->value());};
     connect(popoutFont,&QFontComboBox::currentFontChanged,this,[this,applyPopoutAppearance](const QFont&font){controller_->settings()->setPreference(QStringLiteral("popout_font_family"),font.family());applyPopoutAppearance();});
     connect(popoutSize,&QSlider::valueChanged,this,[this,popoutSizeValue,applyPopoutAppearance](int value){popoutSizeValue->setText(QString::number(value)+QStringLiteral(" pt"));controller_->settings()->setPreference(QStringLiteral("popout_font_size"),value);applyPopoutAppearance();});
@@ -879,11 +1022,10 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(nameColourButton,&QPushButton::clicked,this,[this,nameColourButton]{QColor current(controller_->settings()->preference(QStringLiteral("chat_name_colour"),QStringLiteral("#53cdf3")).toString());const QColor chosen=QColorDialog::getColor(current,this,QStringLiteral("Chat name color"));if(!chosen.isValid())return;controller_->settings()->setPreference(QStringLiteral("chat_name_colour"),chosen.name());nameColourButton->setText(chosen.name());nameColourButton->setStyleSheet(QStringLiteral("background:%1;color:%2;").arg(chosen.name(),chosen.lightness()<128?QStringLiteral("white"):QStringLiteral("black")));});
     connect(programIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("program_popout_show_platform_icons"),enabled);if(popout_)popout_->setShowPlatformIcons(enabled);});
     connect(overlayIcons,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("overlay_show_platform_icons"),enabled);overlay_->setShowPlatformIcons(enabled);});
+    connect(pinnedMessages,&QCheckBox::toggled,this,[this](bool enabled){controller_->setPinnedMessagesEnabled(enabled);});
     connect(tiktokActivity,&QCheckBox::toggled,this,[this](bool enabled){controller_->settings()->setPreference(QStringLiteral("tiktok_popout_activity_enabled"),enabled);});
     layout->addWidget(popoutAppearance);
 
-<<<<<<< Updated upstream
-=======
     auto* seasonal=new QFrame;seasonal->setProperty("card",true);auto* seasonalLayout=new QVBoxLayout(seasonal);seasonalLayout->addWidget(label(QStringLiteral("SEASONAL & BIRTHDAY EFFECTS"),"cardTitle"));
     auto* seasonalEnabled=new QCheckBox(QStringLiteral("Enable seasonal and holiday effects"));seasonalEnabled->setChecked(controller_->settings()->preference(QStringLiteral("seasonal_effects_enabled"),true).toBool());seasonalLayout->addWidget(seasonalEnabled);
     auto* birthdayEnabled=new QCheckBox(QStringLiteral("Birthday effects — confetti, party hats, balloons, sparkles, and streamers"));birthdayEnabled->setChecked(controller_->settings()->preference(QStringLiteral("birthday_effects_enabled"),true).toBool());seasonalLayout->addWidget(birthdayEnabled);
@@ -897,6 +1039,25 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(birthdayDay,qOverload<int>(&QSpinBox::valueChanged),this,[this](int day){controller_->settings()->setPreference(QStringLiteral("birthday_day"),day);updateSeasonalEffects(false);});
     layout->addWidget(seasonal);
 
+    auto* tiktokCard=new QFrame;tiktokCard->setProperty("card",true);auto* tiktokLayout=new QVBoxLayout(tiktokCard);
+    tiktokLayout->addWidget(label(QStringLiteral("TIKTOK COLLECTOR"),"cardTitle"));
+    auto* tiktokHelp=label(QStringLiteral("TikTok LIVE has no public chat API, so Leapcast reads chat from a hidden browser page. Open the collector to see exactly what that page is showing — a live chat panel, a login prompt, or a captcha. Signing in to TikTok inside this window is remembered between launches, and a signed-in page shows far more of chat."),"muted");tiktokHelp->setWordWrap(true);tiktokLayout->addWidget(tiktokHelp);
+    auto* tiktokActions=new QHBoxLayout;
+    auto* showCollector=new QPushButton(QStringLiteral("Show TikTok collector"));
+    auto* reloadCollector=new QPushButton(QStringLiteral("Reload collector"));
+    auto* tiktokLog=new QPushButton(QStringLiteral("View log"));
+    tiktokActions->addWidget(showCollector);tiktokActions->addWidget(reloadCollector);tiktokActions->addWidget(tiktokLog);tiktokActions->addStretch();
+    tiktokLayout->addLayout(tiktokActions);
+    auto* tiktokStatus=label(QStringLiteral("Collector is running off-screen."),"muted");tiktokStatus->setWordWrap(true);tiktokLayout->addWidget(tiktokStatus);
+    connect(showCollector,&QPushButton::clicked,this,[this]{controller_->setTikTokCollectorVisible(!controller_->tiktokCollectorVisible());});
+    connect(reloadCollector,&QPushButton::clicked,this,[this,tiktokStatus]{controller_->reloadTikTokCollector();tiktokStatus->setText(QStringLiteral("Reloading the TikTok LIVE page…"));});
+    connect(tiktokLog,&QPushButton::clicked,this,[this]{showDiagnosticsWindow(QStringLiteral("TikTok"));});
+    connect(controller_,&AppController::tiktokCollectorVisibilityChanged,tiktokCard,[showCollector,tiktokStatus](bool visible){
+        showCollector->setText(visible?QStringLiteral("Hide TikTok collector"):QStringLiteral("Show TikTok collector"));
+        tiktokStatus->setText(visible?QStringLiteral("Collector window is open. Sign in to TikTok here if it asks."):QStringLiteral("Collector is running off-screen."));
+    });
+    layout->addWidget(tiktokCard);
+
     auto* discordCard=new QFrame;discordCard->setProperty("card",true);auto* discordLayout=new QVBoxLayout(discordCard);discordLayout->addWidget(label(QStringLiteral("DISCORD LIVE NOTIFICATIONS"),"cardTitle"));
     auto* discordHelp=label(QStringLiteral("Link a Discord bot hosted by Leapcast while this program is running. Leapcast watches linked Twitch, YouTube, Rumble, Kick, and direct TikTok LIVE profile feeds. After the first service goes live, it waits 5 seconds so other services can join the same single notification. The bot must already be invited with View Channel, Send Messages, and Mention Everyone permissions."),"muted");discordHelp->setWordWrap(true);discordLayout->addWidget(discordHelp);
     auto* noSupport=label(QStringLiteral("Important: Leapcast does not provide support or instructions for creating, finding, or resetting a Discord bot token. Treat the token like a password and never share it."),"status");noSupport->setWordWrap(true);noSupport->setStyleSheet(QStringLiteral("color:#f6c85f"));discordLayout->addWidget(noSupport);
@@ -907,17 +1068,18 @@ QWidget* MainWindow::buildSettingsPage(){
     auto* messageHelp=label(QStringLiteral("Placeholders: {user} uses the streamer name above. {Platforms} becomes Twitch, YouTube, Rumble, Kick, and/or TikTok LIVE, with “&” inserted naturally when several feeds are live. Matching stream links are added below the message automatically."),"muted");messageHelp->setWordWrap(true);discordLayout->addWidget(messageHelp);
     auto* enableDiscord=new QCheckBox(QStringLiteral("Allow the linked bot to notify Discord when I go live"));enableDiscord->setChecked(controller_->settings()->preference(QStringLiteral("discord_live_notifications"),false).toBool());discordLayout->addWidget(enableDiscord);
     auto* mentionEveryone=new QCheckBox(QStringLiteral("Include @everyone in live notifications"));mentionEveryone->setChecked(controller_->settings()->preference(QStringLiteral("discord_mention_everyone"),true).toBool());discordLayout->addWidget(mentionEveryone);
-    auto* discordActions=new QHBoxLayout;auto* saveDiscord=new QPushButton(QStringLiteral("Save Discord bot"));auto* testDiscord=new QPushButton(QStringLiteral("Send test notification"));discordActions->addWidget(saveDiscord);discordActions->addWidget(testDiscord);discordActions->addStretch();discordLayout->addLayout(discordActions);auto* discordStatus=label(QStringLiteral("Not tested"),"muted");discordStatus->setWordWrap(true);discordLayout->addWidget(discordStatus);
+    auto* discordActions=new QHBoxLayout;auto* saveDiscord=new QPushButton(QStringLiteral("Save Discord bot"));auto* runDiscord=new QPushButton(QStringLiteral("Run Bot"));runDiscord->setProperty("primary",true);auto* stopDiscord=new QPushButton(QStringLiteral("Stop Bot"));stopDiscord->setEnabled(false);auto* testDiscord=new QPushButton(QStringLiteral("Send test notification"));auto* diagnoseDiscord=new QPushButton(QStringLiteral("Diagnose 403"));auto* discordLog=new QPushButton(QStringLiteral("View log"));discordActions->addWidget(saveDiscord);discordActions->addWidget(runDiscord);discordActions->addWidget(stopDiscord);discordActions->addWidget(testDiscord);discordActions->addWidget(diagnoseDiscord);discordActions->addWidget(discordLog);discordActions->addStretch();discordLayout->addLayout(discordActions);auto* botStatus=label(QStringLiteral("● Bot offline"),"status");botStatus->setStyleSheet(QStringLiteral("color:#ff637d"));discordLayout->addWidget(botStatus);auto* discordStatus=label(QStringLiteral("Notifications not tested"),"muted");discordStatus->setWordWrap(true);discordLayout->addWidget(discordStatus);
     const auto saveDiscordSettings=[this,discordToken,discordChannel,discordStreamer,discordMessage,enableDiscord,mentionEveryone]{controller_->settings()->setSecret(QStringLiteral("discord_bot_token"),discordToken->text());controller_->settings()->setSecret(QStringLiteral("discord_channel_id"),discordChannel->text());controller_->settings()->setPreference(QStringLiteral("discord_streamer_name"),discordStreamer->text().trimmed());controller_->settings()->setPreference(QStringLiteral("discord_live_message"),discordMessage->text());controller_->settings()->setPreference(QStringLiteral("discord_live_notifications"),enableDiscord->isChecked());controller_->settings()->setPreference(QStringLiteral("discord_mention_everyone"),mentionEveryone->isChecked());};
     connect(saveDiscord,&QPushButton::clicked,this,[saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Saved. The bot is hosted while Leapcast Studio is running."));discordStatus->setStyleSheet(QStringLiteral("color:#63e6be"));});
+    connect(runDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,botStatus]{saveDiscordSettings();botStatus->setText(QStringLiteral("● Bot connecting…"));botStatus->setStyleSheet(QStringLiteral("color:#f6c85f"));controller_->startDiscordBot();});
+    connect(stopDiscord,&QPushButton::clicked,controller_,&AppController::stopDiscordBot);
     connect(testDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Sending test…"));controller_->testDiscordLiveNotification();});
+    connect(diagnoseDiscord,&QPushButton::clicked,this,[this,saveDiscordSettings,discordStatus]{saveDiscordSettings();discordStatus->setText(QStringLiteral("Checking token, channel, and server membership…"));discordStatus->setStyleSheet(QStringLiteral("color:#f6c85f"));showDiagnosticsWindow(QStringLiteral("Discord"));controller_->diagnoseDiscord();});
+    connect(discordLog,&QPushButton::clicked,this,[this]{showDiagnosticsWindow(QString());});
     connect(controller_,&AppController::discordNotificationResult,discordCard,[discordStatus](bool ok,const QString&detail){discordStatus->setText(detail);discordStatus->setStyleSheet(ok?QStringLiteral("color:#63e6be"):QStringLiteral("color:#ff637d"));});
+    connect(controller_,&AppController::discordBotStatus,discordCard,[runDiscord,stopDiscord,botStatus](bool online,const QString&detail){runDiscord->setEnabled(!online);stopDiscord->setEnabled(online);botStatus->setText(QStringLiteral("● ")+detail);botStatus->setStyleSheet(online?QStringLiteral("color:#63e6be"):detail.contains(QStringLiteral("Connecting"),Qt::CaseInsensitive)?QStringLiteral("color:#f6c85f"):QStringLiteral("color:#ff637d"));});
     layout->addWidget(discordCard);
 
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     auto* navigation=new QFrame;navigation->setProperty("card",true);auto* navSettings=new QHBoxLayout(navigation);
     navSettings->addWidget(label(QStringLiteral("SIDEBAR ORDER"),"cardTitle"));navSettings->addStretch();
     auto* navChoice=new QComboBox;for(const auto&key:navigationOrder_)navChoice->addItem(key==QStringLiteral("obs")?QStringLiteral("Chat Overlay"):key==QStringLiteral("phone")?QStringLiteral("Phone Connect"):key.left(1).toUpper()+key.mid(1),key);navSettings->addWidget(navChoice);
@@ -925,23 +1087,36 @@ QWidget* MainWindow::buildSettingsPage(){
     connect(up,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),-1);});
     connect(down,&QPushButton::clicked,this,[this,navChoice]{moveNavigationButton(navChoice->currentData().toString(),1);});layout->addWidget(navigation);
 
-    auto* platforms=new QFrame;platforms->setProperty("card",true);auto* platformLayout=new QGridLayout(platforms);platformLayout->addWidget(label(QStringLiteral("VISIBLE PLATFORMS"),"cardTitle"),0,0,1,3);
+    auto* platforms=new QFrame;platforms->setProperty("card",true);auto* platformLayout=new QGridLayout(platforms);platformLayout->addWidget(label(QStringLiteral("VISIBLE PLATFORMS"),"cardTitle"),0,0,1,3);auto* kickVisibleHelp=label(QStringLiteral("Kick chat needs no key. Enable Kick here, then add the channel under Sources."),"muted");kickVisibleHelp->setWordWrap(true);platformLayout->addWidget(kickVisibleHelp,1,0,1,3);
     const QList<QPair<QString,QString>> options{{"twitch","Twitch"},{"youtube","YouTube"},{"yt_shorts","YouTube Shorts"},{"tiktok","TikTok"},{"kick","Kick"},{"rumble","Rumble"}};
-    int platformIndex=0;for(const auto&option:options){auto*box=new QCheckBox(option.second);box->setChecked(controller_->settings()->enabled(option.first));platformLayout->addWidget(box,1+platformIndex/3,platformIndex%3);++platformIndex;connect(box,&QCheckBox::toggled,this,[this,key=option.first](bool enabled){controller_->settings()->setEnabled(key,enabled);if(enabled){const QString link=controller_->settings()->link(key);if(!link.isEmpty())controller_->connectSource(key,link);}else controller_->disconnectSource(key);applyPlatformVisibility();});}
+    int platformIndex=0;for(const auto&option:options){auto*box=new QCheckBox(option.second);box->setChecked(controller_->settings()->enabled(option.first));platformLayout->addWidget(box,2+platformIndex/3,platformIndex%3);++platformIndex;connect(box,&QCheckBox::toggled,this,[this,key=option.first](bool enabled){controller_->settings()->setEnabled(key,enabled);if(enabled){const QString link=controller_->settings()->link(key);if(!link.isEmpty())controller_->connectSource(key,link);}else controller_->disconnectSource(key);applyPlatformVisibility();});}
     layout->addWidget(platforms);
 
     auto* updateCard = new QFrame; updateCard->setProperty("card", true);
-    auto* updateLayout = new QHBoxLayout(updateCard);
+    auto* updateOuter = new QVBoxLayout(updateCard);
+    auto* updateRow = new QHBoxLayout;
     auto* updateText = new QVBoxLayout;
     updateText->addWidget(label(QStringLiteral("AUTOMATIC UPDATES"), "cardTitle"));
-    updateLayout->addLayout(updateText, 1);
+    updateRow->addLayout(updateText, 1);
     auto* releases = new QPushButton(QStringLiteral("Open Releases"));
     auto* checkNow = new QPushButton(QStringLiteral("Check now"));
-    updateLayout->addWidget(releases); updateLayout->addWidget(checkNow);
+    updateRow->addWidget(releases); updateRow->addWidget(checkNow);
+    updateOuter->addLayout(updateRow);
     connect(releases, &QPushButton::clicked, this, [] {
         QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/reallefroge/LeapCast/releases")));
     });
-    connect(checkNow, &QPushButton::clicked, this, [this] { silentUpdateCheck_=false;updater_->check(true); });
+    if constexpr (leapcast::AutoUpdate) {
+        connect(checkNow, &QPushButton::clicked, this, [this] { silentUpdateCheck_=false;updater_->check(true); });
+    } else {
+        // Updating is switched off entirely for this test build so a locally
+        // built binary can never be overwritten by the published release.
+        checkNow->setEnabled(false);
+        checkNow->setToolTip(QStringLiteral("Updates are disabled in this build."));
+        auto* updateOff = label(QStringLiteral("Updates are disabled in this build (v%1). Nothing is downloaded or installed automatically, and the Check now button is switched off. Rebuild with -DLEAPCAST_AUTO_UPDATE=ON to turn updating back on.").arg(QString::fromLatin1(leapcast::Version)), "muted");
+        updateOff->setWordWrap(true);
+        updateOff->setStyleSheet(QStringLiteral("color:#f6c85f"));
+        updateOuter->addWidget(updateOff);
+    }
     layout->addWidget(updateCard);
     layout->addStretch();
     return page;
@@ -1096,6 +1271,34 @@ QWidget* MainWindow::buildKeysPage() {
     auto* notice=new QFrame;notice->setObjectName(QStringLiteral("keyNotice"));auto* noticeLayout=new QVBoxLayout(notice);
     noticeLayout->addWidget(label(QStringLiteral("IMPORTANT — RELOAD KEYS AFTER EVERY UPDATE"),"cardTitle"));
     auto* noticeText=label(QStringLiteral("For every Leapcast Studio update—and before using the software again—reload or reconnect the necessary Twitch and YouTube keys here. This keeps chat and moderation permissions working correctly."),"muted");noticeText->setWordWrap(true);noticeLayout->addWidget(noticeText);layout->addWidget(notice);
+    // Builds made without a bundled Twitch application ID (test builds) would
+    // otherwise have a Connect button that can only fail. AppController's
+    // configuredTwitchClientId() already falls back to this saved value, so
+    // exposing it here makes such a build usable rather than dead-ended.
+    if(QString::fromLatin1(leapcast::TwitchClientId).trimmed().isEmpty()){
+        auto* clientCard=new QFrame;clientCard->setProperty("card",true);auto* clientLayout=new QVBoxLayout(clientCard);
+        clientLayout->addWidget(label(QStringLiteral("TWITCH APPLICATION CLIENT ID"),"cardTitle"));
+        auto* clientHelp=label(QStringLiteral("This build does not ship with Leapcast's Twitch application ID, so Connect needs one here first. Create an application at dev.twitch.tv/console/apps, set the OAuth Redirect URL to http://localhost, choose Confidential, and paste its Client ID below. A Client ID is public — never paste a Client Secret anywhere in Leapcast."),"muted");
+        clientHelp->setWordWrap(true);clientLayout->addWidget(clientHelp);
+        auto* clientRow=new QHBoxLayout;
+        auto* clientEdit=new QLineEdit(controller_->settings()->secret(QStringLiteral("twitch_client_id")));
+        clientEdit->setPlaceholderText(QStringLiteral("Paste Twitch Client ID"));
+        auto* clientSave=new QPushButton(QStringLiteral("Save Client ID"));
+        clientRow->addWidget(clientEdit,1);clientRow->addWidget(clientSave);clientLayout->addLayout(clientRow);
+        auto* clientStatus=label(controller_->settings()->secret(QStringLiteral("twitch_client_id")).isEmpty()
+                                     ?QStringLiteral("No Client ID saved — Connect will not work yet.")
+                                     :QStringLiteral("Client ID saved."),"muted");
+        clientStatus->setWordWrap(true);clientLayout->addWidget(clientStatus);
+        connect(clientSave,&QPushButton::clicked,this,[this,clientEdit,clientStatus]{
+            const QString value=clientEdit->text().trimmed();
+            controller_->settings()->setSecret(QStringLiteral("twitch_client_id"),value);
+            clientStatus->setText(value.isEmpty()?QStringLiteral("No Client ID saved — Connect will not work yet.")
+                                                 :QStringLiteral("Client ID saved. Select Connect above."));
+            clientStatus->setStyleSheet(value.isEmpty()?QStringLiteral("color:#ff637d"):QStringLiteral("color:#63e6be"));
+        });
+        layout->addWidget(clientCard);
+    }
+
     auto* columns=new QHBoxLayout;
     const bool twitchAuthorized=!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty();
     auto* twitchCard=makePlatformCard(QStringLiteral("Twitch"),twitchAuthorized?QStringLiteral("Connected"):QStringLiteral("Connect your Twitch account"),QColor("#9146ff"),twitchAuthorized?QStringLiteral("Reload Twitch"):QStringLiteral("Connect Twitch"));
@@ -1105,7 +1308,6 @@ QWidget* MainWindow::buildKeysPage() {
     youtubeCard->setProperty("platform",QStringLiteral("youtube"));youtubeModerationStatus_=youtubeCard->findChild<QLabel*>(QStringLiteral("cardStatus"));youtubeConnectButton_=youtubeCard->findChild<QPushButton*>(QStringLiteral("cardAction"));columns->addWidget(youtubeCard,1);connect(youtubeConnectButton_,&QPushButton::clicked,this,&MainWindow::configureYouTubeModeration);
     layout->addLayout(columns);
     auto* additional=new QHBoxLayout;
-    auto* kickCard=new QFrame;kickCard->setProperty("card",true);auto* kickLayout=new QVBoxLayout(kickCard);kickLayout->addWidget(label(QStringLiteral("KICK CHAT"),"cardTitle"));auto* kickHelp=label(QStringLiteral("No key is needed for Kick chat. Add your Kick channel under Sources and select Connect. Kick moderation is hidden until Leapcast supports Kick's authenticated moderation API safely."),"muted");kickHelp->setWordWrap(true);kickLayout->addWidget(kickHelp);additional->addWidget(kickCard,1);
     auto* rumbleCard=new QFrame;rumbleCard->setProperty("card",true);auto* rumbleLayout=new QVBoxLayout(rumbleCard);rumbleLayout->addWidget(label(QStringLiteral("RUMBLE LIVE STREAM API"),"cardTitle"));auto* rumbleHelp=label(QStringLiteral("1. Select Get Rumble API URL below.\n2. Sign in to Rumble if asked.\n3. On Rumble's Live Stream API page, create or copy your private API URL.\n4. Return to Leapcast and paste the entire URL into the box below.\n5. Select Save & Connect Rumble.\n\nKeep this URL private. If it is ever shared accidentally, reset it on Rumble and paste the new URL here."),"muted");rumbleHelp->setWordWrap(true);rumbleLayout->addWidget(rumbleHelp);auto* rumbleUrl=new QLineEdit(controller_->settings()->secret(QStringLiteral("rumble_api_url")));rumbleUrl->setEchoMode(QLineEdit::Password);rumbleUrl->setPlaceholderText(QStringLiteral("Paste the full private Rumble API URL here"));rumbleLayout->addWidget(rumbleUrl);auto* rumbleButtons=new QHBoxLayout;auto* getRumble=new QPushButton(QStringLiteral("Get Rumble API URL ↗"));auto* saveRumble=new QPushButton(QStringLiteral("Save & Connect Rumble"));rumbleButtons->addWidget(getRumble);rumbleButtons->addWidget(saveRumble);rumbleLayout->addLayout(rumbleButtons);connect(getRumble,&QPushButton::clicked,this,[]{QDesktopServices::openUrl(QUrl(QStringLiteral("https://rumble.com/account/livestream-api")));});connect(saveRumble,&QPushButton::clicked,this,[this,rumbleUrl]{const QString value=rumbleUrl->text().trimmed();const QUrl url(value);const bool rumbleHost=url.host()==QStringLiteral("rumble.com")||url.host().endsWith(QStringLiteral(".rumble.com"));if(!url.isValid()||!rumbleHost){QMessageBox::warning(this,QStringLiteral("Rumble API"),QStringLiteral("That does not look like a Rumble API URL. Select Get Rumble API URL, copy the entire private URL from Rumble, then paste it here."));return;}controller_->settings()->setSecret(QStringLiteral("rumble_api_url"),value);const QString link=controller_->settings()->link(QStringLiteral("rumble"));if(!link.isEmpty())controller_->connectSource(QStringLiteral("rumble"),link);QMessageBox::information(this,QStringLiteral("Rumble connected"),link.isEmpty()?QStringLiteral("Your Rumble API URL is saved. Next, open Sources, enter your Rumble channel URL, and select Connect."):QStringLiteral("Rumble chat is saved and connecting now."));});additional->addWidget(rumbleCard,1);
     layout->addLayout(additional);layout->addStretch();return page;
 }
@@ -1156,6 +1358,24 @@ QWidget* MainWindow::buildModerationPage() {
         });
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
+
+        auto* wordTabs=new QTabWidget;wordTabs->setObjectName(QStringLiteral("wordManager"));
+        const auto buildWordTab=[this,wordTabs](bool whitelist){
+            auto* tab=new QWidget;auto* row=new QHBoxLayout(tab);row->setContentsMargins(6,6,6,6);row->setSpacing(6);
+            auto* input=new QLineEdit;input->setPlaceholderText(whitelist?QStringLiteral("Allow a word or phrase"):QStringLiteral("Block a word or phrase"));
+            auto* add=new QPushButton(QStringLiteral("Add"));add->setProperty("primary",true);auto* review=new QPushButton(QStringLiteral("Review Words"));
+            const auto addWord=[this,input,whitelist]{const QString word=input->text().trimmed();if(word.isEmpty())return;if(!controller_->addModerationWord(word,whitelist)){QMessageBox::warning(this,QStringLiteral("AutoMod words"),QStringLiteral("That word could not be saved."));return;}input->clear();};
+            connect(add,&QPushButton::clicked,this,addWord);connect(input,&QLineEdit::returnPressed,this,addWord);
+            connect(review,&QPushButton::clicked,this,[this,whitelist]{
+                QDialog dialog(this);dialog.setWindowTitle(whitelist?QStringLiteral("Review Whitelisted Words"):QStringLiteral("Review Blocked Words"));dialog.resize(430,480);auto* layout=new QVBoxLayout(&dialog);
+                auto* help=label(QStringLiteral("Select one or more words, then remove them."),"muted");layout->addWidget(help);
+                auto* list=new QListWidget;list->setSelectionMode(QAbstractItemView::ExtendedSelection);list->addItems(controller_->moderationWords(whitelist));layout->addWidget(list,1);
+                auto* buttons=new QDialogButtonBox(QDialogButtonBox::Close);auto* remove=buttons->addButton(QStringLiteral("Remove selected"),QDialogButtonBox::ActionRole);remove->setProperty("danger",true);layout->addWidget(buttons);
+                connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);connect(remove,&QPushButton::clicked,&dialog,[this,list,whitelist]{QStringList selected;for(auto*item:list->selectedItems())selected<<item->text();if(selected.isEmpty())return;if(controller_->removeModerationWords(selected,whitelist))for(auto*item:list->selectedItems())delete item;});dialog.exec();
+            });
+            row->addWidget(input,1);row->addWidget(add);row->addWidget(review);wordTabs->addTab(tab,whitelist?QStringLiteral("Whitelist"):QStringLiteral("Blocked"));
+        };
+        buildWordTab(false);buildWordTab(true);automodLayout->addWidget(wordTabs);
     }
     left->addWidget(tiktokCard);
     auto* rumbleCard=makePlatformCard(QStringLiteral("Rumble"),QStringLiteral("Moderate in the Rumble live chat"),QColor("#85c742"),QStringLiteral("Open Rumble moderation"));rumbleCard->setProperty("platform",QStringLiteral("rumble"));left->addWidget(rumbleCard);connect(rumbleCard->findChild<QPushButton*>(QStringLiteral("cardAction")),&QPushButton::clicked,this,[this]{const QString link=controller_->settings()->link(QStringLiteral("rumble"));QDesktopServices::openUrl(QUrl::fromUserInput(link.isEmpty()?QStringLiteral("https://rumble.com/account/livestreams"):link));});left->addStretch();
@@ -1213,6 +1433,11 @@ void MainWindow::editBlockedWords() {
     controller_->reloadAutoMod();
 }
 
+void MainWindow::editWhitelistedWords() {
+    QDesktopServices::openUrl(QUrl::fromLocalFile(controller_->whitelistedWordsPath()));
+    controller_->reloadAutoMod();
+}
+
 void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalPos) {
     const QPoint pos = view->viewport()->mapFromGlobal(globalPos);
     QTextCursor clicked=view->cursorForPosition(pos);
@@ -1257,10 +1482,15 @@ void MainWindow::showDashboardChatMenu(QTextBrowser* view, const QPoint& globalP
     menu.exec(globalPos);
 }
 
+void MainWindow::refreshPinnedBanner(){
+    if(!pinnedBanner_||!chatTabs_)return;QString selected=QStringLiteral("combined");auto*current=chatTabs_->currentWidget();for(auto it=chatViews_.cbegin();it!=chatViews_.cend();++it)if(it.value()==current){selected=it.key();break;}QStringList keys;if(selected==QStringLiteral("combined"))keys={QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts")};else keys={selected};const QHash<QString,QString>names{{QStringLiteral("twitch"),QStringLiteral("Twitch")},{QStringLiteral("youtube"),QStringLiteral("YouTube")},{QStringLiteral("yt_shorts"),QStringLiteral("YouTube Shorts")}};QStringList rows;for(const auto&key:keys)if(pinnedMessages_.contains(key)){const auto&m=pinnedMessages_.value(key);rows<<QStringLiteral("<b>&#128204; %1 pinned</b> &nbsp; <b>%2</b>: %3").arg(names.value(key,key).toHtmlEscaped(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped());}pinnedBanner_->setText(rows.join(QStringLiteral("<br>")));pinnedBanner_->setVisible(!rows.isEmpty());
+}
+
 QWidget* MainWindow::buildChatDock() {
     auto* dock = new QFrame; dock->setObjectName(QStringLiteral("chatDock"));
     auto* layout = new QVBoxLayout(dock);
     layout->addWidget(label(QStringLiteral("CHAT PREVIEW"), "pageTitle"));
+    pinnedBanner_=new QLabel;pinnedBanner_->setWordWrap(true);pinnedBanner_->setTextFormat(Qt::RichText);pinnedBanner_->setTextInteractionFlags(Qt::TextSelectableByMouse);pinnedBanner_->setStyleSheet(QStringLiteral("background:#211d12;border:1px solid #8a6f2b;border-radius:9px;padding:8px;color:#f7f1d1;"));pinnedBanner_->hide();layout->addWidget(pinnedBanner_);
     chatTabs_ = new QTabWidget;
     chatTabs_->setIconSize(QSize(44, 26));
     const QList<QPair<QString, QString>> tabs{
@@ -1297,6 +1527,7 @@ QWidget* MainWindow::buildChatDock() {
     }
 
     layout->addWidget(chatTabs_, 1);
+    connect(chatTabs_,&QTabWidget::currentChanged,this,[this]{refreshPinnedBanner();});
     applyPlatformVisibility();
 
     const auto ensurePopout = [this] {
@@ -1306,6 +1537,7 @@ QWidget* MainWindow::buildChatDock() {
         popout_->setAppearance(QColor(controller_->settings()->preference(QStringLiteral("overlay_background_color"),QStringLiteral("#000000")).toString()),controller_->settings()->preference(QStringLiteral("popout_outline_thickness"),2).toInt(),controller_->settings()->preference(QStringLiteral("popout_font_family"),QStringLiteral("Segoe UI")).toString(),controller_->settings()->preference(QStringLiteral("popout_font_size"),12).toInt());
         popout_->setShowPlatformIcons(controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool());
         popout_->setClipAvailable(!controller_->settings()->secret(QStringLiteral("twitch_access_token")).isEmpty());
+        for(auto it=pinnedMessages_.cbegin();it!=pinnedMessages_.cend();++it)popout_->setPinnedMessage(it.key(),it.value(),true);
         connect(popout_, &PopoutChat::ghostModeChanged, this, [this](bool enabled) {
             if (!popoutClickThrough_) return;
             QSignalBlocker blocker(popoutClickThrough_);
@@ -1313,7 +1545,7 @@ QWidget* MainWindow::buildChatDock() {
         });
         connect(popout_, &PopoutChat::clipRequested, this, [this] { controller_->createTwitchClip(); });
         connect(popout_, &PopoutChat::openClipEditor, this, [this](const QUrl& url) {
-            if (!clipEditor_) clipEditor_ = new ClipEditorWindow;
+            if (!clipEditor_) {clipEditor_ = new ClipEditorWindow;connect(clipEditor_,&ClipEditorWindow::twitchBrowserLoginRequested,this,[this]{controller_->authorizeTwitch();});clipEditor_->setTwitchAccessToken(controller_->settings()->secret(QStringLiteral("twitch_access_token")));}
             clipEditor_->openUrl(url);
         });
         connect(popout_, &PopoutChat::deleteMessageRequested, this,
@@ -1341,7 +1573,7 @@ QWidget* MainWindow::buildChatDock() {
 
     popoutClickThrough_ = new QCheckBox(QStringLiteral("Click-through (see and click what's behind it)"));
     layout->addWidget(popoutClickThrough_);
-    layout->addWidget(label(QStringLiteral("Press Esc or Alt+C, or click back into Leapcast Studio, to regain control of the pop-out."), "muted"));
+    layout->addWidget(label(QStringLiteral("Normal clicks pass through. Right-click messages to moderate; hold Alt while dragging to highlight. Esc or Alt+C exits click-through."), "muted"));
     connect(popoutClickThrough_, &QCheckBox::toggled, this, [ensurePopout](bool enabled) {
         auto* popout = ensurePopout();
         popout->setGhostMode(enabled);
@@ -1358,6 +1590,12 @@ QWidget* MainWindow::buildChatDock() {
             controller_->settings()->preference(QStringLiteral("streamlabs_audio_enabled"),false).toBool(),
             QUrl(controller_->settings()->preference(QStringLiteral("streamlabs_alert_box_url")).toString()));
         view->show();view->raise();
+        // Apply layered pop-out decorations only after Windows/Qt has created
+        // and shown the native frameless window. This avoids doing decorative
+        // painting during the fragile first-show/native-window creation path.
+        QTimer::singleShot(0,view,[this,view]{
+            if(view&&view==popout_)view->setSeasonalTheme(seasonalThemeFor(controller_->settings(),QDateTime::currentDateTime()));
+        });
     });
     connect(clearPopout,&QPushButton::clicked,this,[ensurePopout]{ensurePopout()->clearMessages();});
     return dock;
@@ -1366,33 +1604,35 @@ QWidget* MainWindow::buildChatDock() {
 void MainWindow::applyTheme() {
     const QString family=controller_?controller_->settings()->preference("ui_font_family","Segoe UI").toString():QStringLiteral("Segoe UI");
     const int fontSize=controller_?controller_->settings()->preference("ui_font_size",10).toInt():10;
-    const int scale=controller_?controller_->settings()->preference("ui_control_scale",100).toInt():100;
+    const int requestedScale=controller_?controller_->settings()->preference("ui_control_scale",100).toInt():100;
+    const bool compact=controller_?controller_->settings()->preference(QStringLiteral("ui_compact_layout"),true).toBool():true;
+    const int scale=compact?qMin(requestedScale,92):requestedScale;
     QString sheet=QStringLiteral(R"(
         * { font-family:'__FONT__'; font-size:__SIZE__pt; color:#eef2ff; }
-        QMainWindow, QWidget { background:#0b0d15; }
-        QFrame#navigationRail, QFrame#chatDock { background:#111522; border:1px solid #242b3d; border-radius:14px; }
+        QMainWindow, QWidget { background:#090c14; }
+        QFrame#navigationRail, QFrame#chatDock { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #121827,stop:1 #0e1320); border:1px solid #293451; border-radius:14px; }
         QLabel[role='brand'] { font-size:11pt; font-weight:800; color:#f8fbff; qproperty-alignment:AlignCenter; }
         QLabel[role='version'] { background:#0b0e17; border-radius:5px; padding:4px; font-size:10pt; font-weight:700; color:#aeb8d0; }
         QLabel[role='pageTitle'] { font-size:11pt; font-weight:800; color:#f8fbff; }
-        QLabel[role='heroTitle'] { font-size:17pt; font-weight:800; }
+        QLabel[role='heroTitle'] { font-size:15pt; font-weight:800; color:#ffffff; }
         QLabel[role='muted'], QLabel[role='status'] { color:#9ca7bf; }
         QLabel[role='signal'] { color:#68e9d5; font-size:8pt; font-weight:700; }
         QLabel[role='cardTitle'] { font-size:12pt; font-weight:700; }
-        QFrame#safetyHero { background:#171d2d; border-left:5px solid #53cdf3; border-radius:12px; }
+        QFrame#safetyHero { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #17233a,stop:1 #17172e); border:1px solid #2d4266; border-left:4px solid #55dff7; border-radius:11px; }
         QFrame#welcomeCard { background:#171d2d; border:1px solid #283149; border-left:5px solid #63e6be; border-radius:12px; padding:4px; }
         QFrame#keyNotice { background:#2a2010; border:1px solid #775a20; border-left:5px solid #f6c85f; border-radius:12px; padding:4px; }
         QFrame#bansHero { background:#141a29; border:1px solid #28334a; border-left:5px solid #7667ef; border-radius:12px; }
-        QFrame[card='true'] { background:#161b29; border:1px solid #252d42; border-radius:12px; }
-        QPushButton { background:#20283a; border:0; border-radius:8px; padding:__VPAD__px __HPAD__px; font-weight:700; }
-        QPushButton:hover { background:#2b3650; }
-        QPushButton[nav='true'] { text-align:left; margin:2px 4px; padding:9px 8px; font-size:9pt; }
-        QPushButton[nav='true']:checked { background:#7667ef; color:white; }
-        QPushButton[primary='true'] { background:#53cdf3; color:#071018; }
+        QFrame[card='true'] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #161d2d,stop:1 #121725); border:1px solid #283550; border-radius:11px; }
+        QPushButton { background:#202a40; border:1px solid #2e3a56; border-radius:8px; padding:__VPAD__px __HPAD__px; font-weight:700; }
+        QPushButton:hover { background:#2c3957; border-color:#4a608a; }
+        QPushButton[nav='true'] { text-align:left; margin:1px 3px; padding:__NAVPAD__px 8px; font-size:9pt; }
+        QPushButton[nav='true']:checked { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #765df2,stop:1 #496fd9); color:white; border-color:#8878ff; }
+        QPushButton[primary='true'] { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #50def5,stop:1 #58bfff); color:#061018; border-color:#79e8f8; }
         QPushButton[danger='true'] { background:#44202b; color:#ff91a4; }
         QPushButton[danger='true']:hover { background:#5a2635; color:#ffd3da; }
         QTabWidget::pane { border:1px solid #242b3d; border-radius:9px; }
         QTabBar::tab { background:#171d2d; min-width:44px; min-height:38px; padding:4px 3px; margin-right:1px; }
-        QTabBar::tab:selected { background:#7667ef; }
+        QTabBar::tab:selected { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #765df2,stop:1 #526cdd); }
         QTabBar::tab:disabled { color:#565f78; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }
         QTabWidget#moderationTabs::pane { background:#101522; border:1px solid #283149; border-radius:10px; }
@@ -1404,10 +1644,17 @@ void MainWindow::applyTheme() {
         QLabel[role='restrictionReason'] { color:#c7cede; }
         QLabel[role='restrictionTime'] { color:#7f8ba5; font-size:9pt; }
         QSplitter::handle { background:#242b3d; width:2px; }
+        QLineEdit, QSpinBox, QComboBox, QFontComboBox { background:#0d1220; border:1px solid #2b3956; border-radius:7px; padding:5px 7px; selection-background-color:#725ff0; }
+        QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QFontComboBox:focus { border:1px solid #53cdf3; }
+        QScrollArea { border:0; }
+        QScrollBar:vertical { background:#0b0f19; width:9px; margin:2px; }
+        QScrollBar::handle:vertical { background:#34415f; min-height:26px; border-radius:4px; }
+        QTabWidget#wordManager::pane { border:1px solid #293651; border-radius:8px; background:#101624; }
     )");
     family.contains(QLatin1Char('\''))?sheet.replace("__FONT__",QStringLiteral("Segoe UI")):sheet.replace("__FONT__",family);
     sheet.replace("__SIZE__",QString::number(qBound(8,fontSize,20)));
     sheet.replace("__VPAD__",QString::number(qMax(5,10*scale/100)));
     sheet.replace("__HPAD__",QString::number(qMax(6,12*scale/100)));
+    sheet.replace("__NAVPAD__",QString::number(compact?6:9));
     qApp->setStyleSheet(sheet);
 }
