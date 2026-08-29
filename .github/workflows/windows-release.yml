@@ -2,6 +2,11 @@ name: Windows build and release
 
 on:
   workflow_dispatch:
+    inputs:
+      auto_update:
+        description: "Build with automatic updates enabled"
+        type: boolean
+        default: false
   pull_request:
     branches:
       - main
@@ -29,10 +34,34 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v5
 
+      # The build works whether the source sits at the repository root or one
+      # folder down (as it does when the tree is committed inside a wrapper
+      # folder). Everything after this step works from $LEAPCAST_PROJECT_DIR
+      # rather than assuming the checkout root.
+      - name: Locate project root
+        id: project
+        shell: pwsh
+        run: |
+          $marker = Get-ChildItem -Path . -Filter VERSION -File -Recurse -Depth 3 |
+            Where-Object { Test-Path (Join-Path $_.DirectoryName "CMakeLists.txt") } |
+            Sort-Object { $_.FullName.Length } |
+            Select-Object -First 1
+          if (-not $marker) {
+            throw "No VERSION file sitting next to CMakeLists.txt was found in the checkout. Commit the project files (VERSION, CMakeLists.txt, src/) either at the repository root or in a single subfolder."
+          }
+          $dir = $marker.DirectoryName
+          $rel = [IO.Path]::GetRelativePath($env:GITHUB_WORKSPACE, $dir).Replace('\', '/')
+          $prefix = if ($rel -eq '.') { '' } else { "$rel/" }
+          Write-Host "Project root: $dir (artifact prefix '$prefix')"
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+          "prefix=$prefix" >> $env:GITHUB_OUTPUT
+          "LEAPCAST_PROJECT_DIR=$dir" >> $env:GITHUB_ENV
+
       - name: Validate version
         id: version
         shell: pwsh
         run: |
+          Set-Location $env:LEAPCAST_PROJECT_DIR
           $version = (Get-Content VERSION -Raw).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
             throw "VERSION must contain three or four numeric parts, such as 3.0.9 or 3.0.9.1."
@@ -59,13 +88,22 @@ jobs:
 
       - name: Build application and installer
         shell: pwsh
-        run: .\build-installer.ps1
+        run: |
+          Set-Location $env:LEAPCAST_PROJECT_DIR
+          # Automatic updates stay OFF unless a manual run asks for them, so a
+          # CI test build can never replace itself with the published release.
+          if ("${{ inputs.auto_update }}" -eq "true") {
+            .\build-installer.ps1 -AutoUpdate
+          } else {
+            .\build-installer.ps1
+          }
         env:
           LEAPCAST_TWITCH_CLIENT_ID: ${{ vars.TWITCH_CLIENT_ID }}
 
       - name: Verify release artifact version
         shell: pwsh
         run: |
+          Set-Location $env:LEAPCAST_PROJECT_DIR
           $version = "${{ steps.version.outputs.version }}"
           $installer = "artifacts/LeapcastStudio-Setup-$version.exe"
           $checksum = "$installer.sha256"
@@ -83,8 +121,8 @@ jobs:
         with:
           name: LeapcastStudio-${{ steps.version.outputs.version }}-Windows
           path: |
-            artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe
-            artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe.sha256
+            ${{ steps.project.outputs.prefix }}artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe
+            ${{ steps.project.outputs.prefix }}artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe.sha256
           if-no-files-found: error
           retention-days: 14
 

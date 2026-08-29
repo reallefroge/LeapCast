@@ -20,6 +20,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(qrcodegen)
 
+option(LEAPCAST_AUTO_UPDATE
+    "Check for and install updates automatically at startup and in the background" OFF)
+if(LEAPCAST_AUTO_UPDATE)
+    set(LEAPCAST_AUTO_UPDATE_BOOL "true")
+else()
+    set(LEAPCAST_AUTO_UPDATE_BOOL "false")
+    message(STATUS "Leapcast: automatic updates are DISABLED in this build")
+endif()
+
 set(LEAPCAST_TWITCH_CLIENT_ID "" CACHE STRING
     "Public Twitch application Client ID used by the built-in device authorization flow")
 

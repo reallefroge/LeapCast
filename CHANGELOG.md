@@ -1,5 +1,19 @@
 # Leapcast Studio Changelog
 
+## Leapcast Studio 3.0.9.2
+
+- **Automatic updates are switched off in this build.** The splash screen no longer contacts GitHub at startup, the background check is gone, and Check now is disabled, so a locally built test binary can never be replaced by the published release. Rebuild with `-DLEAPCAST_AUTO_UPDATE=ON` to turn updating back on.
+- Added a Diagnose 403 button to the Discord card. It checks the bot token, then whether the bot can see the channel, then whether the bot is a member of that server, and names the step that fails instead of returning a bare HTTP 403.
+- Discord failures now explain the likely cause in plain English for every 403 code, including the ones Administrator does not fix: Missing Access (50001), AutoMod blocking the bot (200000), member timeouts, and network-level Cloudflare blocks.
+- A pasted channel link is now accepted anywhere a Channel ID is expected.
+- Added a shared diagnostics log window with the raw Discord and TikTok responses, and a Copy log button for reporting problems.
+- Fixed TikTok chat not appearing. The collector page had no browser view, so it had a zero-size viewport and TikTok's virtualised chat list rendered no rows at all; it now runs in a real off-screen 1280x900 view.
+- Fixed TikTok chat stopping after the first screenful. Messages are now de-duplicated by sender and text rather than by a flag on the chat row, which TikTok recycles for later messages.
+- Fixed wildly wrong TikTok viewer counts. The count no longer falls back to a whole-page text search or to the last `user_count` found anywhere in the page scripts, both of which matched recommended streams in the sidebar; it now reads only a counter inside the live room.
+- TikTok viewer counts written as `1.234` or `1,234` are no longer read as 1.
+- Added a TikTok collector card in Settings: show the hidden page, reload it, and sign in to TikTok once, with the sign-in remembered between launches.
+- The TikTok source status now says when the page is showing a login wall or a captcha instead of silently collecting nothing.
+
 ## Leapcast Studio 3.0.9.1
 
 - Fixed Discord bot notifications being rejected before posting by adding Discord's required bot User-Agent.

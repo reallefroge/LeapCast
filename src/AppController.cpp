@@ -6,7 +6,10 @@
 #include <QTimer>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QDateTime>
 #include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 
 namespace {
 QString configuredTwitchClientId(SettingsStore& settings){
@@ -14,6 +17,44 @@ QString configuredTwitchClientId(SettingsStore& settings){
     return bundled.isEmpty()?settings.secret(QStringLiteral("twitch_client_id")):bundled;
 }
 QString twitchRedemptionKey(const QString&rewardId,const QString&user,const QString&input){return rewardId+QLatin1Char('|')+user.toLower()+QLatin1Char('|')+input;}
+
+// A pasted channel LINK (https://discord.com/channels/<guild>/<channel>) is by
+// far the most common thing people put in the Channel ID box. Keep only the
+// last run of digits so the REST path is always .../channels/<snowflake>.
+QString normalizeDiscordId(const QString& raw){
+    QString value=raw.trimmed();
+    if(value.contains(QLatin1Char('/')))value=value.section(QLatin1Char('/'),-1);
+    value.remove(QRegularExpression(QStringLiteral("[^0-9]")));
+    return value;
+}
+
+// Every HTTP 403 Discord can return for POST /channels/{id}/messages, mapped to
+// the thing the streamer actually has to change. Administrator on the bot's role
+// does NOT rescue the 50001 / 200000 / timeout cases, which is why "it has admin
+// but still 403" is so common.
+QString discordCauseFor(int httpCode,int discordCode){
+    switch(discordCode){
+    case 50001: return QStringLiteral("Missing Access — the bot is not in the server that owns this channel, or the Channel ID belongs to a different server. Administrator in another server does not help here. Re-invite the bot to THIS server and copy the Channel ID again with Developer Mode on.");
+    case 50013: return QStringLiteral("Missing Permissions — the bot's own role does not have Send Messages in this channel. Check that the Administrator role is actually assigned to the bot member in the member list, not just ticked in the invite link.");
+    case 50007: return QStringLiteral("Cannot send messages to this user — the Channel ID is a DM channel that is closed to the bot.");
+    case 50024: return QStringLiteral("Wrong channel type — this ID is a category, forum or stage channel. Use a normal text channel.");
+    case 10003: return QStringLiteral("Unknown Channel — that Channel ID does not exist. Turn on Developer Mode in Discord, right-click the text channel, and choose Copy Channel ID.");
+    case 10004: return QStringLiteral("Unknown Guild — the bot is not a member of that server.");
+    case 40001: return QStringLiteral("Unauthorized — the bot token was rejected. Paste the BOT token from the Bot tab, not the application Client Secret or a user token.");
+    case 40333: return QStringLiteral("Blocked before reaching Discord — Cloudflare rejected the request. A VPN, proxy, corporate DNS filter or security suite on this PC is the usual cause.");
+    case 20012: return QStringLiteral("Not authorized for this application — the token belongs to a different application than the bot sitting in your server.");
+    case 200000: return QStringLiteral("AutoMod blocked the message — a server AutoMod rule (often a mention-spam or @everyone rule) is blocking the bot. Bots are NOT exempt from AutoMod even with Administrator. Add the bot's role to that rule's exempt roles, or drop the @everyone tick.");
+    case 200001: return QStringLiteral("AutoMod blocked the message title.");
+    case 160002: return QStringLiteral("The target thread is archived or locked.");
+    default: break;
+    }
+    if(httpCode==401)return QStringLiteral("The bot token itself was rejected. Re-paste the token from the Bot tab of your application.");
+    if(httpCode==403)return QStringLiteral("Discord refused the request without a specific error code. That is almost always a network-level block (VPN, proxy, DNS filter or security suite) rather than a Discord permission problem, or the bot member is timed out in the server.");
+    if(httpCode==429)return QStringLiteral("Rate limited — slow mode on the channel, or too many sends in a row.");
+    if(httpCode==404)return QStringLiteral("Channel not found. Re-copy the Channel ID.");
+    return QString();
+}
+
 }
 
 AppController::AppController(QObject*p):QObject(p){
@@ -79,6 +120,8 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&kick_,&KickLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("kick"),n);});
     connect(&rumble_,&RumbleLiveService::viewerCountChanged,this,[viewers](int n){viewers(QStringLiteral("rumble"),n);});
     connect(&tiktok_,&TikTokLiveService::activityReceived,this,&AppController::tiktokActivityReady);
+    connect(&tiktok_,&TikTokLiveService::diagnostic,this,&AppController::tiktokDiagnostic);
+    connect(&tiktok_,&TikTokLiveService::collectorVisibilityChanged,this,&AppController::tiktokCollectorVisibilityChanged);
     connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&twitchEvents_,&TwitchEventSubService::eventReceived,this,[this](const StreamEvent&e){const QString key=twitchRedemptionKey(e.raw.value(QStringLiteral("reward")).toObject().value(QStringLiteral("id")).toString(),e.user,e.message);pendingTwitchRedemptions_.remove(key);recentTwitchRedemptions_.insert(key);QTimer::singleShot(10000,this,[this,key]{recentTwitchRedemptions_.remove(key);});audit_.appendEvent(e);ChatMessage message;message.platform=QStringLiteral("twitch");message.user=e.user;message.text=QStringLiteral("redeemed %1").arg(e.amount.isEmpty()?QStringLiteral("a Channel Point reward"):e.amount);if(!e.message.isEmpty())message.text+=QStringLiteral(": ")+e.message;message.messageId=e.eventId;message.badges<<QStringLiteral("MONEY");message.metadata={{QStringLiteral("event_kind"),e.kind},{QStringLiteral("channel_point_redemption"),true}};receive(message);emit eventReady(e);});
@@ -158,7 +201,98 @@ void AppController::startDiscordBot(){
     if(discordGateway_.state()==QAbstractSocket::ConnectedState||discordGateway_.state()==QAbstractSocket::ConnectingState)return;discordBotRequested_=true;discordHeartbeatAcknowledged_=true;discordSequenceKnown_=false;emit discordBotStatus(false,QStringLiteral("Connecting bot to Discord…"));discordGateway_.open(QUrl(QStringLiteral("wss://gateway.discord.gg/?v=10&encoding=json")));
 }
 
+void AppController::setTikTokCollectorVisible(bool visible){tiktok_.setCollectorVisible(visible);}
+void AppController::reloadTikTokCollector(){tiktok_.reloadCollector();}
+
 void AppController::stopDiscordBot(){discordBotRequested_=false;discordHeartbeat_.stop();discordGateway_.close(QWebSocketProtocol::CloseCodeNormal,QStringLiteral("Stopped by user"));}
+
+QNetworkRequest AppController::discordRequest(const QString& path) const {
+    QNetworkRequest request(QUrl(QStringLiteral("https://discord.com/api/v10")+path));
+    request.setRawHeader("Authorization",QByteArray("Bot ")+settings_.secret(QStringLiteral("discord_bot_token")).toUtf8());
+    // Discord's edge drops requests without a bot-shaped User-Agent with a bare
+    // HTTP 403 and an HTML body, which reads exactly like a permission problem.
+    request.setRawHeader("User-Agent",QStringLiteral("DiscordBot (https://github.com/reallefroge/LeapCast, %1)").arg(QString::fromLatin1(leapcast::Version)).toUtf8());
+    return request;
+}
+
+// Step 1 of 3: is the token itself usable at all?
+void AppController::diagnoseDiscord(){
+    const QString token=settings_.secret(QStringLiteral("discord_bot_token"));
+    const QString channel=normalizeDiscordId(settings_.secret(QStringLiteral("discord_channel_id")));
+    if(token.isEmpty()){emit discordNotificationResult(false,QStringLiteral("No bot token saved. Paste the token from the Bot tab of your Discord application, then Save."));return;}
+    if(channel.isEmpty()){emit discordNotificationResult(false,QStringLiteral("No Channel ID saved. Turn on Developer Mode in Discord, right-click the text channel, choose Copy Channel ID, then Save."));return;}
+    emit discordDiagnostic(QStringLiteral("--- Discord diagnosis started ---\nChannel ID in use: %1").arg(channel));
+    auto* reply=discordNetwork_.get(discordRequest(QStringLiteral("/users/@me")));
+    connect(reply,&QNetworkReply::finished,this,[this,reply,channel]{
+        const int code=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray body=reply->readAll();reply->deleteLater();
+        const QJsonObject json=QJsonDocument::fromJson(body).object();
+        emit discordDiagnostic(QStringLiteral("GET /users/@me -> HTTP %1\n%2").arg(code).arg(QString::fromUtf8(body.left(600))));
+        if(code!=200){
+            const QString cause=discordCauseFor(code,json.value(QStringLiteral("code")).toInt());
+            emit discordNotificationResult(false,QStringLiteral("Step 1 failed: Discord would not accept the bot token (HTTP %1). %2").arg(code).arg(cause));
+            return;
+        }
+        emit discordDiagnostic(QStringLiteral("Step 1 OK: token belongs to bot %1 (id %2).")
+                                   .arg(json.value(QStringLiteral("username")).toString(),json.value(QStringLiteral("id")).toString()));
+        diagnoseDiscordChannel(channel);
+    });
+}
+
+// Step 2 of 3: can this bot SEE the channel? A 403/50001 here means the bot is
+// not in the channel's server at all, which no amount of Administrator fixes.
+void AppController::diagnoseDiscordChannel(const QString& channelId){
+    auto* reply=discordNetwork_.get(discordRequest(QStringLiteral("/channels/%1").arg(channelId)));
+    connect(reply,&QNetworkReply::finished,this,[this,reply]{
+        const int code=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray body=reply->readAll();reply->deleteLater();
+        const QJsonObject json=QJsonDocument::fromJson(body).object();
+        emit discordDiagnostic(QStringLiteral("GET /channels/{id} -> HTTP %1\n%2").arg(code).arg(QString::fromUtf8(body.left(800))));
+        if(code!=200){
+            const QString cause=discordCauseFor(code,json.value(QStringLiteral("code")).toInt());
+            emit discordNotificationResult(false,QStringLiteral("Step 2 failed: the bot cannot see that channel (HTTP %1). %2").arg(code).arg(cause));
+            return;
+        }
+        const int type=json.value(QStringLiteral("type")).toInt(-1);
+        const QString guild=json.value(QStringLiteral("guild_id")).toString();
+        // 0 text, 5 announcement, 11/12 threads, 15 forum, 4 category, 2 voice.
+        if(type==4||type==15||type==16){
+            emit discordNotificationResult(false,QStringLiteral("Step 2 failed: that ID is a %1, which cannot receive a plain message. Copy the ID of a normal text channel instead.")
+                                                     .arg(type==4?QStringLiteral("category"):QStringLiteral("forum channel")));
+            return;
+        }
+        emit discordDiagnostic(QStringLiteral("Step 2 OK: channel #%1 (type %2) in server %3.")
+                                   .arg(json.value(QStringLiteral("name")).toString()).arg(type).arg(guild));
+        if(guild.isEmpty()){
+            emit discordNotificationResult(true,QStringLiteral("Token and channel both check out. Press Send test notification for the final check."));
+            return;
+        }
+        diagnoseDiscordGuild(guild);
+    });
+}
+
+// Step 3 of 3: is the bot actually a member of that server, and does the role it
+// holds carry Administrator (bit 0x8) or Send Messages (0x800)?
+void AppController::diagnoseDiscordGuild(const QString& guildId){
+    auto* reply=discordNetwork_.get(discordRequest(QStringLiteral("/guilds/%1/members/@me").arg(guildId)));
+    connect(reply,&QNetworkReply::finished,this,[this,reply,guildId]{
+        const int code=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray body=reply->readAll();reply->deleteLater();
+        const QJsonObject json=QJsonDocument::fromJson(body).object();
+        emit discordDiagnostic(QStringLiteral("GET /guilds/%1/members/@me -> HTTP %2\n%3").arg(guildId).arg(code).arg(QString::fromUtf8(body.left(800))));
+        if(code!=200){
+            const QString cause=discordCauseFor(code,json.value(QStringLiteral("code")).toInt());
+            emit discordNotificationResult(false,QStringLiteral("Step 3 failed: the bot is not a member of that server (HTTP %1). %2").arg(code).arg(cause));
+            return;
+        }
+        const QString until=json.value(QStringLiteral("communication_disabled_until")).toString();
+        if(!until.isEmpty()&&QDateTime::fromString(until,Qt::ISODateWithMs)>QDateTime::currentDateTimeUtc()){
+            emit discordNotificationResult(false,QStringLiteral("Step 3 failed: the bot member is timed out in that server until %1. A timed-out member gets HTTP 403 even with Administrator. Remove the timeout in the member list.").arg(until));
+            return;
+        }
+        emit discordNotificationResult(true,QStringLiteral("Token, channel and server membership all check out. If Send test notification still returns 403, the cause is server-side filtering: an AutoMod rule (error 200000) or a network block between this PC and Discord. The log below has the raw response."));
+    });
+}
 
 void AppController::sendDiscordHeartbeat(){
     if(discordGateway_.state()!=QAbstractSocket::ConnectedState)return;if(!discordHeartbeatAcknowledged_){discordGateway_.close(QWebSocketProtocol::CloseCodeGoingAway,QStringLiteral("Heartbeat not acknowledged"));emit discordBotStatus(false,QStringLiteral("Discord stopped acknowledging the bot. Select Run Bot to reconnect."));return;}discordHeartbeatAcknowledged_=false;const QJsonValue sequence=discordSequenceKnown_?QJsonValue(discordSequence_):QJsonValue(QJsonValue::Null);discordGateway_.sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{{QStringLiteral("op"),1},{QStringLiteral("d"),sequence}}).toJson(QJsonDocument::Compact)));
@@ -173,7 +307,7 @@ void AppController::queueDiscordLivePlatform(const QString& platform){
 void AppController::sendDiscordLiveNotification(const QSet<QString>& platforms,bool test){
     if(!settings_.preference(QStringLiteral("discord_live_notifications"),false).toBool()&&!test)return;
     const QString token=settings_.secret(QStringLiteral("discord_bot_token"));
-    const QString channel=settings_.secret(QStringLiteral("discord_channel_id"));
+    const QString channel=normalizeDiscordId(settings_.secret(QStringLiteral("discord_channel_id")));
     if(token.isEmpty()||channel.isEmpty()){if(test)emit discordNotificationResult(false,QStringLiteral("Enter a bot token and channel ID first."));return;}
     if(platforms.isEmpty()||(!test&&discordBroadcastNotificationSent_))return;
     const QStringList order{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("rumble"),QStringLiteral("kick"),QStringLiteral("tiktok")};
@@ -200,7 +334,15 @@ void AppController::sendDiscordLiveNotification(const QSet<QString>& platforms,b
         else{
             const QByteArray body=reply->readAll();const QJsonObject error=QJsonDocument::fromJson(body).object();const int discordCode=error.value(QStringLiteral("code")).toInt();QString message=error.value(QStringLiteral("message")).toString().trimmed();if(message.isEmpty())message=reply->errorString();
             detail=discordCode>0?QStringLiteral("Discord error %1 (HTTP %2): %3").arg(discordCode).arg(code).arg(message):QStringLiteral("Discord rejected the notification (HTTP %1): %2").arg(code).arg(message);
-            if(discordCode==40333)detail+=QStringLiteral(" The request was blocked before reaching Discord; Leapcast now sends Discord's required bot User-Agent.");
+            const QString cause=discordCauseFor(code,discordCode);
+            if(!cause.isEmpty())detail+=QStringLiteral("\n\nLikely cause: ")+cause;
+            // The raw body is the only thing that distinguishes a Discord
+            // rejection from a Cloudflare/HTML interception, so surface it.
+            emit discordDiagnostic(QStringLiteral("POST /channels/%1/messages -> HTTP %2\n%3")
+                                       .arg(normalizeDiscordId(settings_.secret(QStringLiteral("discord_channel_id"))))
+                                       .arg(code)
+                                       .arg(QString::fromUtf8(body.left(1200))));
+            if(test)detail+=QStringLiteral("\n\nPress Diagnose for a step-by-step check.");
         }
         emit discordNotificationResult(ok,detail);reply->deleteLater();
     });
