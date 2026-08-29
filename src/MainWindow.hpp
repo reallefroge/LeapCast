@@ -7,6 +7,7 @@
 #include <QPoint>
 #include <QUrl>
 #include <QJsonArray>
+#include <QStringList>
 
 class QStackedWidget;
 class QTabWidget;
@@ -18,7 +19,11 @@ class QCheckBox;
 class QSlider;
 class QFrame;
 class QCloseEvent;
+class QShowEvent;
+class QTimer;
 class QVBoxLayout;
+class QDialog;
+class QPlainTextEdit;
 class AppController;
 class OverlayServer;
 class PopoutChat;
@@ -33,6 +38,7 @@ public:
 protected:
     bool event(QEvent* e) override;
     void closeEvent(QCloseEvent* e) override;
+    void showEvent(QShowEvent* e) override;
 
 private:
     QWidget* buildSidebar();
@@ -57,6 +63,7 @@ private:
     void configureYouTubeModeration();
     void openTikTokModeration();
     void editBlockedWords();
+    void editWhitelistedWords();
     // Right-click moderation menu for the dashboard's own chat views — same
     // idea as PopoutChat::showChatContextMenu, kept separate since it acts on
     // a different QTextBrowser (and its own message-id history) per tab.
@@ -64,11 +71,21 @@ private:
     void reviewTwitchAppeal(bool approve);
     void showPostUpdateConnectionCheck();
     void showFirstLaunchUpdateLog();
+    // Shared raw-log window for the Discord and TikTok troubleshooting tools.
+    // Both write into the same ring buffer so a support copy/paste carries the
+    // whole picture.
+    void showDiagnosticsWindow(const QString& focus);
+    void appendDiagnostic(const QString& source,const QString& line);
+    void refreshPinnedBanner();
+    void syncMobileSettings();
+    void updateSeasonalEffects(bool allowCelebration = true);
 
     QStackedWidget* pages_{};
     QTabWidget* chatTabs_{};
     QTabWidget* moderationTabs_{};
     QHash<QString,QTextBrowser*> chatViews_;
+    QHash<QString,ChatMessage> pinnedMessages_;
+    QLabel* pinnedBanner_{};
     QHash<QString,QWidget*> sourceCards_;
     QHash<QString,QWidget*> platformChatWidgets_;
     QHash<QString,QPushButton*> navigationButtons_;
@@ -108,5 +125,12 @@ private:
     QUrl mobileUpdateAsset_;
     QString mobileUpdateName_;
     QString mobileUpdateDigest_;
+    QWidget* seasonalDecoration_{};
+    QTimer* seasonalTimer_{};
+    QString seasonalTheme_;
+    bool birthdayCelebrationPlayedThisLaunch_{};
     bool silentUpdateCheck_{};
+    QStringList diagnosticLog_;
+    QDialog* diagnosticsWindow_{};
+    QPlainTextEdit* diagnosticsView_{};
 };

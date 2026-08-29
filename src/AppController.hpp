@@ -20,18 +20,28 @@ public:
     void unbanYouTube(const QString& banId);
     void resolveTwitchAppeal(const QString& requestId, bool approved, const QString& resolutionText);
     void createTwitchClip();
-<<<<<<< Updated upstream
-=======
     void setPinnedMessagesEnabled(bool enabled);
     void testDiscordLiveNotification();
+    // Walks the three Discord endpoints that can each produce an HTTP 403 on
+    // POST /channels/{id}/messages, so the failing step is named instead of
+    // guessed. See AppController.cpp for the code -> cause table.
+    void diagnoseDiscord();
+    void setTikTokCollectorVisible(bool visible);
+    void reloadTikTokCollector();
+    bool tiktokCollectorVisible() const { return tiktok_.collectorVisible(); }
+    void startDiscordBot();
+    void stopDiscordBot();
     void regenerateNameColours();
->>>>>>> Stashed changes
     // Manual moderation triggered from a chat message's context menu, for the
     // cases AutoMod doesn't catch. seconds=0 means a permanent ban.
     void moderateMessage(const ChatMessage& message, int seconds, const QString& reason);
     void deleteChatMessage(const ChatMessage& message);
     QString blockedWordsPath() const { return automod_.blockedWordsPath(); }
+    QString whitelistedWordsPath() const { return automod_.whitelistedWordsPath(); }
     bool reloadAutoMod() { return automod_.reload(); }
+    QStringList moderationWords(bool whitelist) const { return automod_.words(whitelist); }
+    bool addModerationWord(const QString& word,bool whitelist) { return automod_.addWord(word,whitelist); }
+    bool removeModerationWords(const QStringList& words,bool whitelist) { return automod_.removeWords(words,whitelist); }
 signals:
     void messageReady(const ChatMessage& message);
     // AutoMod held a message back instead of showing it — for a note in the
@@ -50,14 +60,12 @@ signals:
     void twitchAuthorizationUrl(const QUrl& url);
     void twitchAuthorized(const QString& login);
     void twitchAuthorizationFailed(const QString& detail);
-<<<<<<< Updated upstream
-=======
     void pinnedMessageChanged(const QString& platform, const ChatMessage& message, bool active);
     void discordNotificationResult(bool success, const QString& detail);
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
+    void discordDiagnostic(const QString& line);
+    void tiktokDiagnostic(const QString& line);
+    void tiktokCollectorVisibilityChanged(bool visible);
+    void discordBotStatus(bool online, const QString& detail);
 private:
     static QString twitchName(const QString& link);
     static QString tiktokName(const QString& link);
@@ -66,6 +74,24 @@ private:
     void autoModerate(const ChatMessage& message,const QString& reason);
     void queueDiscordLivePlatform(const QString& platform);
     void sendDiscordLiveNotification(const QSet<QString>& platforms, bool test = false);
+    void sendDiscordHeartbeat();
+    QNetworkRequest discordRequest(const QString& path) const;
+    void diagnoseDiscordChannel(const QString& channelId);
+    void diagnoseDiscordMember();
+    void diagnoseDiscordRoles();
+    void reportDiscordPermissions();
+    // State carried across the diagnosis steps. A bot token cannot use the
+    // "@me" member alias, so the bot's own snowflake from /users/@me is what
+    // every later guild call is keyed on.
+    struct DiscordDiagnosis {
+        QString botId;
+        QString guildId;
+        QString channelName;
+        QJsonArray overwrites;
+        QStringList roleIds;
+        QJsonArray guildRoles;
+    };
+    DiscordDiagnosis discordDiagnosis_;
 public:
     void refreshTwitchAppeals();
     void loadTwitchUserHistory(const QString& userId,const QString& userName);
@@ -85,6 +111,7 @@ public:
     YouTubeModerationService youtubeMod_;
     QJsonArray youtubeRestrictions_;
     QHash<QString,QString> pendingYouTubeReasons_;
+    QHash<QString,int> pendingYouTubeSeconds_;
     // AutoMod's Twitch timeout escalation, keyed by Twitch user id: offenses
     // 1-5 use the configured base timeout, offense 6 doubles it, and offense
     // 7+ is a permanent ban. Reset when the channel
@@ -96,12 +123,24 @@ public:
     // Per-broadcast name colours. Assigned on a chatter's first message and
     // reused for every later message from that same platform account.
     QHash<QString,QColor> broadcastUserColours_;
+    QHash<QString,int> broadcastPaletteVariations_;
+    QHash<QString,ChatMessage> currentPinnedMessages_;
+    QTimer twitchPinnedTimer_;
+    bool pinnedMessagesEnabled_{true};
     int nextBroadcastColour_{};
     int broadcastColourOffset_{-1};
+    int nextPaletteVariation_{};
+    int broadcastPaletteOffset_{-1};
     bool twitchAuthorizationRequested_{};
     QNetworkAccessManager discordNetwork_;
+    QWebSocket discordGateway_;
+    QTimer discordHeartbeat_;
     QTimer discordLiveDelay_;
     QTimer discordLiveReset_;
     QSet<QString> discordPendingPlatforms_;
     bool discordBroadcastNotificationSent_{};
+    bool discordBotRequested_{};
+    bool discordHeartbeatAcknowledged_{true};
+    bool discordSequenceKnown_{};
+    qint64 discordSequence_{};
 };

@@ -1,5 +1,6 @@
 #include "Overlay.hpp"
 #include <algorithm>
+#include <cmath>
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
@@ -11,18 +12,24 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkInterface>
+#include <QNetworkCookie>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QHBoxLayout>
 #include <QHostAddress>
 #include <QLabel>
 #include <QInputDialog>
+#include <QImage>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPaintEvent>
 #include <QPen>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QRandomGenerator>
 #include <QSizeGrip>
 #include <QStackedLayout>
@@ -42,12 +49,89 @@
 #include <QWebEngineSettings>
 #include <QWebEngineView>
 #include <QWebEnginePage>
+#include <QWebEngineProfile>
+#include <QWebEngineCookieStore>
 namespace {
 constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1;
 // Caps how many lines chat_'s QTextDocument keeps. Without this, a
 // multi-hour stream's chat/moderation-note history would grow the document
 // (and the cost of every future append/reflow) without bound.
 constexpr int kMaxChatBlocks = 300;
+class DrawnCloseButton final : public QPushButton {
+public:
+    using QPushButton::QPushButton;
+protected:
+    void paintEvent(QPaintEvent*event) override {
+        QPushButton::paintEvent(event);QPainter p(this);p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(isDown()?QColor(QStringLiteral("#ffffff")):underMouse()?QColor(QStringLiteral("#ff91a4")):QColor(QStringLiteral("#c7cede")),2.0,Qt::SolidLine,Qt::RoundCap));
+        const QRectF r=rect().adjusted(7,7,-7,-7);p.drawLine(r.topLeft(),r.bottomRight());p.drawLine(r.topRight(),r.bottomLeft());
+    }
+};
+
+class PopoutSeasonalDecoration final : public QWidget {
+public:
+    explicit PopoutSeasonalDecoration(QWidget* parent=nullptr):QWidget(parent){
+        setAttribute(Qt::WA_TransparentForMouseEvents,true);
+        setAttribute(Qt::WA_TranslucentBackground,true);
+        setAttribute(Qt::WA_NoSystemBackground,true);
+        setAutoFillBackground(false);
+        hide();
+    }
+    void setTheme(const QString& theme){
+        theme_=theme;
+        setVisible(!theme_.isEmpty());
+        if(isVisible())raise();
+        update();
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        if(theme_.isEmpty())return;
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const QRect r=rect();
+        if(theme_==QStringLiteral("birthday")){
+            static const QColor colors[]{QColor("#ff5ca8"),QColor("#53cdf3"),QColor("#ffd166"),QColor("#72efb0")};
+            for(int x=16,i=0;x<r.width()-16;x+=42,++i){
+                QPainterPath path;path.moveTo(x,2);path.cubicTo(x+9,11,x-9,21,x+7,31);
+                painter.setPen(QPen(colors[i%4],2.5,Qt::SolidLine,Qt::RoundCap));painter.drawPath(path);
+            }
+            const auto hat=[&](qreal x){
+                QPainterPath path;path.moveTo(x,42);path.lineTo(x+14,14);path.lineTo(x+28,42);path.closeSubpath();
+                painter.setBrush(QColor("#ff5ca8"));painter.setPen(QPen(QColor("#ffd166"),1.5));painter.drawPath(path);
+                painter.setBrush(QColor("#53cdf3"));painter.drawEllipse(QPointF(x+14,11),3.5,3.5);
+            };
+            hat(6);hat(qMax<qreal>(6,r.width()-34));
+        }else if(theme_==QStringLiteral("christmas")){
+            for(int x=10,i=0;x<r.width()-10;x+=24,++i){
+                painter.setPen(QPen(QColor("#667089"),1));painter.drawLine(x,0,x,7);
+                painter.setBrush(i%3==0?QColor("#ff5268"):i%3==1?QColor("#5ee8d3"):QColor("#ffd166"));
+                painter.setPen(Qt::NoPen);painter.drawEllipse(QPointF(x,10),3.5,4.5);
+            }
+        }else if(theme_==QStringLiteral("halloween")){
+            painter.setPen(QPen(QColor("#ff8b2c"),2));painter.setBrush(QColor("#ff8b2c"));
+            painter.drawEllipse(QRectF(7,7,23,18));painter.drawEllipse(QRectF(qMax(7,r.width()-30),7,23,18));
+        }else if(theme_==QStringLiteral("july4")||theme_==QStringLiteral("veterans")){
+            const auto flag=[&](qreal x){
+                QRectF f(x,6,45,26);painter.setPen(Qt::NoPen);
+                for(int i=0;i<7;++i){painter.setBrush(i%2?Qt::white:QColor("#d82c3b"));painter.drawRect(QRectF(f.x(),f.y()+i*f.height()/7.0,f.width(),f.height()/7.0));}
+                painter.setBrush(QColor("#21468b"));painter.drawRect(QRectF(f.x(),f.y(),f.width()*.42,f.height()*.55));
+            };
+            flag(5);flag(qMax<qreal>(5,r.width()-50));
+        }else if(theme_==QStringLiteral("easter")){
+            painter.setBrush(QColor("#fce1f0"));painter.setPen(QPen(QColor("#f7a8d2"),2));
+            painter.drawEllipse(QRectF(8,7,20,28));painter.drawEllipse(QRectF(qMax(8,r.width()-28),7,20,28));
+        }else if(theme_==QStringLiteral("newyear")){
+            painter.setPen(QPen(QColor("#ffd166"),2));
+            const qreal centers[2]={15.0,qMax<qreal>(15.0,r.width()-15.0)};
+            for(const qreal x:centers)for(int a=0;a<8;++a){
+                const qreal ang=a*6.283185307/8.0;
+                painter.drawLine(QPointF(x,18),QPointF(x+std::cos(ang)*12,18+std::sin(ang)*12));
+            }
+        }
+    }
+private:
+    QString theme_;
+};
 void trimChatBlocks(QTextDocument* doc) {
     while (doc->blockCount() > kMaxChatBlocks) {
         QTextCursor cursor(doc->firstBlock());
@@ -70,11 +154,12 @@ constexpr int kRestoreHotkeyAltC = 0xC202;
 QByteArray reply(int code,const QByteArray&type,const QByteArray&body){return "HTTP/1.1 "+QByteArray::number(code)+(code==200?" OK\r\n":" Not Found\r\n")+"Content-Type: "+type+"\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: "+QByteArray::number(body.size())+"\r\nConnection: close\r\n\r\n"+body;}
 const char overlayHtml[]=R"HTML(<!doctype html><meta charset=utf-8><style>
 html,body{margin:0;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif;color:white}
-.m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}.pi{width:18px;height:18px;object-fit:contain;vertical-align:-4px;margin-right:6px}
+.m{margin:5px 8px;padding:6px 9px;border-radius:12px;background:transparent;text-shadow:var(--outline,none);opacity:1;transform:translateY(0);transition:opacity .65s ease,transform .65s ease}.pi{width:18px;height:18px;object-fit:contain;vertical-align:-4px;margin-right:6px}.ye{width:24px;height:24px;object-fit:contain;vertical-align:-6px;margin:0 1px}
 .m.fade{opacity:0;transform:translateY(-8px)}.u{font-weight:800;margin-right:7px}.twitch{border-left:4px solid #9146ff}.youtube,.yt_shorts{border-left:4px solid #ff334f}.tiktok{border-left:4px solid #18e0d5}.kick{border-left:4px solid #53fc18}.rumble{border-left:4px solid #85c742}
 </style><main id=c></main><script>
-const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(l){return BO.filter(k=>(l||[]).includes(k)).map(k=>BG[k]).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
-let n=0,clearGeneration=-1;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();if(clearGeneration<0)clearGeneration=d.clear_generation;else if(clearGeneration!==d.clear_generation){c.replaceChildren();clearGeneration=d.clear_generation}document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML=(d.show_platform_icons?'<img class=pi src="/platform-icon/'+m.platform+'">':'')+'<span class=u style="color:'+m.color+'"></span><span class=x></span>';let b=badges(m.badges);x.querySelector('.u').textContent=(b?b+' ':'')+m.user;x.querySelector('.x').textContent=m.text;c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
+const BG={HOST:'\u{1F3A5}',MOD:'⚔️',VIP:'\u{1F48E}',PRIME:'\u{1F451}',SUB:'⭐',CHECK:'✅',MONEY:'\u{1F4B0}'};const BO=['HOST','MOD','VIP','PRIME','SUB','CHECK','MONEY'];function badges(m){let custom=(m.meta?.custom_chatter_icons||[]).filter(x=>String(x).startsWith('data:image/png;base64,')).slice(0,3),order=custom.length?(m.platform==='twitch'?['MOD','SUB']:['MOD']):BO,out=order.filter(k=>(m.badges||[]).includes(k)).map(k=>BG[k]).join('');return out+custom.map(src=>`<img class=ye src="${src}">`).join('')}function outline(n){n=Math.max(0,Math.min(8,n|0));if(!n)return'none';let s=[];for(let x=-n;x<=n;x++)for(let y=-n;y<=n;y++)if((x||y)&&x*x+y*y<=n*n+n)s.push(`${x}px ${y}px 0 #000`);return s.join(',')}
+function body(el,m){let runs=m.meta?.youtube_runs;if(!Array.isArray(runs)||!runs.length){el.textContent=m.text;return}for(const r of runs){if(('text' in r))el.append(document.createTextNode(r.text||''));else if(r.url){let i=document.createElement('img');i.className='ye';i.src=r.url;i.alt=r.alt||'';i.title=r.alt||'';el.append(i)}else el.append(document.createTextNode(r.alt||''))}}
+function rgb(h){let s=String(h||'').replace('#','');if(!/^[0-9a-f]{6}$/i.test(s))return null;return[parseInt(s.slice(0,2),16),parseInt(s.slice(2,4),16),parseInt(s.slice(4,6),16)]}function hex(v){return'#'+v.map(n=>Math.round(n).toString(16).padStart(2,'0')).join('')}function name(el,m,prefix){el.innerHTML=prefix;let mode=m.meta?.name_color_mode,p=(m.meta?.name_color_palette||[]).map(rgb).filter(Boolean),u=m.user||'';if(!['gradient','pattern'].includes(mode)||p.length<2){let s=document.createElement('span');s.style.color=m.color;s.textContent=u;el.append(s);return}for(let i=0;i<u.length;i++){let color;if(mode==='gradient'){let z=u.length<2?0:i/(u.length-1)*(p.length-1),a=Math.min(Math.floor(z),p.length-2),q=z-a;color=hex(p[a].map((v,j)=>v+(p[a+1][j]-v)*q))}else{let pattern=m.meta?.name_color_pattern||'repeat',j=i%p.length;if(pattern==='blocks')j=Math.floor(i/2)%p.length;else if(pattern==='mirror'&&p.length>1){let cycle=p.length*2-2,k=i%cycle;j=k<p.length?k:cycle-k}color=hex(p[j])}let s=document.createElement('span');s.style.color=color;s.textContent=u[i];el.append(s)}}let n=0,clearGeneration=-1;async function p(){try{let r=await fetch('/api/messages?since='+n),d=await r.json();if(clearGeneration<0)clearGeneration=d.clear_generation;else if(clearGeneration!==d.clear_generation){c.replaceChildren();clearGeneration=d.clear_generation}document.body.style.background=d.background;document.documentElement.style.background=d.background;document.documentElement.style.setProperty('--outline',outline(d.outline_thickness));for(let m of d.messages){n=Math.max(n,m.cursor);let x=document.createElement('div');x.className='m '+m.platform;x.innerHTML=(d.show_platform_icons?'<img class=pi src="/platform-icon/'+m.platform+'">':'')+'<span class=u></span><span class=x></span>';let b=badges(m),pin=m.meta?.pinned?'📌 ':'';name(x.querySelector('.u'),m,pin+(b?b+' ':''));body(x.querySelector('.x'),m);c.append(x);if(d.fade_seconds>0)setTimeout(()=>{x.classList.add('fade');setTimeout(()=>x.remove(),700)},d.fade_seconds*1000)}while(c.children.length>80)c.firstChild.remove();scrollTo(0,document.body.scrollHeight)}catch(e){}setTimeout(p,600)}p()
 </script>)HTML";
 
 const char mobileHtml[]=R"HTML(<!doctype html><html><head><meta charset="utf-8">
@@ -82,14 +167,18 @@ const char mobileHtml[]=R"HTML(<!doctype html><html><head><meta charset="utf-8">
 <meta name="theme-color" content="#090d18"><meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Leapcast">
 <link rel="manifest" href="/mobile-manifest/%TOKEN%.webmanifest"><link rel="apple-touch-icon" href="/mobile-icon.png"><title>Leapcast Phone Connect</title>
-<style>:root{color-scheme:dark;--bg:#090d18;--panel:#111827;--line:#28334a;--muted:#909bb2;--cyan:#53cdf3}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:var(--bg);color:#f7f9ff;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{padding:calc(env(safe-area-inset-top) + 12px) 12px calc(env(safe-area-inset-bottom) + 82px)}header{display:flex;align-items:center;gap:10px;min-height:48px}.mark{width:40px;height:40px;border-radius:13px;background:linear-gradient(145deg,#53cdf3,#7857ff);display:grid;place-items:center;font-weight:900;color:#07101a}.brand{font-weight:900;letter-spacing:.7px}.sub,.muted{color:var(--muted);font-size:12px}.status{margin-left:auto;border:1px solid var(--line);border-radius:999px;padding:6px 9px;color:#ff8292;font-size:11px;font-weight:800}.status.ok{color:#72efb0}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}button{border:1px solid var(--line);background:#172238;color:#eef4ff;border-radius:11px;padding:10px 12px;font:inherit;font-weight:750}button.primary{width:100%;background:linear-gradient(135deg,#437fe8,#7857ff);border:0}.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.num{font-size:23px;font-weight:900}.filters{display:flex;gap:7px;overflow:auto;margin:10px 0}.filters button{white-space:nowrap;border-radius:999px}.filters button.on{background:#274263;border-color:#4e7fac}.msg,.item{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent,#7a879f);border-radius:14px;padding:11px;margin:8px 0;overflow-wrap:anywhere}.who{font-weight:850;margin-right:6px}.actions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}.actions button{font-size:12px;padding:7px 9px}.danger{color:#ff91a4}.twitch{--accent:#9146ff}.youtube,.yt_shorts{--accent:#ff334f}.tiktok{--accent:#18e0d5}.kick{--accent:#53fc18}.rumble{--accent:#85c742}.empty{text-align:center;color:var(--muted);padding:50px 15px}.install{background:#122235;border:1px solid #315377;border-radius:14px;padding:11px;margin:10px 0;color:#dbeeff;font-size:13px}.update{display:none;background:linear-gradient(135deg,#30214c,#172b49);border:1px solid #795bd3}.update.show{display:block}.view{display:none}.view.on{display:block}.mainnav{position:fixed;z-index:8;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom) + 8px);display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:7px;background:rgba(13,18,31,.96);border:1px solid var(--line);border-radius:17px;backdrop-filter:blur(16px)}.mainnav button{padding:10px 3px;font-size:11px}.mainnav button.on{background:#674fdd;border-color:#8b7aef}.sectionTitle{font-size:18px;font-weight:900;margin:17px 2px 8px}.setting{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:14px 0}.setting input[type=range]{grid-column:1/-1;margin:0}.setting input[type=checkbox]{width:24px;height:24px;margin:0}.pill{display:inline-block;border-radius:999px;background:#202b40;padding:4px 8px;font-size:11px;color:#b9c5dc}@media(min-width:700px){body{max-width:720px;margin:auto}.mainnav{max-width:704px;margin:auto}}</style></head><body onload="polling=true;poll();viewers();control()">
+<style>:root{color-scheme:dark;--bg:#090d18;--panel:#111827;--line:#28334a;--muted:#909bb2;--cyan:#53cdf3}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:var(--bg);color:#f7f9ff;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{padding:calc(env(safe-area-inset-top) + 12px) 12px calc(env(safe-area-inset-bottom) + 82px)}header{display:flex;align-items:center;gap:10px;min-height:48px}.mark{width:40px;height:40px;border-radius:13px;background:linear-gradient(145deg,#53cdf3,#7857ff);display:grid;place-items:center;font-weight:900;color:#07101a}.brand{font-weight:900;letter-spacing:.7px}.sub,.muted{color:var(--muted);font-size:12px}.status{margin-left:auto;border:1px solid var(--line);border-radius:999px;padding:6px 9px;color:#ff8292;font-size:11px;font-weight:800}.status.ok{color:#72efb0}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}button{border:1px solid var(--line);background:#172238;color:#eef4ff;border-radius:11px;padding:10px 12px;font:inherit;font-weight:750}button.primary{width:100%;background:linear-gradient(135deg,#437fe8,#7857ff);border:0}.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.num{font-size:23px;font-weight:900}.filters{display:flex;gap:7px;overflow:auto;margin:10px 0}.filters button{white-space:nowrap;border-radius:999px}.filters button.on{background:#274263;border-color:#4e7fac}.msg,.item{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent,#7a879f);border-radius:14px;padding:11px;margin:8px 0;overflow-wrap:anywhere}.who{font-weight:850;margin-right:6px}.ye{width:24px;height:24px;object-fit:contain;vertical-align:-6px;margin:0 1px}.actions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}.actions button{font-size:12px;padding:7px 9px}.danger{color:#ff91a4}.twitch{--accent:#9146ff}.youtube,.yt_shorts{--accent:#ff334f}.tiktok{--accent:#18e0d5}.kick{--accent:#53fc18}.rumble{--accent:#85c742}.empty{text-align:center;color:var(--muted);padding:50px 15px}.install{background:#122235;border:1px solid #315377;border-radius:14px;padding:11px;margin:10px 0;color:#dbeeff;font-size:13px}.update{display:none;background:linear-gradient(135deg,#30214c,#172b49);border:1px solid #795bd3}.update.show{display:block}.view{display:none}.view.on{display:block}.mainnav{position:fixed;z-index:8;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom) + 8px);display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:7px;background:rgba(13,18,31,.96);border:1px solid var(--line);border-radius:17px;backdrop-filter:blur(16px)}.mainnav button{padding:10px 3px;font-size:11px}.mainnav button.on{background:#674fdd;border-color:#8b7aef}.sectionTitle{font-size:18px;font-weight:900;margin:17px 2px 8px}.setting{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin:14px 0}.setting input[type=range]{grid-column:1/-1;margin:0}.setting input[type=checkbox]{width:24px;height:24px;margin:0}.setting select,.setting input[type=color],.setting input[type=number]{background:#0d1524;color:#eef4ff;border:1px solid var(--line);border-radius:9px;padding:7px}.pill{display:inline-block;border-radius:999px;background:#202b40;padding:4px 8px;font-size:11px;color:#b9c5dc}.palette{display:grid;gap:7px;margin-top:8px}.paletteRow{display:grid;grid-template-columns:46px 1fr auto auto auto;gap:6px;align-items:center}.paletteRow input[type=color]{width:46px;height:38px;padding:2px}.small{padding:7px 9px;font-size:12px}.birthdayGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.birthdayGrid select{width:100%;background:#0d1524;color:#eef4ff;border:1px solid var(--line);border-radius:9px;padding:9px}#seasonalDecor{position:fixed;pointer-events:none;z-index:7;left:0;right:0;top:0;height:64px;text-align:center;font-size:22px;letter-spacing:12px;padding-top:5px;text-shadow:0 2px 10px #000}body[data-theme=birthday] header{filter:drop-shadow(0 0 8px #ff5ca8)}body[data-theme=halloween] header{filter:drop-shadow(0 0 8px #ff8b2c)}body[data-theme=christmas] header{filter:drop-shadow(0 0 8px #4dd897)}body[data-theme=july4] header,body[data-theme=veterans] header{filter:drop-shadow(0 0 8px #d82c3b)}body[data-theme=newyear] header{filter:drop-shadow(0 0 8px #ffd166)}@media(min-width:700px){body{max-width:720px;margin:auto}.mainnav{max-width:704px;margin:auto}}</style></head><body onload="polling=true;poll();viewers();control()">
 <main id="app"><header><div class="mark">L</div><div><div class="brand">LEAPCAST PHONE CONNECT</div><div class="sub">Windows control center</div></div><div id="status" class="status">CONNECTING</div></header><section id="updateBanner" class="card update"><b id="updateTitle">Windows update available</b><div id="updateNotes" class="muted"></div><div class="actions"><button id="updateNow" class="primary">Update Windows App</button></div><div class="muted">Leapcast will close, update, and relaunch. Return here afterward; if the address changes, scan the new QR code shown on the PC.</div></section><div class="install">Optional install: in Safari tap <b>Share → Add to Home Screen</b>, keep <b>Open as Web App</b> enabled, then tap Add.</div>
 <section id="chatView" class="view on"><section class="stats"><div class="card"><div id="total" class="num">0</div><div class="muted">Watching</div></div><div class="card"><div id="active" class="num">0</div><div class="muted">Live sources</div></div></section><nav id="filters" class="filters"></nav><section id="chat"><div class="empty">Waiting for chat…</div></section></section>
 <section id="eventsView" class="view"><div class="sectionTitle">Stream Events</div><div class="muted">Followers, subscriptions, donations, memberships, and supported platform alerts from the Windows session.</div><section id="events"><div class="empty">Waiting for events…</div></section></section>
 <section id="moderationView" class="view"><div class="sectionTitle">Moderation</div><div class="actions"><button id="refreshModeration">Refresh Bans & Requests</button></div><div class="sectionTitle">Active Restrictions</div><section id="bans"><div class="empty">No restrictions loaded.</div></section><div class="sectionTitle">Twitch Unban Requests</div><section id="appeals"><div class="empty">No pending requests.</div></section></section>
-<section id="settingsView" class="view"><div class="sectionTitle">Windows Settings</div><div class="card"><label class="setting"><span>AutoMod enabled</span><input id="automodSetting" type="checkbox"></label><label class="setting"><span>Overlay opacity</span><span id="opacityValue" class="pill">0%</span><input id="opacitySetting" type="range" min="0" max="100"></label><label class="setting"><span>Text outline</span><span id="outlineValue" class="pill">2 px</span><input id="outlineSetting" type="range" min="0" max="8"></label><label class="setting"><span>Message fade timer</span><span id="fadeValue" class="pill">Never</span><input id="fadeSetting" type="range" min="0" max="300" step="5"></label></div><div class="muted">Changes apply immediately to Leapcast Studio on the connected Windows PC.</div></section>
-<nav class="mainnav"><button data-view="chatView" class="on">Chat</button><button data-view="eventsView">Events</button><button data-view="moderationView">Moderation</button><button data-view="settingsView">Settings</button></nav></main>
-<script>const KEY='%TOKEN%',names={all:'All',twitch:'Twitch',youtube:'YouTube',yt_shorts:'Shorts',tiktok:'TikTok',kick:'Kick',rumble:'Rumble'},order=Object.keys(names),byId=id=>document.getElementById(id),appEl=byId('app'),statusEl=byId('status'),filtersEl=byId('filters'),chatEl=byId('chat'),totalEl=byId('total'),activeEl=byId('active'),eventsEl=byId('events'),bansEl=byId('bans'),appealsEl=byId('appeals');let PW='',cursor=0,current='all',messages=[],clearGen=-1,polling=false,settingsLoaded=false;const q=()=>'?key='+encodeURIComponent(KEY),post=(path,args='')=>fetch(path+q()+args,{method:'POST'});document.querySelectorAll('.mainnav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.mainnav button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('.view').forEach(x=>x.classList.toggle('on',x.id===b.dataset.view))});for(const p of order){const b=document.createElement('button');b.textContent=names[p];b.className=p==='all'?'on':'';b.onclick=()=>{current=p;document.querySelectorAll('#filters button').forEach(x=>x.classList.toggle('on',x===b));renderChat()};filtersEl.append(b)}function renderChat(){chatEl.replaceChildren();const list=messages.filter(m=>current==='all'||m.platform===current);if(!list.length){chatEl.innerHTML='<div class="empty">Waiting for '+names[current]+' chat…</div>';return}for(const m of list.slice(-150)){const d=document.createElement('article');d.className='msg '+m.platform;const u=document.createElement('span');u.className='who';u.style.color=m.color||'#53cdf3';u.textContent=m.user;const t=document.createElement('span');t.textContent=m.text;d.append(u,t);if(['twitch','youtube','yt_shorts'].includes(m.platform)){const a=document.createElement('div');a.className='actions';[['Delete','delete',0],['Timeout 5m','timeout',300],['Ban','ban',0]].forEach(([label,action,seconds])=>{const b=document.createElement('button');b.textContent=label;if(action==='ban')b.className='danger';b.onclick=()=>moderate(m.cursor,action,seconds,m.user);a.append(b)});d.append(a)}chatEl.append(d)}}async function moderate(id,action,seconds,user){if(!confirm(action==='ban'?'Permanently ban '+user+'?':action==='timeout'?'Timeout '+user+' for 5 minutes?':'Delete this message?'))return;const r=await post('/api/mobile/moderate','&cursor='+id+'&action='+action+'&seconds='+seconds);if(!r.ok)alert('Moderation request failed. Check moderation on the PC.')}function renderEvents(list){eventsEl.replaceChildren();if(!list?.length){eventsEl.innerHTML='<div class="empty">Waiting for events…</div>';return}for(const e of list){const d=document.createElement('article');d.className='item '+(e.platform||'');const title=document.createElement('b');title.textContent=e.kind==='twitch_redemption'?(e.user||'Someone')+' • redeemed '+(e.amount||'a Channel Point reward'):(e.user||'Someone')+' • '+(e.kind||'Event');const detail=document.createElement('div');detail.className='muted';detail.textContent=e.kind==='twitch_redemption'?(e.message||''):[e.amount,e.message].filter(Boolean).join(' — ');d.append(title,detail);eventsEl.append(d)}}function banId(b){return b.user_id||b.id||''}function renderBans(groups){bansEl.replaceChildren();let count=0;for(const [platform,list] of Object.entries(groups||{}))for(const b of list){count++;const d=document.createElement('article');d.className='item '+platform;const title=document.createElement('b');title.textContent=(b.user_name||b.user_login||'Unknown user')+' • '+(platform==='twitch'?'Twitch':'YouTube');const detail=document.createElement('div');detail.className='muted';detail.textContent=b.reason||b.type||'Active restriction';const actions=document.createElement('div');actions.className='actions';const unban=document.createElement('button');unban.textContent='Unban';unban.onclick=async()=>{if(confirm('Remove this restriction?')){await post('/api/mobile/unban','&platform='+platform+'&id='+encodeURIComponent(banId(b)));setTimeout(refreshControl,700)}};actions.append(unban);d.append(title,detail,actions);bansEl.append(d)}if(!count)bansEl.innerHTML='<div class="empty">No active restrictions.</div>'}function renderAppeals(list){appealsEl.replaceChildren();if(!list?.length){appealsEl.innerHTML='<div class="empty">No pending requests.</div>';return}for(const a of list){const d=document.createElement('article');d.className='item twitch';const title=document.createElement('b');title.textContent=a.user_name||a.user_login||'Unknown user';const text=document.createElement('div');text.className='muted';text.textContent=a.text||'No appeal message provided.';const actions=document.createElement('div');actions.className='actions';for(const [label,decision] of [['Approve','approve'],['Reject','reject']]){const b=document.createElement('button');b.textContent=label;if(decision==='reject')b.className='danger';b.onclick=async()=>{if(confirm(label+' this unban request?')){await post('/api/mobile/appeal','&id='+encodeURIComponent(a.id||'')+'&decision='+decision);setTimeout(refreshControl,700)}};actions.append(b)}d.append(title,text,actions);appealsEl.append(d)}}function loadSettings(s){if(settingsLoaded)return;settingsLoaded=true;byId('automodSetting').checked=s.automod_enabled!==false;byId('opacitySetting').value=s.overlay_background_opacity||0;byId('outlineSetting').value=s.chat_outline_thickness??2;byId('fadeSetting').value=Math.min(300,s.overlay_fade_seconds||0);showSettingValues()}function showSettingValues(){byId('opacityValue').textContent=byId('opacitySetting').value+'%';byId('outlineValue').textContent=byId('outlineSetting').value+' px';byId('fadeValue').textContent=+byId('fadeSetting').value?byId('fadeSetting').value+' sec':'Never'}async function saveSetting(name,value){await post('/api/mobile/setting','&name='+name+'&value='+encodeURIComponent(value))}byId('automodSetting').onchange=e=>saveSetting('automod_enabled',e.target.checked);for(const [id,name] of [['opacitySetting','overlay_background_opacity'],['outlineSetting','chat_outline_thickness'],['fadeSetting','overlay_fade_seconds']])byId(id).onchange=e=>{showSettingValues();saveSetting(name,e.target.value)};byId('refreshModeration').onclick=async()=>{await post('/api/mobile/refresh');setTimeout(refreshControl,700)};byId('updateNow').onclick=async()=>{if(confirm('Update Leapcast Studio on the Windows PC now? It will close and relaunch.')){await post('/api/mobile/install-update');statusEl.textContent='UPDATING PC';statusEl.classList.remove('ok')}};async function refreshControl(){const r=await fetch('/api/mobile/control'+q(),{cache:'no-store'});if(!r.ok)return;const d=await r.json();renderEvents(d.events);renderBans(d.bans);renderAppeals(d.appeals);loadSettings(d.settings||{});if(d.update?.available){byId('updateBanner').classList.add('show');byId('updateTitle').textContent='Leapcast '+d.update.version+' is available';byId('updateNotes').textContent=(d.update.notes||'A new Windows release is ready.').slice(0,600)}else byId('updateBanner').classList.remove('show')}async function poll(){try{const r=await fetch('/api/mobile/messages'+q()+'&since='+cursor,{cache:'no-store'});if(!r.ok)throw 0;const d=await r.json();if(clearGen<0)clearGen=d.clear_generation;else if(clearGen!==d.clear_generation){messages=[];clearGen=d.clear_generation}for(const m of d.messages){cursor=Math.max(cursor,m.cursor);messages.push(m)}if(messages.length>300)messages=messages.slice(-300);if(d.messages.length)renderChat();statusEl.textContent='CONNECTED';statusEl.classList.add('ok')}catch(e){statusEl.textContent='OFFLINE';statusEl.classList.remove('ok')}setTimeout(poll,700)}async function viewers(){try{const r=await fetch('/api/mobile/viewers'+q(),{cache:'no-store'}),d=await r.json();totalEl.textContent=d.total||0;activeEl.textContent=Object.entries(d).filter(([k,v])=>k!=='total'&&v>0).length}catch(e){}setTimeout(viewers,2500)}async function control(){try{await refreshControl()}catch(e){}setTimeout(control,2500)}</script></body></html>)HTML";
+<section id="settingsView" class="view"><div class="sectionTitle">Windows Settings</div><div class="card"><label class="setting"><span>AutoMod enabled</span><input id="automodSetting" type="checkbox"></label><label class="setting"><span>Overlay opacity</span><span id="opacityValue" class="pill">0%</span><input id="opacitySetting" type="range" min="0" max="100"></label><label class="setting"><span>Text outline</span><span id="outlineValue" class="pill">2 px</span><input id="outlineSetting" type="range" min="0" max="8"></label><label class="setting"><span>Message fade timer</span><span id="fadeValue" class="pill">Never</span><input id="fadeSetting" type="range" min="0" max="300" step="5"></label></div><div class="sectionTitle">Custom Name Palette</div><div class="card"><label class="setting"><span>Name color style</span><select id="nameMode"><option value="random">Random per chatter</option><option value="single">One color</option><option value="gradient">Custom gradient</option><option value="pattern">Repeating pattern</option></select></label><label class="setting"><span>Single name color</span><input id="singleNameColor" type="color"></label><label class="setting"><span>Pattern</span><select id="namePattern"><option value="repeat">Repeat</option><option value="mirror">Mirror</option><option value="blocks">Color blocks</option></select></label><label class="setting"><span>Unique randomized palette variation per chatter</span><input id="paletteRandomize" type="checkbox"></label><div id="paletteEditor" class="palette"></div><div class="actions"><button id="addPaletteColor">Add color</button><button id="rerollPalette">Randomize palette for chatters</button></div><div class="muted">Use 2–8 colors. Replace, add, remove, or reorder colors here; changes apply to the Windows app and pop-out.</div></div><div class="sectionTitle">Seasonal & Birthday Effects</div><div class="card"><label class="setting"><span>Seasonal / holiday effects</span><input id="seasonalEffects" type="checkbox"></label><label class="setting"><span>Birthday effects (confetti, party hats, balloons & streamers)</span><input id="birthdayEffects" type="checkbox"></label><label class="setting"><span>Birthday confetti playback</span><select id="birthdayPlayback"><option value="always">Every launch</option><option value="first">First launch only</option></select></label><div class="birthdayGrid"><select id="birthdayMonth"><option value="0">Birthday month</option></select><select id="birthdayDay"><option value="0">Birthday day</option></select></div><div id="themeStatus" class="muted" style="margin-top:10px"></div><div class="muted" style="margin-top:7px">Birthday effects play only the day before and the birthday itself after checking the Windows PC's local system date. Every launch replays the confetti once whenever Leapcast is reopened; First launch only limits it to once per active birthday date. Holiday themes are automatic.</div></div><div class="muted">Changes apply immediately to Leapcast Studio on the connected Windows PC.</div></section>
+<div id="seasonalDecor"></div><nav class="mainnav"><button data-view="chatView" class="on">Chat</button><button data-view="eventsView">Events</button><button data-view="moderationView">Moderation</button><button data-view="settingsView">Settings</button></nav></main>
+)HTML"
+// MSVC limits the size of an individual string literal. Keep the Phone Connect
+// document in adjacent raw-string chunks so the compiler can concatenate them
+// without C2026 ("string too big, trailing characters truncated").
+R"HTML(<script>const KEY='%TOKEN%',names={all:'All',twitch:'Twitch',youtube:'YouTube',yt_shorts:'Shorts',tiktok:'TikTok',kick:'Kick',rumble:'Rumble'},order=Object.keys(names),byId=id=>document.getElementById(id),appEl=byId('app'),statusEl=byId('status'),filtersEl=byId('filters'),chatEl=byId('chat'),totalEl=byId('total'),activeEl=byId('active'),eventsEl=byId('events'),bansEl=byId('bans'),appealsEl=byId('appeals');let PW='',cursor=0,current='all',messages=[],clearGen=-1,polling=false,settingsLoaded=false,palette=[];const q=()=>'?key='+encodeURIComponent(KEY),post=(path,args='')=>fetch(path+q()+args,{method:'POST'});document.querySelectorAll('.mainnav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.mainnav button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('.view').forEach(x=>x.classList.toggle('on',x.id===b.dataset.view))});for(const p of order){const b=document.createElement('button');b.textContent=names[p];b.className=p==='all'?'on':'';b.onclick=()=>{current=p;document.querySelectorAll('#filters button').forEach(x=>x.classList.toggle('on',x===b));renderChat()};filtersEl.append(b)}function renderChat(){chatEl.replaceChildren();const list=messages.filter(m=>current==='all'||m.platform===current);if(!list.length){chatEl.innerHTML='<div class="empty">Waiting for '+names[current]+' chat…</div>';return}for(const m of list.slice(-150)){const d=document.createElement('article');d.className='msg '+m.platform;const u=document.createElement('span');u.className='who';u.style.color=m.color||'#53cdf3';u.textContent=m.user;const t=document.createElement('span');const runs=m.meta?.youtube_runs;if(Array.isArray(runs)&&runs.length){for(const r of runs){if(('text' in r))t.append(document.createTextNode(r.text||''));else if(r.url){const i=document.createElement('img');i.className='ye';i.src=r.url;i.alt=r.alt||'';i.title=r.alt||'';t.append(i)}else t.append(document.createTextNode(r.alt||''))}}else t.textContent=m.text;if(m.meta?.pinned)u.textContent='📌 '+u.textContent;d.append(u,t);if(['twitch','youtube','yt_shorts'].includes(m.platform)){const a=document.createElement('div');a.className='actions';[['Delete','delete',0],['Timeout 5m','timeout',300],['Ban','ban',0]].forEach(([label,action,seconds])=>{const b=document.createElement('button');b.textContent=label;if(action==='ban')b.className='danger';b.onclick=()=>moderate(m.cursor,action,seconds,m.user);a.append(b)});d.append(a)}chatEl.append(d)}}async function moderate(id,action,seconds,user){if(!confirm(action==='ban'?'Permanently ban '+user+'?':action==='timeout'?'Timeout '+user+' for 5 minutes?':'Delete this message?'))return;const r=await post('/api/mobile/moderate','&cursor='+id+'&action='+action+'&seconds='+seconds);if(!r.ok)alert('Moderation request failed. Check moderation on the PC.')}function renderEvents(list){eventsEl.replaceChildren();if(!list?.length){eventsEl.innerHTML='<div class="empty">Waiting for events…</div>';return}for(const e of list){const d=document.createElement('article');d.className='item '+(e.platform||'');const title=document.createElement('b');title.textContent=e.kind==='twitch_redemption'?(e.user||'Someone')+' • redeemed '+(e.amount||'a Channel Point reward'):(e.user||'Someone')+' • '+(e.kind||'Event');const detail=document.createElement('div');detail.className='muted';detail.textContent=e.kind==='twitch_redemption'?(e.message||''):[e.amount,e.message].filter(Boolean).join(' — ');d.append(title,detail);eventsEl.append(d)}}function banId(b){return b.user_id||b.id||''}function renderBans(groups){bansEl.replaceChildren();let count=0;for(const [platform,list] of Object.entries(groups||{}))for(const b of list){count++;const d=document.createElement('article');d.className='item '+platform;const title=document.createElement('b');title.textContent=(b.user_name||b.user_login||'Unknown user')+' • '+(platform==='twitch'?'Twitch':'YouTube');const detail=document.createElement('div');detail.className='muted';detail.textContent=b.reason||b.type||'Active restriction';const actions=document.createElement('div');actions.className='actions';const unban=document.createElement('button');unban.textContent='Unban';unban.onclick=async()=>{if(confirm('Remove this restriction?')){await post('/api/mobile/unban','&platform='+platform+'&id='+encodeURIComponent(banId(b)));setTimeout(refreshControl,700)}};actions.append(unban);d.append(title,detail,actions);bansEl.append(d)}if(!count)bansEl.innerHTML='<div class="empty">No active restrictions.</div>'}function renderAppeals(list){appealsEl.replaceChildren();if(!list?.length){appealsEl.innerHTML='<div class="empty">No pending requests.</div>';return}for(const a of list){const d=document.createElement('article');d.className='item twitch';const title=document.createElement('b');title.textContent=a.user_name||a.user_login||'Unknown user';const text=document.createElement('div');text.className='muted';text.textContent=a.text||'No appeal message provided.';const actions=document.createElement('div');actions.className='actions';for(const [label,decision] of [['Approve','approve'],['Reject','reject']]){const b=document.createElement('button');b.textContent=label;if(decision==='reject')b.className='danger';b.onclick=async()=>{if(confirm(label+' this unban request?')){await post('/api/mobile/appeal','&id='+encodeURIComponent(a.id||'')+'&decision='+decision);setTimeout(refreshControl,700)}};actions.append(b)}d.append(title,text,actions);appealsEl.append(d)}}function applySeasonalTheme(theme,label){document.body.dataset.theme=theme||'';const d=byId('seasonalDecor'),map={birthday:'🎉  🎈  🥳  🎂  🎉',halloween:'🎃  👻  🕸️  🎃',christmas:'🎄  ❄️  🎁  ✨  🎄',easter:'🐰  🥚  🌷  🐣',july4:'🇺🇸  ✨  🇺🇸  🎆',veterans:'🇺🇸  ★  🇺🇸  ★',newyear:'✨  🎆  🥂  🎆  ✨'};d.textContent=map[theme]||'';byId('themeStatus').textContent=theme?'Active theme: '+(label||theme):'No seasonal theme is active today.'}function renderPaletteEditor(){const host=byId('paletteEditor');host.replaceChildren();palette.forEach((color,index)=>{const row=document.createElement('div');row.className='paletteRow';const input=document.createElement('input');input.type='color';input.value=color;input.onchange=()=>{palette[index]=input.value;savePalette()};const label=document.createElement('span');label.textContent='Color '+(index+1);const up=document.createElement('button');up.className='small';up.textContent='↑';up.disabled=index===0;up.onclick=()=>{[palette[index-1],palette[index]]=[palette[index],palette[index-1]];renderPaletteEditor();savePalette()};const down=document.createElement('button');down.className='small';down.textContent='↓';down.disabled=index===palette.length-1;down.onclick=()=>{[palette[index+1],palette[index]]=[palette[index],palette[index+1]];renderPaletteEditor();savePalette()};const remove=document.createElement('button');remove.className='small danger';remove.textContent='×';remove.disabled=palette.length<=2;remove.onclick=()=>{palette.splice(index,1);renderPaletteEditor();savePalette()};row.append(input,label,up,down,remove);host.append(row)})}async function savePalette(){await saveSetting('chat_name_palette',palette.join(','))}function loadSettings(s){if(settingsLoaded)return;settingsLoaded=true;byId('automodSetting').checked=s.automod_enabled!==false;byId('opacitySetting').value=s.overlay_background_opacity||0;byId('outlineSetting').value=s.chat_outline_thickness??2;byId('fadeSetting').value=Math.min(300,s.overlay_fade_seconds||0);byId('nameMode').value=s.chat_colour_mode||'random';byId('singleNameColor').value=s.chat_name_colour||'#53cdf3';byId('namePattern').value=s.chat_name_pattern||'repeat';byId('paletteRandomize').checked=!!s.chat_palette_randomize;palette=Array.isArray(s.chat_name_palette)&&s.chat_name_palette.length>=2?s.chat_name_palette.slice(0,8):['#6c4cff','#18dfd1','#ff5ca8','#ffd166'];renderPaletteEditor();byId('seasonalEffects').checked=s.seasonal_effects_enabled!==false;byId('birthdayEffects').checked=s.birthday_effects_enabled!==false;byId('birthdayPlayback').value=s.birthday_confetti_playback||'always';const months=['January','February','March','April','May','June','July','August','September','October','November','December'];for(let i=0;i<12;i++){const o=document.createElement('option');o.value=i+1;o.textContent=months[i];byId('birthdayMonth').append(o)}for(let i=1;i<=31;i++){const o=document.createElement('option');o.value=i;o.textContent=i;byId('birthdayDay').append(o)}byId('birthdayMonth').value=s.birthday_month||0;byId('birthdayDay').value=s.birthday_day||0;showSettingValues()}function showSettingValues(){byId('opacityValue').textContent=byId('opacitySetting').value+'%';byId('outlineValue').textContent=byId('outlineSetting').value+' px';byId('fadeValue').textContent=+byId('fadeSetting').value?byId('fadeSetting').value+' sec':'Never'}async function saveSetting(name,value){await post('/api/mobile/setting','&name='+encodeURIComponent(name)+'&value='+encodeURIComponent(value))}byId('automodSetting').onchange=e=>saveSetting('automod_enabled',e.target.checked);for(const [id,name] of [['opacitySetting','overlay_background_opacity'],['outlineSetting','chat_outline_thickness'],['fadeSetting','overlay_fade_seconds']])byId(id).onchange=e=>{showSettingValues();saveSetting(name,e.target.value)};byId('nameMode').onchange=e=>saveSetting('chat_colour_mode',e.target.value);byId('singleNameColor').onchange=e=>saveSetting('chat_name_colour',e.target.value);byId('namePattern').onchange=e=>saveSetting('chat_name_pattern',e.target.value);byId('paletteRandomize').onchange=e=>saveSetting('chat_palette_randomize',e.target.checked);byId('addPaletteColor').onclick=()=>{if(palette.length>=8)return;palette.push('#ffffff');renderPaletteEditor();savePalette()};byId('rerollPalette').onclick=async()=>{byId('paletteRandomize').checked=true;await saveSetting('chat_palette_randomize',true);await saveSetting('regenerate_name_colors','now')};byId('seasonalEffects').onchange=e=>saveSetting('seasonal_effects_enabled',e.target.checked);byId('birthdayEffects').onchange=e=>saveSetting('birthday_effects_enabled',e.target.checked);byId('birthdayPlayback').onchange=e=>saveSetting('birthday_confetti_playback',e.target.value);byId('birthdayMonth').onchange=e=>saveSetting('birthday_month',e.target.value);byId('birthdayDay').onchange=e=>saveSetting('birthday_day',e.target.value);byId('refreshModeration').onclick=async()=>{await post('/api/mobile/refresh');setTimeout(refreshControl,700)};byId('updateNow').onclick=async()=>{if(confirm('Update Leapcast Studio on the Windows PC now? It will close and relaunch.')){await post('/api/mobile/install-update');statusEl.textContent='UPDATING PC';statusEl.classList.remove('ok')}};async function refreshControl(){const r=await fetch('/api/mobile/control'+q(),{cache:'no-store'});if(!r.ok)return;const d=await r.json();renderEvents(d.events);renderBans(d.bans);renderAppeals(d.appeals);loadSettings(d.settings||{});applySeasonalTheme(d.settings?.seasonal_theme||'',d.settings?.seasonal_theme_label||'');if(d.update?.available){byId('updateBanner').classList.add('show');byId('updateTitle').textContent='Leapcast '+d.update.version+' is available';byId('updateNotes').textContent=(d.update.notes||'A new Windows release is ready.').slice(0,600)}else byId('updateBanner').classList.remove('show')}async function poll(){try{const r=await fetch('/api/mobile/messages'+q()+'&since='+cursor,{cache:'no-store'});if(!r.ok)throw 0;const d=await r.json();if(clearGen<0)clearGen=d.clear_generation;else if(clearGen!==d.clear_generation){messages=[];clearGen=d.clear_generation}for(const m of d.messages){cursor=Math.max(cursor,m.cursor);messages.push(m)}if(messages.length>300)messages=messages.slice(-300);if(d.messages.length)renderChat();statusEl.textContent='CONNECTED';statusEl.classList.add('ok')}catch(e){statusEl.textContent='OFFLINE';statusEl.classList.remove('ok')}setTimeout(poll,700)}async function viewers(){try{const r=await fetch('/api/mobile/viewers'+q(),{cache:'no-store'}),d=await r.json();totalEl.textContent=d.total||0;activeEl.textContent=Object.entries(d).filter(([k,v])=>k!=='total'&&v>0).length}catch(e){}setTimeout(viewers,2500)}async function control(){try{await refreshControl()}catch(e){}setTimeout(control,2500)}</script></body></html>)HTML";
 }
 OverlayServer::OverlayServer(QObject*p):QObject(p){mobileToken_=QByteArray::number(QRandomGenerator::global()->generate64(),16)+QByteArray::number(QRandomGenerator::global()->generate64(),16);connect(&server_,&QTcpServer::newConnection,this,&OverlayServer::accept);}
 void OverlayServer::setMobileToken(const QString&token){const QByteArray clean=token.trimmed().toLatin1();if(clean.size()>=24&&std::all_of(clean.cbegin(),clean.cend(),[](char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F');}))mobileToken_=clean.toLower();}
@@ -104,7 +193,7 @@ void OverlayServer::setMobileSettings(const QJsonObject&s){mobileSettings_=s;}
 void OverlayServer::setMobileUpdate(const QJsonObject&u){mobileUpdate_=u;}
 void OverlayServer::setAppearance(const QColor&background,int opacity,int outline){backgroundColor_=background.isValid()?background:QColor(Qt::black);backgroundOpacityPercent_=qBound(0,opacity,100);outlineThickness_=qBound(0,outline,8);}
 void OverlayServer::accept(){while(auto*s=server_.nextPendingConnection()){connect(s,&QTcpSocket::readyRead,this,[this,s]{const auto parts=s->readAll().split('\n').value(0).split(' ');s->write(responseFor(parts.value(0),parts.value(1),s->peerAddress()));s->disconnectFromHost();});connect(s,&QTcpSocket::disconnected,s,&QObject::deleteLater);}}
-QByteArray OverlayServer::responseFor(const QByteArray&method,const QByteArray&t,const QHostAddress&peer){const auto value=[&](const QByteArray&key){const QByteArray field=key+"=";const int p=t.indexOf(field);return p<0?QByteArray():t.mid(p+field.size()).split('&').value(0);};const bool local=peer.isLoopback();const QByteArray mobilePath="/mobile/"+mobileToken_;const bool tokenOk=t.startsWith(mobilePath)||value("key")==mobileToken_;if((t=="/"||t.startsWith("/?"))&&local)return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith(mobilePath)){QByteArray html(mobileHtml);html.replace("%TOKEN%",mobileToken_);return reply(200,"text/html; charset=utf-8",html);}if(t.startsWith("/mobile-manifest/")&&t.contains(mobileToken_)){const QJsonArray icons{QJsonObject{{"src","/mobile-icon.png"},{"sizes","512x512"},{"type","image/png"},{"purpose","any maskable"}}};const QJsonObject manifest{{"name","Leapcast Phone Connect"},{"short_name","Leapcast"},{"display","standalone"},{"background_color","#090d18"},{"theme_color","#090d18"},{"start_url",QString::fromLatin1(mobilePath)},{"icons",icons}};return reply(200,"application/manifest+json",QJsonDocument(manifest).toJson(QJsonDocument::Compact));}if(t.startsWith("/mobile-icon.png")){QFile icon(QStringLiteral(":/brand/lefroge_chat_icon.png"));if(icon.open(QIODevice::ReadOnly))return reply(200,"image/png",icon.readAll());}if(t.startsWith("/platform-icon/")){const QString platform=QString::fromLatin1(t.mid(15).split('?').value(0));static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};QFile icon(paths.value(platform));if(icon.open(QIODevice::ReadOnly))return reply(200,platform=="kick"||platform=="rumble"?"image/svg+xml":"image/png",icon.readAll());}const bool mobileOk=tokenOk;const bool mobileMessages=t.startsWith("/api/mobile/messages")&&mobileOk;const bool overlayMessages=t.startsWith("/api/messages")&&local;if(mobileMessages||overlayMessages){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}const QString bg=QStringLiteral("rgba(%1,%2,%3,%4)").arg(backgroundColor_.red()).arg(backgroundColor_.green()).arg(backgroundColor_.blue()).arg(QString::number(backgroundOpacityPercent_/100.0,'f',2));return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"clear_generation",static_cast<qint64>(clearGeneration_)},{"fade_seconds",fadeSeconds_},{"background",bg},{"outline_thickness",outlineThickness_},{"show_platform_icons",showPlatformIcons_}}).toJson(QJsonDocument::Compact));}const bool mobileViewers=t.startsWith("/api/mobile/viewers")&&mobileOk;const bool overlayViewers=t.startsWith("/api/viewers")&&local;if(mobileViewers||overlayViewers){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/mobile/control")&&mobileOk){QJsonObject bans;for(auto i=mobileBans_.cbegin();i!=mobileBans_.cend();++i)bans[i.key()]=i.value();return reply(200,"application/json",QJsonDocument(QJsonObject{{"events",mobileEvents_},{"bans",bans},{"appeals",mobileAppeals_},{"settings",mobileSettings_},{"update",mobileUpdate_}}).toJson(QJsonDocument::Compact));}if(method=="POST"&&mobileOk){if(t.startsWith("/api/mobile/moderate")){const quint64 wanted=value("cursor").toULongLong();const QByteArray action=value("action");for(const auto&x:messages_)if(x.first==wanted){if(action=="delete")emit mobileDeleteRequested(x.second);else emit mobileModerationRequested(x.second,action=="ban"?0:qBound(30,value("seconds").toInt(),86400),QStringLiteral("Phone Connect moderation"));return reply(200,"application/json","{\"ok\":true}");}return reply(404,"application/json","{\"ok\":false}");}if(t.startsWith("/api/mobile/refresh")){emit mobileRefreshModerationRequested();return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/unban")){emit mobileUnbanRequested(QString::fromLatin1(value("platform")),QString::fromLatin1(value("id")));return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/appeal")){emit mobileAppealRequested(QString::fromLatin1(value("id")),value("decision")=="approve");return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/setting")){const QString name=QString::fromLatin1(value("name"));const QByteArray raw=value("value");emit mobileSettingRequested(name,raw=="true"?QVariant(true):raw=="false"?QVariant(false):QVariant(raw.toInt()));return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/install-update")){emit mobileInstallUpdateRequested();return reply(200,"application/json","{\"ok\":true}");}}return reply(404,"text/plain","Not found");}
+QByteArray OverlayServer::responseFor(const QByteArray&method,const QByteArray&t,const QHostAddress&peer){const auto value=[&](const QByteArray&key){const QByteArray field=key+"=";const int p=t.indexOf(field);return p<0?QByteArray():t.mid(p+field.size()).split('&').value(0);};const bool local=peer.isLoopback();const QByteArray mobilePath="/mobile/"+mobileToken_;const bool tokenOk=t.startsWith(mobilePath)||value("key")==mobileToken_;if((t=="/"||t.startsWith("/?"))&&local)return reply(200,"text/html; charset=utf-8",overlayHtml);if(t.startsWith(mobilePath)){QByteArray html(mobileHtml);html.replace("%TOKEN%",mobileToken_);return reply(200,"text/html; charset=utf-8",html);}if(t.startsWith("/mobile-manifest/")&&t.contains(mobileToken_)){const QJsonArray icons{QJsonObject{{"src","/mobile-icon.png"},{"sizes","512x512"},{"type","image/png"},{"purpose","any maskable"}}};const QJsonObject manifest{{"name","Leapcast Phone Connect"},{"short_name","Leapcast"},{"display","standalone"},{"background_color","#090d18"},{"theme_color","#090d18"},{"start_url",QString::fromLatin1(mobilePath)},{"icons",icons}};return reply(200,"application/manifest+json",QJsonDocument(manifest).toJson(QJsonDocument::Compact));}if(t.startsWith("/mobile-icon.png")){QFile icon(QStringLiteral(":/brand/lefroge_chat_icon.png"));if(icon.open(QIODevice::ReadOnly))return reply(200,"image/png",icon.readAll());}if(t.startsWith("/platform-icon/")){const QString platform=QString::fromLatin1(t.mid(15).split('?').value(0));static const QHash<QString,QString> paths{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};QFile icon(paths.value(platform));if(icon.open(QIODevice::ReadOnly))return reply(200,platform=="kick"||platform=="rumble"?"image/svg+xml":"image/png",icon.readAll());}const bool mobileOk=tokenOk;const bool mobileMessages=t.startsWith("/api/mobile/messages")&&mobileOk;const bool overlayMessages=t.startsWith("/api/messages")&&local;if(mobileMessages||overlayMessages){quint64 since=0;const int at=t.indexOf("since=");if(at>=0)since=t.mid(at+6).split('&').value(0).toULongLong();QJsonArray a;for(const auto&x:messages_)if(x.first>since){auto o=x.second.toJson();o["cursor"]=static_cast<qint64>(x.first);a.append(o);}const QString bg=QStringLiteral("rgba(%1,%2,%3,%4)").arg(backgroundColor_.red()).arg(backgroundColor_.green()).arg(backgroundColor_.blue()).arg(QString::number(backgroundOpacityPercent_/100.0,'f',2));return reply(200,"application/json",QJsonDocument(QJsonObject{{"messages",a},{"cursor",static_cast<qint64>(cursor_)},{"clear_generation",static_cast<qint64>(clearGeneration_)},{"fade_seconds",fadeSeconds_},{"background",bg},{"outline_thickness",outlineThickness_},{"show_platform_icons",showPlatformIcons_}}).toJson(QJsonDocument::Compact));}const bool mobileViewers=t.startsWith("/api/mobile/viewers")&&mobileOk;const bool overlayViewers=t.startsWith("/api/viewers")&&local;if(mobileViewers||overlayViewers){QJsonObject o;int total=0;for(auto i=viewers_.cbegin();i!=viewers_.cend();++i){o[i.key()]=i.value();total+=i.value();}o["total"]=total;return reply(200,"application/json",QJsonDocument(o).toJson(QJsonDocument::Compact));}if(t.startsWith("/api/mobile/control")&&mobileOk){QJsonObject bans;for(auto i=mobileBans_.cbegin();i!=mobileBans_.cend();++i)bans[i.key()]=i.value();return reply(200,"application/json",QJsonDocument(QJsonObject{{"events",mobileEvents_},{"bans",bans},{"appeals",mobileAppeals_},{"settings",mobileSettings_},{"update",mobileUpdate_}}).toJson(QJsonDocument::Compact));}if(method=="POST"&&mobileOk){if(t.startsWith("/api/mobile/moderate")){const quint64 wanted=value("cursor").toULongLong();const QByteArray action=value("action");for(const auto&x:messages_)if(x.first==wanted){if(action=="delete")emit mobileDeleteRequested(x.second);else emit mobileModerationRequested(x.second,action=="ban"?0:qBound(30,value("seconds").toInt(),86400),QStringLiteral("Phone Connect moderation"));return reply(200,"application/json","{\"ok\":true}");}return reply(404,"application/json","{\"ok\":false}");}if(t.startsWith("/api/mobile/refresh")){emit mobileRefreshModerationRequested();return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/unban")){emit mobileUnbanRequested(QString::fromLatin1(value("platform")),QString::fromLatin1(value("id")));return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/appeal")){emit mobileAppealRequested(QString::fromLatin1(value("id")),value("decision")=="approve");return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/setting")){const QString name=QUrl::fromPercentEncoding(value("name"));const QByteArray raw=value("value");const QString decoded=QUrl::fromPercentEncoding(raw);QVariant parsed;if(decoded==QStringLiteral("true"))parsed=true;else if(decoded==QStringLiteral("false"))parsed=false;else if(name==QStringLiteral("chat_name_palette"))parsed=decoded.split(QLatin1Char(','),Qt::SkipEmptyParts);else if(QStringList{QStringLiteral("overlay_fade_seconds"),QStringLiteral("overlay_background_opacity"),QStringLiteral("chat_outline_thickness"),QStringLiteral("birthday_month"),QStringLiteral("birthday_day")}.contains(name))parsed=decoded.toInt();else parsed=decoded;emit mobileSettingRequested(name,parsed);return reply(200,"application/json","{\"ok\":true}");}if(t.startsWith("/api/mobile/install-update")){emit mobileInstallUpdateRequested();return reply(200,"application/json","{\"ok\":true}");}}return reply(404,"text/plain","Not found");}
 PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     setObjectName(QStringLiteral("popoutWindow"));
     // The application theme gives every QWidget an opaque background.  A
@@ -164,7 +253,7 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     clipButton_->setEnabled(false);
     connect(clipButton_,&QPushButton::clicked,this,&PopoutChat::clipRequested);
     toolbar->addWidget(clipButton_);
-    auto*closeButton=new QPushButton(QStringLiteral("✕"));
+    auto*closeButton=new DrawnCloseButton;
     closeButton->setToolTip(QStringLiteral("Close pop-out"));
     closeButton->setCursor(Qt::PointingHandCursor);
     closeButton->setFixedSize(22,22);
@@ -174,7 +263,15 @@ PopoutChat::PopoutChat(QWidget*p):QWidget(p){
     connect(closeButton,&QPushButton::clicked,this,&QWidget::close);
     toolbar->addWidget(closeButton);
     l->addWidget(titleBar_);
+    seasonalRibbon_=new QLabel;seasonalRibbon_->setAlignment(Qt::AlignCenter);seasonalRibbon_->setAttribute(Qt::WA_TransparentForMouseEvents);seasonalRibbon_->setStyleSheet(QStringLiteral("background:transparent;color:#ffd166;font-size:11pt;font-weight:700;letter-spacing:2px;"));seasonalRibbon_->hide();l->addWidget(seasonalRibbon_);
+    // Keep holiday/birthday edge art in a child overlay rather than the
+    // translucent top-level window's paintEvent. On Windows, painting complex
+    // decoration directly into the layered top-level during first show could
+    // destabilize creation of the frameless pop-out.
+    seasonalDecor_=new PopoutSeasonalDecoration(this);
+    seasonalDecor_->setGeometry(rect());
 
+    pinned_=new QLabel;pinned_->setTextFormat(Qt::RichText);pinned_->setWordWrap(true);pinned_->setTextInteractionFlags(Qt::TextSelectableByMouse);pinned_->hide();l->addWidget(pinned_);
     event_=new QLabel;
     event_->setAlignment(Qt::AlignCenter);
     event_->setWordWrap(true);
@@ -244,13 +341,13 @@ void PopoutChat::appendMessage(const ChatMessage&m){
     QTextCharFormat messageFormat=cursor.charFormat();
     messageFormat.setProperty(kMessageIdProperty,id);
     cursor.setCharFormat(messageFormat);
-    const QString badges=badgeGlyphs(m.badges);static const QHash<QString,QString> icons{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};const QString platformIcon=showPlatformIcons_&&icons.contains(m.platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(icons.value(m.platform)):QString();
+    const QString badges=chatBadgeHtml(m);static const QHash<QString,QString> icons{{"twitch",":/brand/twitch.png"},{"youtube",":/brand/youtube.png"},{"yt_shorts",":/brand/youtube_shorts.png"},{"tiktok",":/brand/tiktok.png"},{"kick",":/brand/kick.svg"},{"rumble",":/brand/rumble.svg"}};const QString platformIcon=showPlatformIcons_&&icons.contains(m.platform)?QStringLiteral("<img src='%1' width='18' height='18' style='vertical-align:middle;margin-right:5px'>").arg(icons.value(m.platform)):QString();
     // Chat lines remain unfilled so the game/stream is visible between and
     // behind every message. Font, size, and outline are applied after the
     // rich-text colors so the user's Pop-out Chat settings win consistently.
     const int messageStart=cursor.position();
     cursor.insertHtml(QString("<span style='background-color:transparent;color:#ffffff'>%1%2%3 <span style='color:#ffffff;font-weight:600'>%4</span></span>")
-        .arg(platformIcon,badges.isEmpty()?QString():badges+QStringLiteral(" "),chatNameHtml(m),m.text.toHtmlEscaped()));
+        .arg(platformIcon,badges.isEmpty()?QString():badges+QStringLiteral(" "),chatNameHtml(m),chatMessageBodyHtml(m)));
     const int messageEnd=cursor.position();
     cursor.setPosition(messageStart);cursor.setPosition(messageEnd,QTextCursor::KeepAnchor);
     QTextCharFormat appearance;appearance.setFontFamily(fontFamily_);appearance.setFontPointSize(fontSizePoints_);
@@ -321,7 +418,31 @@ void PopoutChat::showChatContextMenu(const QPoint&globalPos){
     menu.exec(globalPos);
 }
 void PopoutChat::showEvent(const StreamEvent&e){QString action=e.kind==QStringLiteral("twitch_redemption")?QStringLiteral("redeemed %1").arg(e.amount):e.kind.contains("donation")?"Donated "+e.amount:e.kind.contains("follow")?"has Followed":e.kind.contains("gifted_sub")?QStringLiteral("gifted %1 subscription%2").arg(e.amount.isEmpty()?QStringLiteral("1"):e.amount,e.amount==QStringLiteral("1")?QString():QStringLiteral("s")):"has Subscribed";QString colour=e.kind.contains("donation")?"#f6c85f":e.platform=="twitch"?"#b48cff":e.platform=="youtube"?"#ff5573":e.platform=="rumble"?"#85c742":"#55e5d3";event_->setText(QString("<span style='color:#a8b0c7'>SYSTEM MESSAGE</span><br><b>%1</b> <span style='color:%2'>%3</span>%4").arg(e.user.toHtmlEscaped(),colour,action.toHtmlEscaped(),e.message.isEmpty()?QString():QStringLiteral("<br><span style='color:#c7cede'>%1</span>").arg(e.message.toHtmlEscaped())));if(opacityPercent_>0)event_->show();QTimer::singleShot(6000,event_,&QWidget::hide);}
-void PopoutChat::showTikTokActivity(const StreamEvent&e){QTextCursor cursor(chat_->document());cursor.movePosition(QTextCursor::End);if(!chat_->document()->isEmpty())cursor.insertBlock();const QString icon=showPlatformIcons_?QStringLiteral("<img src=':/brand/tiktok.png' width='18' height='18' style='vertical-align:middle;margin-right:5px'>"):QString();const QString action=e.kind.endsWith(QStringLiteral("join"))?QStringLiteral("joined the LIVE"):e.kind.endsWith(QStringLiteral("follow"))?QStringLiteral("followed the creator"):e.amount.isEmpty()?QStringLiteral("sent likes"):QStringLiteral("sent %1 likes").arg(e.amount);cursor.insertHtml(QStringLiteral("%1<span style='color:#7f8ba5;font-style:italic'><b style='color:#18e0d5'>%2</b> %3</span>").arg(icon,e.user.toHtmlEscaped(),action.toHtmlEscaped()));chat_->moveCursor(QTextCursor::End);chat_->ensureCursorVisible();trimChatBlocks(chat_->document());}
+void PopoutChat::showTikTokActivity(const StreamEvent&e){QTextCursor cursor(chat_->document());cursor.movePosition(QTextCursor::End);if(!chat_->document()->isEmpty())cursor.insertBlock();const QString icon=showPlatformIcons_?QStringLiteral("<img src=':/brand/tiktok.png' width='18' height='18' style='vertical-align:middle;margin-right:5px'>"):QString();cursor.insertHtml(QStringLiteral("%1<span style='color:#7f8ba5;font-style:italic'><b style='color:#18e0d5'>%2</b> joined the LIVE</span>").arg(icon,e.user.toHtmlEscaped()));chat_->moveCursor(QTextCursor::End);chat_->ensureCursorVisible();trimChatBlocks(chat_->document());}
+void PopoutChat::setSeasonalTheme(const QString&theme){
+    seasonalTheme_=theme;
+    if(seasonalRibbon_){
+        QString text;
+        if(theme==QStringLiteral("birthday"))text=QStringLiteral("🎉 〰 🎊 〰 🎉 〰 🎊 〰 🎉");
+        else if(theme==QStringLiteral("halloween"))text=QStringLiteral("🎃  ·  👻  ·  🎃");
+        else if(theme==QStringLiteral("christmas"))text=QStringLiteral("🎄  ·  ❄  ·  ✨  ·  🎁  ·  🎄");
+        else if(theme==QStringLiteral("easter"))text=QStringLiteral("🐰  ·  🥚  ·  🌷  ·  🐣");
+        else if(theme==QStringLiteral("july4")||theme==QStringLiteral("veterans"))text=QStringLiteral("🇺🇸  ★  🇺🇸  ★  🇺🇸");
+        else if(theme==QStringLiteral("newyear"))text=QStringLiteral("✨  🎆  HAPPY NEW YEAR  🎆  ✨");
+        seasonalRibbon_->setText(text);seasonalRibbon_->setVisible(!text.isEmpty());
+    }
+    if(seasonalDecor_){
+        seasonalDecor_->setGeometry(rect());
+        static_cast<PopoutSeasonalDecoration*>(seasonalDecor_)->setTheme(theme);
+        if(!theme.isEmpty())seasonalDecor_->raise();
+    }
+}
+void PopoutChat::setPinnedMessage(const QString&platform,const ChatMessage&message,bool active){
+    if(active)pinnedMessages_[platform]=message;else pinnedMessages_.remove(platform);if(!pinned_)return;
+    QStringList lines;const QHash<QString,QString> names{{QStringLiteral("twitch"),QStringLiteral("Twitch")},{QStringLiteral("youtube"),QStringLiteral("YouTube")},{QStringLiteral("yt_shorts"),QStringLiteral("YouTube Shorts")}};
+    for(const auto&key:{QStringLiteral("twitch"),QStringLiteral("youtube"),QStringLiteral("yt_shorts")})if(pinnedMessages_.contains(key)){const auto&m=pinnedMessages_[key];lines<<QStringLiteral("<b>&#128204; %1</b> &nbsp; <b>%2</b>: %3").arg(names.value(key,key).toHtmlEscaped(),m.user.toHtmlEscaped(),m.text.toHtmlEscaped());}
+    pinned_->setText(lines.join(QStringLiteral("<br>")));pinned_->setVisible(!lines.isEmpty());applyOpacity();
+}
 void PopoutChat::setViewers(const QString&p,int n){
     counts_[p]=n;
     int total=0;
@@ -350,7 +471,9 @@ void PopoutChat::clearMessages(){chat_->clear();historyById_.clear();}
 void PopoutChat::setGhostMode(bool on){
     if(ghostMode_==on)return;
     ghostMode_=on;
+#ifndef Q_OS_WIN
     setWindowFlag(Qt::WindowTransparentForInput,on);
+#endif
     if(on)registerRestoreHotkeys();else unregisterRestoreHotkeys();
     show();
     emit ghostModeChanged(ghostMode_);
@@ -377,6 +500,24 @@ void PopoutChat::applyTextOutline(){
     chat_->viewport()->update();
 }
 
+ChatBrowser::ChatBrowser(QWidget*parent):QTextBrowser(parent){}
+QVariant ChatBrowser::loadResource(int type,const QUrl&name){
+    if(type==QTextDocument::ImageResource&&name.scheme()==QStringLiteral("data")){
+        const QString encoded=name.toString();const int comma=encoded.indexOf(QLatin1Char(','));if(comma>0){QImage image;image.loadFromData(QByteArray::fromBase64(encoded.mid(comma+1).toLatin1()));if(!image.isNull())return image;}
+    }
+    if(type==QTextDocument::ImageResource&&name.scheme()==QStringLiteral("https")){
+        const QString key=name.toString(QUrl::FullyEncoded);
+        if(!pendingImageUrls_.contains(key)){
+            pendingImageUrls_.insert(key);QNetworkRequest request(name);request.setRawHeader("User-Agent","Mozilla/5.0 LeapcastStudio/3");
+            auto*reply=imageNetwork_.get(request);connect(reply,&QNetworkReply::finished,this,[this,reply,name,key]{
+                const QByteArray bytes=reply->error()==QNetworkReply::NoError?reply->readAll():QByteArray();reply->deleteLater();pendingImageUrls_.remove(key);
+                if(!bytes.isEmpty()){document()->addResource(QTextDocument::ImageResource,name,bytes);document()->markContentsDirty(0,document()->characterCount());viewport()->update();}
+            });
+        }
+        QImage placeholder(24,24,QImage::Format_ARGB32_Premultiplied);placeholder.fill(Qt::transparent);return placeholder;
+    }
+    return QTextBrowser::loadResource(type,name);
+}
 void ChatBrowser::paintEvent(QPaintEvent* event){
     // Clear the WHOLE viewport (not just event->rect()) before every paint.
     // A layered, per-pixel-alpha top-level window has no automatic
@@ -391,10 +532,18 @@ void ChatBrowser::paintEvent(QPaintEvent* event){
     clearPainter.end();
     QTextBrowser::paintEvent(event);
 }
+void PopoutChat::showEvent(QShowEvent* event){
+    QWidget::showEvent(event);
+    // Cache the native id only once Qt is actually showing the window. Do not
+    // call QWidget::winId() from the global native event filter: winId() can
+    // force platform-window creation and is unsafe/re-entrant during construction.
+    nativeWindowId_=static_cast<quintptr>(winId());
+}
 void PopoutChat::resizeEvent(QResizeEvent* event){
     QWidget::resizeEvent(event);
     applyOpacity();
     if(chat_)chat_->viewport()->update();
+    if(seasonalDecor_){seasonalDecor_->setGeometry(rect());if(!seasonalTheme_.isEmpty())seasonalDecor_->raise();}
     // Force an immediate, full-window synchronous repaint rather than a
     // queued update(). During a live resize of a layered window, Windows can
     // otherwise keep showing a stretched copy of the pre-resize frame until
@@ -403,9 +552,8 @@ void PopoutChat::resizeEvent(QResizeEvent* event){
 }
 void PopoutChat::paintEvent(QPaintEvent* event){
     Q_UNUSED(event)
-    // Always clear the full window, not just the damaged rect — see the
-    // comment in ChatBrowser::paintEvent for why partial clears corrupt a
-    // layered translucent window's backing store during/after a resize.
+    // Keep the top-level layered window paint path minimal and deterministic.
+    // Seasonal artwork is painted by seasonalDecor_ as a transparent child.
     QPainter painter(this);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
     painter.fillRect(rect(),Qt::transparent);
@@ -429,6 +577,7 @@ void PopoutChat::applyOpacity(){
     chat_->viewport()->setStyleSheet(QStringLiteral(
         "background-color:%1;color:#f6f8ff;border:0;border-radius:12px;").arg(panel));
     viewers_->setStyleSheet(QStringLiteral("background:%1;padding:8px;border-radius:9px;color:#68e9d5;font-weight:700;").arg(panel));
+    if(pinned_)pinned_->setStyleSheet(QStringLiteral("background:%1;padding:8px;border:1px solid rgba(255,210,90,150);border-radius:9px;color:#f6f8ff;").arg(panel));
     QPalette chatPalette=chat_->palette();const QColor panelColor(backgroundColor_.red(),backgroundColor_.green(),backgroundColor_.blue(),alpha);
     chatPalette.setColor(QPalette::Base,panelColor);chatPalette.setColor(QPalette::Window,panelColor);
     chatPalette.setColor(QPalette::AlternateBase,panelColor);
@@ -481,17 +630,24 @@ bool PopoutChat::eventFilter(QObject*watched,QEvent*event){
     return QWidget::eventFilter(watched,event);
 }
 bool PopoutChat::nativeEventFilter(const QByteArray&eventType,void*message,qintptr*result){
-    Q_UNUSED(result)
 #ifdef Q_OS_WIN
     if(eventType=="windows_generic_MSG"||eventType=="windows_dispatcher_MSG"){
         auto*msg=static_cast<MSG*>(message);
-        if(msg->message==WM_HOTKEY&&(msg->wParam==kRestoreHotkeyEscape||msg->wParam==kRestoreHotkeyAltC)){
-            setGhostMode(false);
-            return true;
+        if(nativeWindowId_!=0&&msg->hwnd==reinterpret_cast<HWND>(nativeWindowId_)&&msg->message==WM_NCHITTEST&&ghostMode_){
+            // Normal clicks pass through to the game/window underneath. A
+            // right-click still reaches chat moderation, and holding Alt
+            // temporarily enables selection/highlighting with the left mouse.
+            if((GetAsyncKeyState(VK_RBUTTON)&0x8000)||(GetAsyncKeyState(VK_MENU)&0x8000)){*result=HTCLIENT;return true;}
+            *result=HTTRANSPARENT;return true;
         }
+        if(nativeWindowId_!=0&&msg->hwnd==reinterpret_cast<HWND>(nativeWindowId_)&&msg->message==WM_NCHITTEST&&!ghostMode_){
+            constexpr int border=9;const POINTS pt=MAKEPOINTS(msg->lParam);const QPoint local=mapFromGlobal(QPoint(pt.x,pt.y));const bool left=local.x()>=0&&local.x()<border,right=local.x()<=width()&&local.x()>width()-border,top=local.y()>=0&&local.y()<border,bottom=local.y()<=height()&&local.y()>height()-border;
+            if(top&&left)*result=HTTOPLEFT;else if(top&&right)*result=HTTOPRIGHT;else if(bottom&&left)*result=HTBOTTOMLEFT;else if(bottom&&right)*result=HTBOTTOMRIGHT;else if(left)*result=HTLEFT;else if(right)*result=HTRIGHT;else if(top)*result=HTTOP;else if(bottom)*result=HTBOTTOM;else return false;return true;
+        }
+        if(msg->message==WM_HOTKEY&&(msg->wParam==kRestoreHotkeyEscape||msg->wParam==kRestoreHotkeyAltC)){setGhostMode(false);return true;}
     }
 #else
-    Q_UNUSED(eventType) Q_UNUSED(message)
+    Q_UNUSED(eventType) Q_UNUSED(message) Q_UNUSED(result)
 #endif
     return false;
 }
@@ -552,18 +708,36 @@ ClipEditorWindow::ClipEditorWindow(QWidget*p):QWidget(p){
     auto*openExternal=new QPushButton(QStringLiteral("Open in browser ↗"));
     toolbar->addWidget(openExternal);
     layout->addLayout(toolbar);
-    // Default (persistent) profile, same as TikTok's embedded view, so a
-    // Twitch web login made here is remembered the next time this opens.
+    // Twitch rejects Qt WebEngine's product-token user agent as an unsupported
+    // browser even though the underlying Chromium engine can render the clip
+    // editor. Keep Twitch in its own persistent profile and identify it as a
+    // current desktop Chromium browser. The separate profile also prevents a
+    // Twitch login/cookie change from affecting the embedded TikTok collector.
+    profile_=new QWebEngineProfile(QStringLiteral("LeapcastTwitchClips"),this);
+    profile_->setHttpUserAgent(QStringLiteral(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/151.0.0.0 Safari/537.36"));
+    profile_->setHttpAcceptLanguage(QStringLiteral("en-US,en;q=0.9"));
+    profile_->setPersistentCookiesPolicy(QWebEngineProfile::ForcePersistentCookies);
     view_=new QWebEngineView(this);
+    view_->setPage(new QWebEnginePage(profile_,view_));
+    view_->settings()->setAttribute(QWebEngineSettings::JavascriptEnabled,true);
+    view_->settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled,true);
+    view_->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture,false);
+    view_->settings()->setAttribute(QWebEngineSettings::FullScreenSupportEnabled,true);
     layout->addWidget(view_,1);
     connect(back,&QPushButton::clicked,view_,&QWebEngineView::back);
     connect(forward,&QPushButton::clicked,view_,&QWebEngineView::forward);
     connect(reload,&QPushButton::clicked,view_,&QWebEngineView::reload);
-    connect(openExternal,&QPushButton::clicked,this,[this]{QDesktopServices::openUrl(view_->url());});
-    connect(view_,&QWebEngineView::urlChanged,this,[this](const QUrl&u){addressLabel_->setText(u.toString());});
+    connect(openExternal,&QPushButton::clicked,this,[this]{QDesktopServices::openUrl(view_->url().isValid()?view_->url():pendingUrl_);});
+    connect(view_,&QWebEngineView::urlChanged,this,[this](const QUrl&u){addressLabel_->setText(u.toString());const QString host=u.host().toLower(),path=u.path().toLower();if((host==QStringLiteral("id.twitch.tv")||host.endsWith(QStringLiteral(".twitch.tv")))&&(path.contains(QStringLiteral("login"))||path.contains(QStringLiteral("activate")))&&!loginRequestInProgress_){loginRequestInProgress_=true;emit twitchBrowserLoginRequested();}});
+}
+void ClipEditorWindow::setTwitchAccessToken(const QString&token){
+    const QByteArray clean=token.trimmed().toUtf8();if(clean.isEmpty())return;QNetworkCookie cookie(QByteArray("auth-token"),clean);cookie.setDomain(QStringLiteral(".twitch.tv"));cookie.setPath(QStringLiteral("/"));cookie.setSecure(true);profile_->cookieStore()->setCookie(cookie,QUrl(QStringLiteral("https://www.twitch.tv/")));loginRequestInProgress_=false;if(pendingUrl_.isValid())QTimer::singleShot(250,this,[this]{view_->setUrl(pendingUrl_);});
 }
 void ClipEditorWindow::openUrl(const QUrl&url){
-    view_->setUrl(url);
+    pendingUrl_=url;view_->setUrl(url);
     show();
     raise();
     activateWindow();

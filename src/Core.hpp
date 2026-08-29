@@ -36,10 +36,15 @@ Q_DECLARE_METATYPE(ChatMessage)
 // requires an authenticated API call and bundled images per badge set, so
 // this uses plain-text glyphs instead.
 QString badgeGlyphs(const QStringList& badges);
+QString chatBadgeHtml(const ChatMessage& message);
 // Formats a chat name using the message's selected single, gradient, or
 // repeating palette while keeping the original plain username intact for
 // moderation and platform API calls.
 QString chatNameHtml(const ChatMessage& message);
+// Escapes normal chat text and renders trusted YouTube custom-emoji runs as
+// inline images. The plain ChatMessage::text stays intact for moderation,
+// copying, logs, and accessibility fallbacks.
+QString chatMessageBodyHtml(const ChatMessage& message);
 
 struct StreamEvent {
     QString eventId;
@@ -88,23 +93,27 @@ public:
     bool reload();
     bool check(const ChatMessage& message, QString* reason = nullptr);
     QString blockedWordsPath() const { return path_; }
+    QString whitelistedWordsPath() const { return whitelistPath_; }
+    QStringList words(bool whitelist) const;
+    bool addWord(const QString& word,bool whitelist);
+    bool removeWords(const QStringList& words,bool whitelist);
     static QString normalize(const QString& text);
 private:
-    struct Term { QString normalized; QString compact; QRegularExpression bypass; };
+    struct Term { QString normalized; QString compact; QRegularExpression exact; QRegularExpression bypass; };
     static QString latinize(const QString& text);
     static QString compact(const QString& text);
-    static bool distanceAtMostOne(const QString& a, const QString& b);
     bool blockedMatch(const QString& text) const;
+    QString maskWhitelisted(const QString& text) const;
     static bool promotionSpam(const QString& text);
     SettingsStore* settings_{};
     QString path_;
+    QString whitelistPath_;
     QList<Term> terms_;
+    QList<Term> whitelistTerms_;
     QHash<QString, QQueue<QPair<qint64, QString>>> recentByUser_;
     QMutex mutex_;
-    // Watches blocked_words.txt so edits made in the external editor opened by
-    // "Edit blocked words" take effect immediately, instead of only on the
-    // next app restart — previously reload() only ran once, right when the
-    // file was opened and before the user had changed anything in it.
+    // Watches both moderation word-list files so edits made in the external
+    // editor take effect immediately without restarting Leapcast.
     QFileSystemWatcher watcher_;
 };
 

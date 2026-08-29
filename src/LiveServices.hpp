@@ -85,6 +85,10 @@ public:
     void unban(const QString& broadcasterId, const QString& userId);
     void deleteMessage(const QString& broadcasterId, const QString& messageId);
     void sendMessage(const QString& broadcasterId, const QString& text);
+    // Reads Twitch's current mod-pinned chat message. This uses Twitch's
+    // official /helix/chat/pins endpoint (GA as of May 2026) rather than
+    // guessing from IRC tags, which do not identify the active pin.
+    void getPinnedMessage(const QString& broadcasterId);
     // Creates a Twitch clip of the broadcaster's current stream, mirroring the
     // "Clip" button on twitch.tv. Only requires the clips:edit scope, not
     // moderator status, so it works while watching any live channel.
@@ -95,6 +99,7 @@ signals:
     void bansReceived(const QJsonArray& bans);
     void unbanRequestsReceived(const QJsonArray& requests);
     void clipCreated(const QString& id, const QUrl& editUrl);
+    void pinnedMessageChanged(const ChatMessage& message, bool active);
 private:
     QNetworkRequest request(const QUrl& url) const;
     void watch(QNetworkReply* reply, const QString& action);
@@ -104,6 +109,9 @@ private:
     // Prevents autoModerate() from retrying — and re-warning the user about —
     // the same permission failure on every subsequent chat message.
     QSet<QString> autoModDenied_;
+    // A channel that rejects the pin read (normally because the connected
+    // account is not a moderator there) is not hammered every few seconds.
+    QSet<QString> pinReadDenied_;
 };
 
 class TwitchEventSubService final : public QObject {
