@@ -22,6 +22,13 @@ public:
     void createTwitchClip();
     void setPinnedMessagesEnabled(bool enabled);
     void testDiscordLiveNotification();
+    // Walks the three Discord endpoints that can each produce an HTTP 403 on
+    // POST /channels/{id}/messages, so the failing step is named instead of
+    // guessed. See AppController.cpp for the code -> cause table.
+    void diagnoseDiscord();
+    void setTikTokCollectorVisible(bool visible);
+    void reloadTikTokCollector();
+    bool tiktokCollectorVisible() const { return tiktok_.collectorVisible(); }
     void startDiscordBot();
     void stopDiscordBot();
     void regenerateNameColours();
@@ -55,6 +62,9 @@ signals:
     void twitchAuthorizationFailed(const QString& detail);
     void pinnedMessageChanged(const QString& platform, const ChatMessage& message, bool active);
     void discordNotificationResult(bool success, const QString& detail);
+    void discordDiagnostic(const QString& line);
+    void tiktokDiagnostic(const QString& line);
+    void tiktokCollectorVisibilityChanged(bool visible);
     void discordBotStatus(bool online, const QString& detail);
 private:
     static QString twitchName(const QString& link);
@@ -65,6 +75,9 @@ private:
     void queueDiscordLivePlatform(const QString& platform);
     void sendDiscordLiveNotification(const QSet<QString>& platforms, bool test = false);
     void sendDiscordHeartbeat();
+    QNetworkRequest discordRequest(const QString& path) const;
+    void diagnoseDiscordChannel(const QString& channelId);
+    void diagnoseDiscordGuild(const QString& guildId);
 public:
     void refreshTwitchAppeals();
     void loadTwitchUserHistory(const QString& userId,const QString& userName);

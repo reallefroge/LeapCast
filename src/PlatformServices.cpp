@@ -3,7 +3,10 @@
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QUrlQuery>
+#include <QEvent>
+#include <QTimer>
 #include <QWebEngineProfile>
+#include <QWebEngineView>
 
 namespace { const QByteArray UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36";
 QNetworkRequest webReq(const QUrl&u){
@@ -164,32 +167,174 @@ void YouTubeModerationService::ban(const QString&chat,const QString&channel,int 
 void YouTubeModerationService::removeBan(const QString&id){QUrl u("https://www.googleapis.com/youtube/v3/liveChat/bans");QUrlQuery q;q.addQueryItem("id",id);u.setQuery(q);watch(network_.deleteResource(request(u)),"unban");}
 
 void TikTokPage::javaScriptConsoleMessage(JavaScriptConsoleMessageLevel l,const QString&m,int line,const QString&s){Q_UNUSED(l);Q_UNUSED(line);Q_UNUSED(s);if(!m.startsWith("LEFROGE_CHAT:"))return;auto d=QJsonDocument::fromJson(m.mid(13).toUtf8());if(d.isObject())emit bridgeMessage(d.object());}
-TikTokLiveService::TikTokLiveService(QObject*p):QObject(p),page_(this){page_.profile()->setHttpUserAgent(QStringLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"));page_.profile()->setHttpAcceptLanguage(QStringLiteral("en-US,en;q=0.9"));connect(&page_,&QWebEnginePage::loadFinished,this,[this](bool ok){if(ok){installBridge();emit statusChanged("ok","@"+username_);}else emit statusChanged("error","TikTok page failed to load");});connect(&page_,&TikTokPage::bridgeMessage,this,[this](const QJsonObject&o){const QString type=o["type"].toString();if(type=="viewers"){emit viewerCountChanged(o["count"].toInt());return;}const QString id=o["id"].toString();if(type=="join"){if(!id.isEmpty()&&activitySeen_.contains(id))return;if(!id.isEmpty())activitySeen_.insert(id);StreamEvent e;e.eventId=id;e.kind=QStringLiteral("tiktok_join");e.platform=QStringLiteral("tiktok");e.user=o["user"].toString("Someone");e.message=o["text"].toString();e.raw=o;emit activityReceived(e);return;}if(type!="comment")return;if(!id.isEmpty()&&seen_.contains(id))return;if(!id.isEmpty())seen_.insert(id);ChatMessage m;m.platform="tiktok";m.user=o["user"].toString("viewer");m.text=o["text"].toString();m.userId=o["userId"].toString();m.messageId=id;m.metadata={{"room_id",o["roomId"]},{"unique_id",o["uniqueId"]},{"comment_msg_id",id}};if(!m.text.isEmpty())emit messageReceived(m);});}
-void TikTokLiveService::connectUser(const QString&u){username_=u;username_.remove('@');seen_.clear();activitySeen_.clear();emit statusChanged("connecting","opening TikTok LIVE…");page_.load(QUrl("https://www.tiktok.com/@"+username_+"/live"));}
-void TikTokLiveService::disconnectService(){page_.setUrl(QUrl("about:blank"));username_.clear();seen_.clear();activitySeen_.clear();}
+TikTokLiveService::TikTokLiveService(QObject*p):QObject(p){
+    // A NAMED profile keeps cookies on disk, so a TikTok sign-in done once in
+    // the collector window survives restarts. The old off-the-record default
+    // profile meant every launch was signed out, and a signed-out LIVE page
+    // serves a trimmed chat panel (often none at all).
+    profile_=new QWebEngineProfile(QStringLiteral("LeapcastTikTok"),this);
+    profile_->setHttpUserAgent(QStringLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"));
+    profile_->setHttpAcceptLanguage(QStringLiteral("en-US,en;q=0.9"));
+    profile_->setPersistentCookiesPolicy(QWebEngineProfile::ForcePersistentCookies);
+    page_=new TikTokPage(profile_,this);
+
+    // Off-screen but really laid out: WA_DontShowOnScreen gives the page a
+    // genuine 1280x900 viewport (so the virtualised chat list renders rows)
+    // without putting a window on the streamer's desktop.
+    view_=new QWebEngineView;
+    view_->setWindowTitle(QStringLiteral("Leapcast — TikTok collector"));
+    view_->setAttribute(Qt::WA_DontShowOnScreen,true);
+    view_->setAttribute(Qt::WA_QuitOnClose,false);
+    view_->setPage(page_);
+    view_->resize(1280,900);
+    view_->installEventFilter(this);
+    view_->show();
+
+    connect(page_,&QWebEnginePage::loadFinished,this,[this](bool ok){
+        if(ok){installBridge();emit statusChanged("ok","@"+username_);emit diagnostic(QStringLiteral("Page loaded: %1").arg(page_->url().toString()));}
+        else {emit statusChanged("error","TikTok page failed to load");emit diagnostic(QStringLiteral("Page FAILED to load: %1").arg(page_->url().toString()));}
+    });
+    connect(page_,&TikTokPage::bridgeMessage,this,[this](const QJsonObject&o){
+        const QString type=o["type"].toString();
+        if(type=="debug"){
+            emit diagnostic(QStringLiteral("chat nodes:%1 viewer node:%2 login wall:%3 url:%4")
+                                .arg(o["items"].toInt()).arg(o["viewerSource"].toString(),
+                                     o["loginWall"].toBool()?QStringLiteral("YES"):QStringLiteral("no"),
+                                     o["url"].toString()));
+            if(o["loginWall"].toBool())emit statusChanged("warn","TikTok is asking to log in — open the TikTok collector window and sign in");
+            else if(o["items"].toInt()==0)emit statusChanged("warn","TikTok page loaded but no chat rows found");
+            return;
+        }
+        if(type=="viewers"){emit diagnostic(QStringLiteral("viewers=%1 (from %2)").arg(o["count"].toInt()).arg(o["source"].toString()));emit viewerCountChanged(o["count"].toInt());return;}
+        const QString id=o["id"].toString();
+        if(type=="join"){
+            if(!id.isEmpty()&&activitySeen_.contains(id))return;
+            if(!id.isEmpty())activitySeen_.insert(id);
+            StreamEvent e;e.eventId=id;e.kind=QStringLiteral("tiktok_join");e.platform=QStringLiteral("tiktok");e.user=o["user"].toString("Someone");e.message=o["text"].toString();e.raw=o;
+            emit activityReceived(e);return;
+        }
+        if(type!="comment")return;
+        if(!id.isEmpty()&&seen_.contains(id))return;
+        if(!id.isEmpty()){seen_.insert(id);if(seen_.size()>4000)seen_.clear();}
+        ChatMessage m;m.platform="tiktok";m.user=o["user"].toString("viewer");m.text=o["text"].toString();m.userId=o["userId"].toString();m.messageId=id;
+        m.metadata={{"room_id",o["roomId"]},{"unique_id",o["uniqueId"]},{"comment_msg_id",id}};
+        if(!m.text.isEmpty()){emit diagnostic(QStringLiteral("chat: %1: %2").arg(m.user,m.text));emit messageReceived(m);}
+    });
+}
+bool TikTokLiveService::eventFilter(QObject* watched,QEvent* event){
+    // Closing the collector window must put the page back off-screen rather
+    // than destroy it, otherwise chat collection stops until the next reconnect.
+    if(watched==view_&&event->type()==QEvent::Close){
+        event->ignore();
+        QTimer::singleShot(0,this,[this]{setCollectorVisible(false);});
+        return true;
+    }
+    return QObject::eventFilter(watched,event);
+}
+TikTokLiveService::~TikTokLiveService(){if(view_){view_->setPage(nullptr);delete view_;view_=nullptr;}}
+void TikTokLiveService::connectUser(const QString&u){username_=u;username_.remove('@');seen_.clear();activitySeen_.clear();emit statusChanged("connecting","opening TikTok LIVE…");page_->load(QUrl("https://www.tiktok.com/@"+username_+"/live"));}
+void TikTokLiveService::disconnectService(){page_->setUrl(QUrl("about:blank"));username_.clear();seen_.clear();activitySeen_.clear();}
+void TikTokLiveService::reloadCollector(){if(!username_.isEmpty())connectUser(username_);}
+bool TikTokLiveService::collectorVisible() const{return view_&&!view_->testAttribute(Qt::WA_DontShowOnScreen);}
+void TikTokLiveService::setCollectorVisible(bool visible){
+    if(!view_||collectorVisible()==visible)return;
+    // WA_DontShowOnScreen can only be changed while the widget is hidden, and
+    // a hide/show cycle does not reload the page or drop the bridge.
+    view_->hide();
+    view_->setAttribute(Qt::WA_DontShowOnScreen,!visible);
+    view_->show();
+    if(visible){view_->raise();view_->activateWindow();}
+    emit collectorVisibilityChanged(visible);
+}
 void TikTokLiveService::installBridge(){
-    // TikTok changes its LIVE DOM frequently. V4 intentionally uses several
-    // independent discovery paths: current/legacy data-e2e selectors, semantic
-    // class names, profile-link ancestry, and serialized page state for viewer
-    // count. The page is never shown; video remains muted/paused to keep the
-    // collector lightweight.
-    page_.runJavaScript(QStringLiteral(R"JS((()=>{
-if(window.__leapcastTikTokBridgeV4)return;window.__leapcastTikTokBridgeV4=true;
-let seq=0,activityReady=false,lastViewer=-1;const send=o=>console.log('LEFROGE_CHAT:'+JSON.stringify(o));
-const text=n=>(n?.innerText||n?.textContent||'').trim();const all=(root,selector)=>{const out=[];try{if(root?.matches?.(selector))out.push(root);root?.querySelectorAll?.(selector).forEach(n=>out.push(n))}catch(e){}return out};
-const compact=s=>{const m=String(s||'').replace(/,/g,'').match(/([0-9]+(?:\.[0-9]+)?)\s*([KMB])?/i);if(!m)return NaN;return Math.round(parseFloat(m[1])*({K:1e3,M:1e6,B:1e9}[m[2]?.toUpperCase()]||1))};
+    // TikTok changes its LIVE DOM frequently. V5 keeps the multi-selector
+    // discovery of V4 but fixes two things that made it misbehave:
+    //   * dedupe is keyed on user+text, not a dataset flag on the DOM node.
+    //     TikTok recycles chat rows, so a flagged node silently swallowed
+    //     every later message that reused it.
+    //   * the viewer count no longer falls back to a whole-page text regex or
+    //     to the last "user_count" found anywhere in the page scripts. Both of
+    //     those happily matched recommended-stream cards in the sidebar, which
+    //     is where the random numbers came from. It now only reads a counter
+    //     inside the live room element, or the current room's own serialized
+    //     stats as a one-time seed.
+    page_->runJavaScript(QStringLiteral(R"JS((()=>{
+if(window.__leapcastTikTokBridgeV5)return;window.__leapcastTikTokBridgeV5=true;
+let seq=0,activityReady=false,lastViewer=-1,seedUsed=false,debugTick=0;
+const send=o=>console.log('LEFROGE_CHAT:'+JSON.stringify(o));
+const text=n=>(n?.innerText||n?.textContent||'').trim();
+const all=(root,selector)=>{const out=[];try{if(root?.matches?.(selector))out.push(root);root?.querySelectorAll?.(selector).forEach(n=>out.push(n))}catch(e){}return out};
+// "1.2K" -> 1200, "1,234" -> 1234, "1.234" -> 1234. Only treat a dot as a
+// decimal point when a K/M/B suffix follows it.
+const compact=s=>{const raw=String(s||'').replace(/\u00a0/g,' ').trim();const m=raw.match(/^([0-9][0-9.,\s]*)\s*([KMB])?/i);if(!m)return NaN;const suffix=(m[2]||'').toUpperCase();let num=m[1].replace(/\s/g,'');if(suffix)return Math.round(parseFloat(num.replace(/,/g,''))*({K:1e3,M:1e6,B:1e9}[suffix]||1));const v=parseInt(num.replace(/[.,]/g,''),10);return Number.isFinite(v)?v:NaN};
 const guard=v=>{if(v.dataset.leapcastGuarded)return;v.dataset.leapcastGuarded='1';v.muted=true;v.pause();v.addEventListener('play',()=>v.pause())};
 const userSel='[data-e2e="message-owner-name"],[data-e2e="chat-message-user"],[data-e2e*="user-name"],[data-e2e*="username"],[class*="SpanUserName"],[class*="UserName"],[class*="user-name"],a[href*="/@"]';
 const bodySel='[data-e2e="message-text"],[data-e2e="chat-message-comment"],[data-e2e="comment-level-1"],[data-e2e*="message-text"],[data-e2e*="comment-text"],[class*="DivComment"],[class*="CommentText"],[class*="MessageText"],[class*="message-text"]';
 const itemSel='[data-e2e="chat-message"],[data-e2e="chat-room-message"],[data-e2e="live-chat-message"],[data-e2e*="chat-message"],[data-e2e*="comment-item"],[class*="DivChatMessage"],[class*="ChatMessage"],[class*="chat-message"],[class*="CommentItem"],[class*="comment-item"]';
 const activitySel='[data-e2e*="join"],[class*="JoinMessage"]';
-const idFor=n=>n.getAttribute?.('data-id')||n.getAttribute?.('data-message-id')||n.getAttribute?.('data-e2e-id')||n.id||String(Date.now())+'-'+(++seq);
-const process=(n,allowActivity)=>{if(!n||n.nodeType!==1||n.dataset.leapcastSeen)return;const whole=text(n);if(!whole||whole.length>1200)return;const structure=((n.getAttribute('data-e2e')||'')+' '+(typeof n.className==='string'?n.className:'')).toLowerCase(),lower=whole.toLowerCase();const userNode=n.querySelector?.(userSel);let user=text(userNode)||whole.split(/\s+joined\b/i)[0]||'Someone';const id=idFor(n);if(/join/.test(structure)||/\bjoined(?:\s+the\s+live)?[.!]?$/i.test(lower)){n.dataset.leapcastSeen='1';if(allowActivity)send({type:'join',id,user,text:whole});return}const body=n.querySelector?.(bodySel);let message=text(body);if(!message&&userNode){const uname=text(userNode);message=whole.startsWith(uname)?whole.slice(uname.length).replace(/^\s*[:·-]?\s*/,'').trim():whole.replace(uname,'').trim()}if(!userNode||!message||message===user||message.length>600||/^(?:0|[0-9,.]+[kmb]?)\s+likes?$/i.test(message)||/^follow(?:ing)?$/i.test(message))return;n.dataset.leapcastSeen='1';const href=userNode?.closest?.('a[href*="/@"]')?.getAttribute('href')||userNode?.getAttribute?.('href')||'';const unique=(href.match(/\/@([^/?]+)/)||[])[1]||userNode?.getAttribute?.('data-unique-id')||'';send({type:'comment',id,user,text:message,userId:userNode?.getAttribute?.('data-user-id')||'',roomId:location.pathname,uniqueId:unique})};
+// Content-keyed dedupe with a 90s window, so a recycled row is read again but
+// the 2s rescan does not repost the rows still on screen.
+const seen=new Map();
+const fresh=key=>{const now=Date.now();if(seen.size>1500){for(const [k,t] of seen)if(now-t>90000)seen.delete(k);}
+  const prior=seen.get(key);if(prior&&now-prior<90000)return false;seen.set(key,now);return true};
+const hash=s=>{let h=0;for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0}return 'k'+(h>>>0)};
+const process=(n,allowActivity)=>{
+  if(!n||n.nodeType!==1)return;
+  const whole=text(n);if(!whole||whole.length>1200)return;
+  const structure=((n.getAttribute('data-e2e')||'')+' '+(typeof n.className==='string'?n.className:'')).toLowerCase(),lower=whole.toLowerCase();
+  const userNode=n.querySelector?.(userSel);
+  let user=text(userNode)||whole.split(/\s+joined\b/i)[0]||'Someone';
+  if(/join/.test(structure)||/\bjoined(?:\s+the\s+live)?[.!]?$/i.test(lower)){
+    const key=hash('join|'+whole);if(!fresh(key))return;
+    if(allowActivity)send({type:'join',id:key,user,text:whole});return}
+  const body=n.querySelector?.(bodySel);let message=text(body);
+  if(!message&&userNode){const uname=text(userNode);message=whole.startsWith(uname)?whole.slice(uname.length).replace(/^\s*[:·-]?\s*/,'').trim():whole.replace(uname,'').trim()}
+  if(!userNode||!message||message===user||message.length>600||/^(?:0|[0-9,.]+[kmb]?)\s+likes?$/i.test(message)||/^follow(?:ing)?$/i.test(message))return;
+  const key=hash(user+'|'+message);if(!fresh(key))return;
+  const href=userNode?.closest?.('a[href*="/@"]')?.getAttribute('href')||userNode?.getAttribute?.('href')||'';
+  const unique=(href.match(/\/@([^/?]+)/)||[])[1]||userNode?.getAttribute?.('data-unique-id')||'';
+  send({type:'comment',id:key+'-'+(++seq%4),user,text:message,userId:userNode?.getAttribute?.('data-user-id')||'',roomId:location.pathname,uniqueId:unique})};
 const profileFallback=root=>{all(root,'a[href*="/@"]').forEach(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){const sig=((n.getAttribute?.('data-e2e')||'')+' '+(typeof n.className==='string'?n.className:'')).toLowerCase();if(/chat|comment|message/.test(sig)&&text(n).length<1200){process(n,activityReady);break}}})};
-const sendViewer=count=>{if(Number.isFinite(count)&&count>=0&&count!==lastViewer){lastViewer=count;send({type:'viewers',count})}};
-const scanViewers=()=>{const selectors='[data-e2e="live-room-viewer-count"],[data-e2e="live-viewer-count"],[data-e2e*="viewer-count"],[class*="ViewerCount"],[class*="viewer-count"]';for(const n of document.querySelectorAll(selectors)){const c=compact(text(n));if(Number.isFinite(c)){sendViewer(c);return}}const bodyText=document.body?.innerText||'';const m=bodyText.match(/([0-9][0-9,.]*\s*[KMB]?)\s+(?:viewers?|watching)\b/i);if(m){const c=compact(m[1]);if(Number.isFinite(c)){sendViewer(c);return}}for(const script of document.scripts){const t=script.textContent||'';if(!t||t.length>12000000)continue;for(const re of [/"user_count"\s*:\s*(\d+)/g,/"viewer_count"\s*:\s*(\d+)/g,/"watching_now"\s*:\s*(\d+)/g]){let x,last;while((x=re.exec(t)))last=+x[1];if(Number.isFinite(last)&&last>=0){sendViewer(last);return}}}};
-const scan=(root,allowActivity=true)=>{all(root,'video').forEach(guard);all(root,itemSel).forEach(n=>process(n,allowActivity));all(root,activitySel).forEach(n=>process(n,allowActivity));profileFallback(root);scanViewers()};
-scan(document,false);activityReady=true;new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)scan(n,activityReady)}))).observe(document.documentElement,{childList:true,subtree:true});setInterval(()=>scan(document,activityReady),2000);
+const sendViewer=(count,source)=>{if(Number.isFinite(count)&&count>=0&&count!==lastViewer){lastViewer=count;send({type:'viewers',count,source})}};
+// Only ever look inside the live room itself. The old whole-document text
+// scan matched "N viewers" on recommended-stream cards in the sidebar.
+const roomRoot=()=>document.querySelector('[data-e2e="live-room"],[class*="DivLiveRoomContainer"],[class*="LiveRoomContainer"],[class*="live-room"]')||document.querySelector('main')||null;
+const scanViewers=()=>{
+  const root=roomRoot();
+  if(root){
+    for(const n of root.querySelectorAll('[data-e2e="live-room-viewer-count"],[data-e2e="live-viewer-count"],[data-e2e*="viewer-count"],[class*="ViewerCount"],[class*="viewer-count"]')){
+      const c=compact(text(n));if(Number.isFinite(c)){sendViewer(c,'dom');return 'dom'}}
+  }
+  // One-time seed from THIS room's serialized state only. It is a page-load
+  // snapshot, so it must never override a live DOM counter later on.
+  if(!seedUsed){
+    try{
+      for(const id of ['SIGI_STATE','__UNIVERSAL_DATA_FOR_REHYDRATION__']){
+        const el=document.getElementById(id);if(!el||!el.textContent)continue;
+        const data=JSON.parse(el.textContent);
+        const stack=[data];let guardCount=0;
+        while(stack.length&&guardCount++<20000){
+          const cur=stack.pop();if(!cur||typeof cur!=='object')continue;
+          const stats=cur.liveRoomStats||cur.stats;
+          if(stats&&typeof stats==='object'&&Number.isFinite(+stats.userCount)){seedUsed=true;sendViewer(+stats.userCount,'seed');return 'seed'}
+          for(const k in cur){const v=cur[k];if(v&&typeof v==='object')stack.push(v)}
+        }
+      }
+    }catch(e){}
+    seedUsed=true;
+  }
+  return 'none'};
+const loginWall=()=>!!document.querySelector('[data-e2e="login-modal"],[id*="login-modal"],[class*="LoginModal"],[class*="login-modal"],[class*="Captcha"],[id*="captcha"]');
+let lastViewerSource='none';
+const scan=(root,allowActivity=true)=>{all(root,'video').forEach(guard);all(root,itemSel).forEach(n=>process(n,allowActivity));all(root,activitySel).forEach(n=>process(n,allowActivity));profileFallback(root);lastViewerSource=scanViewers()};
+scan(document,false);activityReady=true;
+new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)scan(n,activityReady)}))).observe(document.documentElement,{childList:true,subtree:true});
+setInterval(()=>{scan(document,activityReady);
+  // One debug line every ~20s so the collector window shows whether the page
+  // is a chat page, a login wall, or a captcha, without spamming the log.
+  if(++debugTick%10===0)send({type:'debug',items:document.querySelectorAll(itemSel).length,viewerSource:lastViewerSource,loginWall:loginWall(),url:location.href});
+},2000);
+send({type:'debug',items:document.querySelectorAll(itemSel).length,viewerSource:lastViewerSource,loginWall:loginWall(),url:location.href});
 })())JS"));
 }
 

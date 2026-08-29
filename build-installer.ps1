@@ -4,7 +4,11 @@ param(
     [ValidateSet("Release", "Debug")]
     [string]$Configuration = "Release",
     [string]$OutputDirectory = "",
-    [string]$TwitchClientId = $env:LEAPCAST_TWITCH_CLIENT_ID
+    [string]$TwitchClientId = $env:LEAPCAST_TWITCH_CLIENT_ID,
+    # Automatic updates are OFF by default so a test build can never be
+    # replaced by the published release. Pass -AutoUpdate to build a normal,
+    # self-updating installer.
+    [switch]$AutoUpdate
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,8 +62,13 @@ Get-ChildItem -Path $OutputDirectory -Filter "LeapcastStudio-Setup-*.exe*" -File
     Remove-Item -Force
 
 Write-Host "Building Leapcast Studio v$Version..."
+$AutoUpdateFlag = if ($AutoUpdate) { "ON" } else { "OFF" }
+if (-not $AutoUpdate) {
+    Write-Host "Automatic updates are DISABLED in this build. Pass -AutoUpdate to re-enable them." -ForegroundColor Yellow
+}
 & $Cmake.Source -S $ProjectRoot -B $BuildDir -G "Visual Studio 17 2022" -A x64 `
-    "-DCMAKE_PREFIX_PATH=$QtRoot" "-DLEAPCAST_TWITCH_CLIENT_ID=$TwitchClientId"
+    "-DCMAKE_PREFIX_PATH=$QtRoot" "-DLEAPCAST_TWITCH_CLIENT_ID=$TwitchClientId" `
+    "-DLEAPCAST_AUTO_UPDATE=$AutoUpdateFlag"
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
 
 & $Cmake.Source --build $BuildDir --config $Configuration --parallel

@@ -99,18 +99,27 @@ int main(int argc, char* argv[]) {
     QElapsedTimer minimumBrandTime;
     minimumBrandTime.start();
 
-    UpdateService startupUpdater;
-    QEventLoop updateLoop;
-    QTimer checkTimeout;checkTimeout.setSingleShot(true);
+    // Automatic updates are gated behind leapcast::AutoUpdate (CMake option
+    // LEAPCAST_AUTO_UPDATE, default OFF). With it off the splash never contacts
+    // GitHub, so a locally built test binary can never be replaced by the
+    // published release. Flip the CMake option back ON to restore this.
     bool installingUpdate=false;
     bool updateFailed=false;
-    QObject::connect(&checkTimeout,&QTimer::timeout,&updateLoop,[&]{splash.setStatus(QStringLiteral("UPDATE CHECK TIMED OUT — OPENING..."));updateLoop.quit();});
-    QObject::connect(&startupUpdater,&UpdateService::upToDate,&updateLoop,[&]{checkTimeout.stop();splash.setStatus(QStringLiteral("UP TO DATE — OPENING..."));splash.setProgress(1.0);updateLoop.quit();});
-    QObject::connect(&startupUpdater,&UpdateService::failed,&updateLoop,[&](const QString&){updateFailed=true;checkTimeout.stop();splash.setStatus(QStringLiteral("UPDATE CHECK UNAVAILABLE — OPENING..."));updateLoop.quit();});
-    QObject::connect(&startupUpdater,&UpdateService::updateAvailable,&updateLoop,[&](const QString&version,const QString&notes,const QUrl&asset,const QString&name,const QString&digest){checkTimeout.stop();splash.hide();if(!showStartupUpdateNotes(version,notes)){splash.show();splash.setStatus(QStringLiteral("UPDATE POSTPONED — OPENING..."));updateLoop.quit();return;}installingUpdate=true;updateFailed=false;splash.show();splash.setStatus(QStringLiteral("UPDATE V%1 FOUND — DOWNLOADING...").arg(version));startupUpdater.downloadAndInstall(asset,name,digest);});
-    QObject::connect(&startupUpdater,&UpdateService::progress,&splash,[&](qint64 received,qint64 total){if(total>0)splash.setProgress(double(received)/double(total));});
-    QObject::connect(&app,&QCoreApplication::aboutToQuit,&updateLoop,&QEventLoop::quit);
-    checkTimeout.start(10000);startupUpdater.check(true);updateLoop.exec();
+    if constexpr (leapcast::AutoUpdate) {
+        UpdateService startupUpdater;
+        QEventLoop updateLoop;
+        QTimer checkTimeout;checkTimeout.setSingleShot(true);
+        QObject::connect(&checkTimeout,&QTimer::timeout,&updateLoop,[&]{splash.setStatus(QStringLiteral("UPDATE CHECK TIMED OUT — OPENING..."));updateLoop.quit();});
+        QObject::connect(&startupUpdater,&UpdateService::upToDate,&updateLoop,[&]{checkTimeout.stop();splash.setStatus(QStringLiteral("UP TO DATE — OPENING..."));splash.setProgress(1.0);updateLoop.quit();});
+        QObject::connect(&startupUpdater,&UpdateService::failed,&updateLoop,[&](const QString&){updateFailed=true;checkTimeout.stop();splash.setStatus(QStringLiteral("UPDATE CHECK UNAVAILABLE — OPENING..."));updateLoop.quit();});
+        QObject::connect(&startupUpdater,&UpdateService::updateAvailable,&updateLoop,[&](const QString&version,const QString&notes,const QUrl&asset,const QString&name,const QString&digest){checkTimeout.stop();splash.hide();if(!showStartupUpdateNotes(version,notes)){splash.show();splash.setStatus(QStringLiteral("UPDATE POSTPONED — OPENING..."));updateLoop.quit();return;}installingUpdate=true;updateFailed=false;splash.show();splash.setStatus(QStringLiteral("UPDATE V%1 FOUND — DOWNLOADING...").arg(version));startupUpdater.downloadAndInstall(asset,name,digest);});
+        QObject::connect(&startupUpdater,&UpdateService::progress,&splash,[&](qint64 received,qint64 total){if(total>0)splash.setProgress(double(received)/double(total));});
+        QObject::connect(&app,&QCoreApplication::aboutToQuit,&updateLoop,&QEventLoop::quit);
+        checkTimeout.start(10000);startupUpdater.check(true);updateLoop.exec();
+    } else {
+        splash.setStatus(QStringLiteral("AUTOMATIC UPDATES DISABLED — OPENING..."));
+        app.processEvents();
+    }
     if(installingUpdate&&!updateFailed)return 0;
 
     MainWindow window;
