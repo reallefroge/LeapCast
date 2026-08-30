@@ -40,6 +40,30 @@ UninstallDisplayIcon={app}\LeapcastStudio.exe
 Source: "{#BuildRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
+; Remove only Leapcast-managed program/runtime files before copying the new
+; deployment. AppData settings and the Inno uninstaller remain untouched.
+Type: files; Name: "{app}\LeapcastStudio.exe"
+Type: files; Name: "{app}\Qt6*.dll"
+Type: files; Name: "{app}\d3dcompiler_47.dll"
+Type: files; Name: "{app}\opengl32sw.dll"
+Type: filesandordirs; Name: "{app}\audio"
+Type: filesandordirs; Name: "{app}\bearer"
+Type: filesandordirs; Name: "{app}\generic"
+Type: filesandordirs; Name: "{app}\iconengines"
+Type: filesandordirs; Name: "{app}\imageformats"
+Type: filesandordirs; Name: "{app}\mediaservice"
+Type: filesandordirs; Name: "{app}\multimedia"
+Type: filesandordirs; Name: "{app}\networkinformation"
+Type: filesandordirs; Name: "{app}\platforms"
+Type: filesandordirs; Name: "{app}\position"
+Type: filesandordirs; Name: "{app}\printsupport"
+Type: filesandordirs; Name: "{app}\qml"
+Type: filesandordirs; Name: "{app}\resources"
+Type: filesandordirs; Name: "{app}\sqldrivers"
+Type: filesandordirs; Name: "{app}\styles"
+Type: filesandordirs; Name: "{app}\tls"
+Type: filesandordirs; Name: "{app}\translations"
+Type: filesandordirs; Name: "{app}\webview"
 Type: files; Name: "{app}\MultiChatStudio.exe"
 Type: files; Name: "{autoprograms}\Multi-Chat Studio.lnk"
 Type: files; Name: "{autodesktop}\Multi-Chat Studio.lnk"

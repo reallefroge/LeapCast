@@ -5,5 +5,7 @@
     <file>twitch.png</file>
     <file>youtube.png</file>
     <file>tiktok.png</file>
+    <file>kick.svg</file>
+    <file>rumble.svg</file>
   </qresource>
 </RCC>

@@ -3,4 +3,7 @@
 namespace leapcast {
 inline constexpr auto Version = "@PROJECT_VERSION@";
 inline constexpr auto TwitchClientId = "@LEAPCAST_TWITCH_CLIENT_ID@";
+// Compile-time switch for the automatic update gate. Set -DLEAPCAST_AUTO_UPDATE=ON
+// to restore startup + background update checks.
+inline constexpr bool AutoUpdate = @LEAPCAST_AUTO_UPDATE_BOOL@;
 }

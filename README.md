@@ -7,9 +7,9 @@
 
   NOTE: THIS IS IN EARLY DEVELOPMENT SO THERE WILL BE LOTS OF UPDATE PUSHES TO COME IN THE NEXT MONTH OR SO!! Once everything is fixed and polished, updates will be periodically!
 
-  Follow Twitch, YouTube, YouTube Shorts, and TikTok LIVE communities, moderate faster, show chat in OBS, and surface Streamlabs events without juggling a wall of browser windows.
+  Follow Twitch, YouTube, YouTube Shorts, TikTok LIVE, Kick, and Rumble communities, moderate faster, show chat in OBS, and surface Streamlabs and Rumble alerts without juggling a wall of browser windows.
 
-  [Download for Windows](https://github.com/reallefroge/MultiStreamChat/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/MultiStreamChat/issues)
+ # ➤➤➤ [Download for Windows](https://github.com/reallefroge/LeapCast/releases) · [Changelog](CHANGELOG.md) · [First look](#first-look) · [Features](#features) · [Report a problem](https://github.com/reallefroge/LeapCast/issues)
 </div>
 
 > [!IMPORTANT]
@@ -19,7 +19,7 @@
 
 Leapcast Studio is made for **64-bit Windows 10 and Windows 11**.
 
-1. Open the [Releases page](https://github.com/reallefroge/MultiStreamChat/releases).
+1. Open the [Releases page](https://github.com/reallefroge/LeapCast/releases).
 2. Open the newest release marked **Latest**.
 3. Download `LeapcastStudio-Setup-<version>.exe`.
 4. Run the installer and launch **Leapcast Studio** from the Start menu or optional desktop shortcut.
@@ -59,7 +59,7 @@ The compact, always-on-top pop-out keeps the combined conversation and total vie
 The interface is organized into five focused areas:
 
 - **Sources** — connect or disconnect each chat independently.
-- **Events** — connect Streamlabs events, show them as alert cards in the streamer chat preview, and optionally reuse the sound selected in your Streamlabs Alert Box.
+- **Events** — show Streamlabs events plus new Rumble followers, subscribers, and gifted subscriptions as the same alert cards in the streamer chat preview and pop-out; Streamlabs Alert Box audio remains optional for Streamlabs events.
 - **Moderation** — connect Twitch and YouTube moderation, open TikTok's own LIVE controls, and manage AutoMod.
 - **Bans** — review and remove supported Twitch and YouTube restrictions.
 - **OBS** — copy the local browser-source URL, send a test message, clear the overlay, and set its fade timer.
@@ -68,11 +68,16 @@ The interface is organized into five focused areas:
 
 ### One chat view, four communities
 
-- Reads Twitch, YouTube Live, YouTube Shorts Live, and TikTok LIVE chat.
-- Provides one **All** feed plus a separate tab for every platform, plus a **Kick** tab reserved for when that integration ships — shown disabled and marked **Coming Soon** so it's clear no Kick data is read yet.
-- Uses clear Twitch, YouTube, Shorts, and TikTok icons to identify each source.
+- Reads Twitch, YouTube Live, YouTube Shorts Live, TikTok LIVE, Kick, and Rumble chat.
+- Displays Twitch Channel Point custom reward redemptions (for example, “redeemed Hydrate”) in Windows chat, pop-out chat, OBS, and Phone Connect after Twitch authorization includes `channel:read:redemptions`; IRC reward tags provide a fallback if EventSub is delayed.
+- Lets creators choose stable random name colors, one fixed color, a four-color gradient, or repeating/mirrored/block color patterns for Windows and pop-out chat.
+
+- Optionally displays TikTok joins, follows, and likes in the pop-out only; these activity lines never enter the OBS overlay.
+- Provides independent platform-icon toggles for program/pop-out messages and OBS overlay messages.
+- Provides one **All** feed plus separate branded tabs for Twitch, YouTube, Shorts, TikTok, Kick, and Rumble.
+- Uses clear Twitch, YouTube, Shorts, TikTok, Kick, and Rumble icons to identify each source.
 - Retries supported Twitch, YouTube, and Streamlabs connections after temporary failures.
-- Tracks platform viewer counts for the pop-out and local OBS endpoints, and shows a live per-platform breakdown (Twitch/YouTube/Shorts/TikTok) in the pop-out whenever two or more sources are concurrently connected.
+- Tracks platform viewer counts for the pop-out and local OBS endpoints, and shows a live per-platform breakdown in the pop-out whenever two or more sources are concurrently connected.
 
 ### Moderation built for a live workflow
 
@@ -83,7 +88,7 @@ The interface is organized into five focused areas:
 - Spam checks for repeated messages, floods, excessive capitals, follower/viewer promotion, and optionally links.
 - Twitch ban and timeout retrieval and removal.
 - YouTube restriction history for moderation actions created by Leapcast Studio.
-- Local JSON audit history for chat messages and Streamlabs events.
+- Local JSON audit history for visible chat messages, Streamlabs events, and Rumble follow/subscription alerts. Blocked Kick and Rumble messages are not stored.
 
 Platform APIs decide which actions are available, and the signed-in account must have the required channel permissions.
 
@@ -113,7 +118,7 @@ Platform APIs decide which actions are available, and the signed-in account must
 
 ## Quick start
 
-1. Open **Sources** and paste a Twitch channel, YouTube channel/live URL, YouTube Shorts live URL, or TikTok profile/live URL.
+1. Open **Sources** and paste the channel/profile URL for every platform you want to use. Rumble also requires its private Live Stream API URL under **Keys**.
 2. Select **Connect** beside each community you want to watch.
 3. Open **Moderation** only if you want moderation actions. For Twitch, select **Connect Twitch** and approve Leapcast Studio in your browser—no Client ID, token, or numeric user ID is requested.
 4. Open **OBS**, select **Copy URL**, and add that address to OBS as a **Browser Source**.
@@ -146,7 +151,7 @@ Leapcast Studio is completely free and always will be — no subscription, no pa
 
 | Product | Cost | Where it is strongest | Trade-offs compared with Leapcast Studio |
 |---|---|---|---|
-| **Leapcast Studio** | Free, no paid tier | Native Windows multi-chat and moderation device for Twitch, YouTube, Shorts, and TikTok; built-in AutoMod for supported moderation APIs; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; four chat sources (Kick is a placeholder tab, not yet live); TikTok moderation opens TikTok's own LIVE controls; no video encoding, hosted studio, guest system, or cloud multistream relay |
+| **Leapcast Studio** | Free, no paid tier | Native Windows multi-chat for Twitch, YouTube, Shorts, TikTok, Kick, and Rumble; built-in AutoMod for supported moderation APIs; local OBS overlay; Streamlabs event/audio integration; no Python dependency | Windows-only; Kick/TikTok web readers can require maintenance when platform pages change; TikTok and Rumble moderation open the platform's live controls; Kick moderation is hidden until authenticated support is implemented; no video encoding, hosted studio, guest system, or cloud multistream relay |
 | [**Restream Chat**](https://support.restream.io/en/articles/2379624-what-is-restream-chat) | Free tier, with Restream's broader multistreaming/production features gated behind paid plans | Established unified chat with desktop and Studio access, on-stream overlays, replies, and cross-platform relay | Best suited to the wider Restream account and broadcasting workflow; Leapcast Studio is more narrowly focused on local OBS use and its own AutoMod/moderation workspace, at no cost |
 | [**Social Stream Ninja**](https://socialstream.ninja/docs/features) | Free and open-source | Free and open-source browser tooling, very broad platform support, two-way chat, templates, CSS/JavaScript customization, and automation hooks | The extension, pop-out chat, dashboard, and advanced customization can mean more setup; Leapcast Studio offers a smaller, opinionated native Windows interface |
 | [**Streamlabs**](https://streamlabs.com/multistream) | Free with a paid Streamlabs Ultra subscription for its fuller multistream/creator-tool set | Full streaming suite with multistreaming, widgets, alerts, themes, and creator tools in one ecosystem | Much broader and heavier than a dedicated chat companion; some multistream functionality sits behind the paid Ultra tier, while Leapcast Studio is free and designed to sit beside OBS and reuse Streamlabs alerts |
@@ -170,7 +175,7 @@ Leapcast Studio is completely free and always will be — no subscription, no pa
 - The app does not send video or multistream the broadcast itself.
 - YouTube moderation still requires the correct Google access and account permissions; Twitch uses account authorization; TikTok moderation opens the creator's live room in the browser.
 - YouTube's Bans page tracks restrictions created through Leapcast Studio; it is not a complete server-side history of every YouTube moderation action.
-- TikTok and YouTube web integrations can require maintenance when those platforms change their pages or endpoints.
+- Kick, TikTok, and YouTube web integrations can require maintenance when those platforms change their pages or endpoints.
 - New unsigned installers may show a Windows SmartScreen warning.
 
 Feature availability can change when a platform changes its API or third-party access rules. The comparison above describes product positioning, not a claim that one tool is best for every creator.
@@ -178,7 +183,7 @@ Feature availability can change when a platform changes its API or third-party a
 ## Privacy and account access
 
 - The application has no Python runtime and does not compile creator tokens into the repository.
-- Connections go directly to the services needed for enabled features, including Twitch, YouTube, TikTok, Streamlabs, and GitHub Releases for update checks.
+- Connections go directly to the services needed for enabled features, including Twitch, YouTube, TikTok, Kick, Rumble, Streamlabs, and GitHub Releases for update checks.
 - Chat and event audit data is written locally.
 - Only grant the moderation scopes you need. Revoke or rotate a token through its platform if it is ever exposed.
 
@@ -207,7 +212,7 @@ For a complete one-command release workflow, see
 
 ## Support and contributions
 
-- Found a reproducible bug? [Open an issue](https://github.com/reallefroge/MultiStreamChat/issues) with the app version, platform involved, expected result, actual result, and a screenshot with private information blurred.
+- Found a reproducible bug? [Open an issue](https://github.com/reallefroge/LeapCast/issues) with the app version, platform involved, expected result, actual result, and a screenshot with private information blurred.
 - Want to contribute? Fork the repository, make a focused change, test it on Windows, and open a pull request.
 - Never include access tokens, client secrets, stream keys, unblurred chat logs, or personal channel data in an issue.
 

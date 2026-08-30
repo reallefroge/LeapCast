@@ -4,16 +4,20 @@ The release process is designed so maintainers never edit version numbers in
 C++, CMake, Inno Setup, or GitHub Actions by hand. The root `VERSION` file is
 the single source of truth.
 
+Every completed user-facing update increments the patch/final digit by one
+(for example, `3.0.6` becomes `3.0.7`) and includes matching release notes plus
+a concise, polished first-launch **What's New** summary.
+
 ## Normal release
 
 Start from a clean `main` branch containing all changes for the release:
 
 ```powershell
 git pull --ff-only
-.\scripts\prepare-release.ps1 -Version 2.0.3 -Push
+.\scripts\prepare-release.ps1 -Version 3.0.9.1 -Push
 ```
 
-Replace `2.0.3` with the next semantic version. The script:
+Replace `3.0.9.1` with the next release version. Three-part feature releases and four-part minor-fix releases are supported.
 
 1. refuses to run if uncommitted files could be lost;
 2. verifies that the new version is greater than the current version;
@@ -33,19 +37,24 @@ The pushed tag starts the **Windows build and release** workflow. GitHub:
 The application's update checker reads that Release and offers the new
 installer the next time an older version starts.
 
+Before publishing, format the GitHub Release body using
+[`docs/UPDATE_NOTES_STYLE.md`](docs/UPDATE_NOTES_STYLE.md). The application
+uses the first non-empty line as the compact summary and displays the complete
+Markdown notes in the update dialog.
+
 ## Review before publishing
 
 Omit `-Push` to create the release commit and tag locally:
 
 ```powershell
-.\scripts\prepare-release.ps1 -Version 2.0.3
+.\scripts\prepare-release.ps1 -Version 3.0.9.1
 ```
 
 After reviewing the commit and tag, publish them:
 
 ```powershell
 git push origin HEAD
-git push origin v2.0.3
+git push origin v3.0.9.1
 ```
 
 ## Test a build without releasing
