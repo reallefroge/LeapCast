@@ -1,0 +1,113 @@
+name: Windows build and release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  windows-installer:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Validate version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+            throw "VERSION must contain three or four numeric parts, such as 3.0.9 or 3.0.9.1."
+          }
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+            if ($tagVersion -ne $version) {
+              throw "Tag version $tagVersion does not match VERSION ($version)."
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          arch: "win64_msvc2022_64"
+          modules: "qtwebengine qtwebchannel qtpositioning qtwebsockets"
+          cache: true
+
+      - name: Install installer compiler
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build application and installer
+        shell: pwsh
+        run: .\build-installer.ps1
+        env:
+          LEAPCAST_TWITCH_CLIENT_ID: ${{ vars.TWITCH_CLIENT_ID }}
+
+      - name: Verify release artifact version
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $installer = "artifacts/LeapcastStudio-Setup-$version.exe"
+          $checksum = "$installer.sha256"
+          if (-not (Test-Path $installer) -or -not (Test-Path $checksum)) {
+            throw "The installer assets do not match VERSION ($version)."
+          }
+          $unexpected = Get-ChildItem artifacts -Filter "LeapcastStudio-Setup-*.exe" |
+            Where-Object { $_.Name -ne "LeapcastStudio-Setup-$version.exe" }
+          if ($unexpected) {
+            throw "A stale installer was found: $($unexpected.Name -join ', ')"
+          }
+
+      - name: Upload testable installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LeapcastStudio-${{ steps.version.outputs.version }}-Windows
+          path: |
+            artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe
+            artifacts/LeapcastStudio-Setup-${{ steps.version.outputs.version }}.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows-installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified installer
+        uses: actions/download-artifact@v4
+        with:
+          name: LeapcastStudio-${{ needs.windows-installer.outputs.version }}-Windows
+          path: release-assets
+
+      - name: Publish tagged release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
