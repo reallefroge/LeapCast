@@ -7,6 +7,8 @@
 #include <QUrlQuery>
 
 class QNetworkReply;
+class QWebEngineProfile;
+class QWebEngineView;
 
 class YouTubeChatService final : public QObject {
     Q_OBJECT
@@ -18,6 +20,7 @@ public:
     QString liveChatId() const{return liveChatId_;}
 signals:
     void messageReceived(const ChatMessage& message);
+    void pinnedMessageChanged(const ChatMessage& message, bool active);
     void statusChanged(const QString& state,const QString& detail);
     void viewerCountChanged(int viewers);
 private:
@@ -25,9 +28,10 @@ private:
     void resolveViaLiveRedirect(const QString& base); void resolveViaStreamsScrape(const QString& base);
     static QStringList liveIds(const QByteArray& html);
     static QString runsText(const QJsonObject& message);
+    static QJsonArray runsMetadata(const QJsonObject& message);
     QNetworkAccessManager network_; QTimer retry_,pollTimer_,viewerTimer_;
-    QString platform_,target_,videoId_,liveChatId_,apiKey_,clientVersion_,continuation_;
-    bool verticalOnly_{}; bool explicitVideo_{}; QSet<QString> seen_;
+    QString platform_,target_,videoId_,liveChatId_,apiKey_,clientVersion_,continuation_,pinnedMessageId_;
+    bool verticalOnly_{}; bool explicitVideo_{}; QSet<QString> seen_; QHash<QString,ChatMessage> recentMessages_;
 };
 
 class YouTubeModerationService final : public QObject {
@@ -62,14 +66,62 @@ class TikTokLiveService final : public QObject {
     Q_OBJECT
 public:
     explicit TikTokLiveService(QObject* parent=nullptr);
+    ~TikTokLiveService() override;
     void connectUser(const QString& username); void disconnectService();
-    QWebEnginePage* page(){return &page_;}
+    QWebEnginePage* page(){return page_;}
+    // The collector page lives in a real (but off-screen) QWebEngineView. A
+    // page with no view has a 0x0 viewport, and TikTok's chat list is
+    // virtualised off the viewport height, so it renders zero rows and the
+    // scraper sees an empty document. Showing the view is also how the user
+    // signs in to TikTok, since a signed-out LIVE page hides most of chat.
+    void setCollectorVisible(bool visible);
+    bool collectorVisible() const;
+    void reloadCollector();
+    QString currentUser() const { return username_; }
+signals:
+    void messageReceived(const ChatMessage& message);
+    void activityReceived(const StreamEvent& event);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+    // Human-readable trace of what the in-page bridge is finding, for the
+    // TikTok collector debug window.
+    void diagnostic(const QString& line);
+    void collectorVisibilityChanged(bool visible);
+protected:
+    bool eventFilter(QObject* watched,QEvent* event) override;
+private:
+    void installBridge();
+    QWebEngineProfile* profile_{};
+    TikTokPage* page_{};
+    QWebEngineView* view_{};
+    QString username_; QSet<QString> seen_,activitySeen_;
+};
+
+class KickLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit KickLiveService(QObject* parent=nullptr);
+    void connectChannel(const QString& channel); void disconnectService();
 signals:
     void messageReceived(const ChatMessage& message);
     void statusChanged(const QString& state,const QString& detail);
     void viewerCountChanged(int viewers);
 private:
-    void installBridge(); TikTokPage page_; QString username_; QSet<QString> seen_;
+    void installBridge(); TikTokPage page_; QString channel_; QSet<QString> seen_;
+};
+
+class RumbleLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit RumbleLiveService(QObject* parent=nullptr);
+    void connectApi(const QUrl& apiUrl); void disconnectService();
+signals:
+    void messageReceived(const ChatMessage& message);
+    void eventReceived(const StreamEvent& event);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+private:
+    void poll(); QNetworkAccessManager network_; QTimer timer_; QUrl apiUrl_; QSet<QString> seen_,eventSeen_; bool eventsBaselined_{};
 };
 
 class TikTokModerationService final : public QObject {

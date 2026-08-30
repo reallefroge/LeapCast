@@ -1,6 +1,10 @@
 #pragma once
 
 #include <QColor>
+#include <QImage>
+#include <QNetworkAccessManager>
+#include <QPointer>
+#include <QUrl>
 #include <QDateTime>
 #include <QFileSystemWatcher>
 #include <QHash>
@@ -13,6 +17,8 @@
 #include <QSet>
 #include <QStringList>
 #include <QVariant>
+
+class QTextDocument;
 
 struct ChatMessage {
     QString user;
@@ -36,6 +42,50 @@ Q_DECLARE_METATYPE(ChatMessage)
 // requires an authenticated API call and bundled images per badge set, so
 // this uses plain-text glyphs instead.
 QString badgeGlyphs(const QStringList& badges);
+QString chatBadgeHtml(const ChatMessage& message);
+// True when this line came from Twitch's redemption feed rather than from
+// somebody typing. Anyone can type "redeemed a reward", so the chat views draw
+// these with chrome a typed message can never produce - a tinted block and a
+// label - instead of relying on wording alone.
+bool isChannelPointRedemption(const ChatMessage& message);
+// The reward label for such a line, already escaped, without the redeemer's
+// own free text.
+QString redemptionRewardHtml(const ChatMessage& message);
+// Colours shared by every view that draws a redemption.
+inline constexpr auto kRedemptionAccent = "#c9a6ff";
+inline constexpr auto kRedemptionBackground = "#2a1f42";
+// Formats a chat name using the message's selected single, gradient, or
+// repeating palette while keeping the original plain username intact for
+// moderation and platform API calls.
+QString chatNameHtml(const ChatMessage& message);
+// Escapes normal chat text and renders trusted emote runs as inline images -
+// YouTube custom emoji via "youtube_runs", Twitch and third-party emotes via
+// "runs". The plain ChatMessage::text stays intact for moderation, copying,
+// logs, and accessibility fallbacks.
+QString chatMessageBodyHtml(const ChatMessage& message);
+
+// QTextBrowser will not fetch an https image on its own, so emote pictures have
+// to be downloaded once and handed to each chat document as a resource. Bind a
+// document once and every emote that arrives later is added to it and the
+// affected text re-laid out.
+class EmoteImageCache final : public QObject {
+    Q_OBJECT
+public:
+    static EmoteImageCache& instance();
+    // Registers a chat document to receive emote images as they download.
+    void bind(QTextDocument* document);
+    // Ensures the picture behind this URL is downloaded. Returns true when it
+    // is already available, so the first sighting of a new emote still renders
+    // (as its name) instead of leaving a gap.
+    bool ensure(const QUrl& url);
+private:
+    explicit EmoteImageCache(QObject* parent=nullptr);
+    void deliver(const QUrl& url,const QImage& image);
+    QNetworkAccessManager network_;
+    QHash<QUrl,QImage> images_;
+    QSet<QUrl> pending_;
+    QList<QPointer<QTextDocument>> documents_;
+};
 
 struct StreamEvent {
     QString eventId;
@@ -84,23 +134,27 @@ public:
     bool reload();
     bool check(const ChatMessage& message, QString* reason = nullptr);
     QString blockedWordsPath() const { return path_; }
+    QString whitelistedWordsPath() const { return whitelistPath_; }
+    QStringList words(bool whitelist) const;
+    bool addWord(const QString& word,bool whitelist);
+    bool removeWords(const QStringList& words,bool whitelist);
     static QString normalize(const QString& text);
 private:
-    struct Term { QString normalized; QString compact; QRegularExpression bypass; };
+    struct Term { QString normalized; QString compact; QRegularExpression exact; QRegularExpression bypass; };
     static QString latinize(const QString& text);
     static QString compact(const QString& text);
-    static bool distanceAtMostOne(const QString& a, const QString& b);
     bool blockedMatch(const QString& text) const;
+    QString maskWhitelisted(const QString& text) const;
     static bool promotionSpam(const QString& text);
     SettingsStore* settings_{};
     QString path_;
+    QString whitelistPath_;
     QList<Term> terms_;
+    QList<Term> whitelistTerms_;
     QHash<QString, QQueue<QPair<qint64, QString>>> recentByUser_;
     QMutex mutex_;
-    // Watches blocked_words.txt so edits made in the external editor opened by
-    // "Edit blocked words" take effect immediately, instead of only on the
-    // next app restart — previously reload() only ran once, right when the
-    // file was opened and before the user had changed anything in it.
+    // Watches both moderation word-list files so edits made in the external
+    // editor take effect immediately without restarting Leapcast.
     QFileSystemWatcher watcher_;
 };
 

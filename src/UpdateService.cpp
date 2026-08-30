@@ -21,11 +21,16 @@
 
 namespace {
 constexpr auto OfficialReleaseApi =
-    "https://api.github.com/repos/reallefroge/MultiStreamChat/releases/latest";
+    "https://api.github.com/repos/reallefroge/LeapCast/releases/latest";
 
 QString quoteInstallerArgument(QString value){
     value.replace(QLatin1Char('"'),QStringLiteral("\\\""));
     return QStringLiteral("\"")+value+QStringLiteral("\"");
+}
+
+QString quotePowerShellLiteral(QString value){
+    value.replace(QLatin1Char('\''),QStringLiteral("''"));
+    return QStringLiteral("'")+value+QStringLiteral("'");
 }
 
 #ifdef Q_OS_WIN
@@ -55,7 +60,11 @@ UpdateService::UpdateService(QObject* parent) : QObject(parent) {
 }
 
 void UpdateService::check(bool userInitiated) {
-    userInitiated_ = userInitiated;
+    if (checkInProgress_) {
+        if (userInitiated) emit failed(QStringLiteral("An update check is already running."));
+        return;
+    }
+    checkInProgress_ = true;
     const QUrl url(QString::fromLatin1(OfficialReleaseApi));
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "application/vnd.github+json");
@@ -63,9 +72,10 @@ void UpdateService::check(bool userInitiated) {
     request.setRawHeader("User-Agent", "LeapcastStudio-Updater");
     auto* reply = network_.get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        checkInProgress_ = false;
         const QByteArray bytes = reply->readAll();
         if (reply->error() != QNetworkReply::NoError) {
-            if (userInitiated_) emit failed(reply->errorString());
+            emit failed(reply->errorString());
             reply->deleteLater();
             return;
         }
@@ -74,28 +84,25 @@ void UpdateService::check(bool userInitiated) {
         if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive)) tag.remove(0, 1);
         const auto remote = QVersionNumber::fromString(tag);
         const auto current = QVersionNumber::fromString(QCoreApplication::applicationVersion());
-        // Leapcast Studio moved from an inaccurate legacy build sequence to
-        // the public 2.x version line. Let older installations cross that
-        // reset once; normal semantic comparisons apply after the update.
-        const bool crossesVersionReset = !remote.isNull() && !current.isNull()
-            && current.majorVersion() > remote.majorVersion() && remote.majorVersion() == 2
-            && QVersionNumber::compare(remote, QVersionNumber(2, 0, 3)) >= 0;
-        if (remote.isNull() || (!crossesVersionReset && QVersionNumber::compare(remote, current) <= 0)) {
-            if (userInitiated_) emit upToDate();
+        // Only a strictly newer semantic version is an update. In particular,
+        // never offer an older major release (for example v2.x to v3.x users).
+        if (remote.isNull() || current.isNull() || QVersionNumber::compare(remote, current) <= 0) {
+            emit upToDate();
             reply->deleteLater();
             return;
         }
+        const QString expectedInstaller=QStringLiteral("LeapcastStudio-Setup-%1.exe").arg(tag);
         for (const auto& value : release.value(QStringLiteral("assets")).toArray()) {
             const QJsonObject asset = value.toObject();
             const QString name = asset.value(QStringLiteral("name")).toString();
-            if (!name.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) continue;
+            if (name.compare(expectedInstaller,Qt::CaseInsensitive)!=0) continue;
             emit updateAvailable(tag, release.value(QStringLiteral("body")).toString(),
                                  QUrl(asset.value(QStringLiteral("browser_download_url")).toString()),
                                  name, asset.value(QStringLiteral("digest")).toString());
             reply->deleteLater();
             return;
         }
-        if (userInitiated_) emit failed(QStringLiteral("The latest release has no Windows installer asset."));
+        emit failed(QStringLiteral("Release v%1 does not contain its matching installer (%2). The update was not installed.").arg(tag,expectedInstaller));
         reply->deleteLater();
     });
 }
@@ -178,14 +185,17 @@ void UpdateService::downloadAndInstall(const QUrl& url, const QString& name,
         // helper if Inno's own relaunch didn't already do it. This runs as
         // the current (non-elevated) user, same as this process.
         if (installerPid!=0) {
-            const QString exePath=QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+            const QString exePath=quotePowerShellLiteral(
+                QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
             QProcess::startDetached(QStringLiteral("powershell.exe"),{
                 QStringLiteral("-NoProfile"),QStringLiteral("-WindowStyle"),QStringLiteral("Hidden"),
                 QStringLiteral("-Command"),
                 QStringLiteral(
-                    "Wait-Process -Id %1 -Timeout 300 -ErrorAction SilentlyContinue; "
-                    "Start-Sleep -Seconds 1; "
-                    "if (-not (Get-Process -Name LeapcastStudio -ErrorAction SilentlyContinue)) { Start-Process -FilePath '%2' }"
+                    "$installer = Get-Process -Id %1 -ErrorAction SilentlyContinue; "
+                    "if ($installer) { $installer.WaitForExit(); "
+                    "if ($installer.ExitCode -eq 0) { Start-Sleep -Seconds 1; "
+                    "if (-not (Get-Process -Name LeapcastStudio -ErrorAction SilentlyContinue)) "
+                    "{ Start-Process -FilePath %2 } } }"
                 ).arg(installerPid).arg(exePath)});
         }
 #else

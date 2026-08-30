@@ -4,7 +4,16 @@ param(
     [ValidateSet("Release", "Debug")]
     [string]$Configuration = "Release",
     [string]$OutputDirectory = "",
-    [string]$TwitchClientId = $env:LEAPCAST_TWITCH_CLIENT_ID
+    [string]$TwitchClientId = $env:LEAPCAST_TWITCH_CLIENT_ID,
+    # Release installers update themselves. Pass -NoAutoUpdate to build a local
+    # test installer that can never be replaced by the published release.
+    [switch]$NoAutoUpdate,
+    # Kept so an older workflow that passes this switch still runs. A missing
+    # Client ID is now tolerated by default, so this is a no-op.
+    [switch]$AllowMissingTwitchClientId,
+    # Refuse to build when no Twitch Client ID is available. Set automatically
+    # for tag builds, which is what a published release is.
+    [switch]$RequireTwitchClientId
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,12 +23,25 @@ $ProjectRoot = $PSScriptRoot
 $VersionFile = Join-Path $ProjectRoot "VERSION"
 $Version = (Get-Content $VersionFile -Raw).Trim()
 
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "VERSION must contain a semantic version such as 2.0.3."
+if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+    throw "VERSION must contain three or four numeric parts, such as 3.0.9 or 3.0.9.1."
 }
 
 if ([string]::IsNullOrWhiteSpace($TwitchClientId)) {
-    throw "LEAPCAST_TWITCH_CLIENT_ID is required. Refusing to create an installer with a broken Twitch Connect button."
+    # A published release must carry the bundled Twitch application ID, so a tag
+    # build still refuses outright. Everything else - local test builds, ordinary
+    # branch pushes in CI - continues without one, and the guard does not depend
+    # on the workflow remembering to pass a switch.
+    $BuildingRelease = $RequireTwitchClientId -or ($env:GITHUB_REF_TYPE -eq "tag")
+    if ($BuildingRelease) {
+        throw "LEAPCAST_TWITCH_CLIENT_ID is required for a release build. Add a repository variable named TWITCH_CLIENT_ID under Settings -> Secrets and variables -> Actions -> Variables, then tag again."
+    }
+    Write-Host "" 
+    Write-Host "WARNING: building WITHOUT a bundled Twitch application ID." -ForegroundColor Yellow
+    Write-Host "         This is a TEST installer. Twitch Connect will report that the" -ForegroundColor Yellow
+    Write-Host "         build has no Twitch application ID; every other feature works." -ForegroundColor Yellow
+    Write-Host "         Set the TWITCH_CLIENT_ID repository variable before publishing." -ForegroundColor Yellow
+    Write-Host ""
 }
 
 if ([string]::IsNullOrWhiteSpace($QtRoot)) {
@@ -52,9 +74,19 @@ if (Test-Path $DeployDir) {
 }
 New-Item -ItemType Directory -Force $DeployDir, $OutputDirectory | Out-Null
 
+# Never let a previous-version installer remain in the publish directory.
+# The release workflow must upload only the installer matching VERSION.
+Get-ChildItem -Path $OutputDirectory -Filter "LeapcastStudio-Setup-*.exe*" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+
 Write-Host "Building Leapcast Studio v$Version..."
+$AutoUpdateFlag = if ($NoAutoUpdate) { "OFF" } else { "ON" }
+if ($NoAutoUpdate) {
+    Write-Host "Automatic updates are DISABLED in this build. Omit -NoAutoUpdate for a normal release installer." -ForegroundColor Yellow
+}
 & $Cmake.Source -S $ProjectRoot -B $BuildDir -G "Visual Studio 17 2022" -A x64 `
-    "-DCMAKE_PREFIX_PATH=$QtRoot" "-DLEAPCAST_TWITCH_CLIENT_ID=$TwitchClientId"
+    "-DCMAKE_PREFIX_PATH=$QtRoot" "-DLEAPCAST_TWITCH_CLIENT_ID=$TwitchClientId" `
+    "-DLEAPCAST_AUTO_UPDATE=$AutoUpdateFlag"
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
 
 & $Cmake.Source --build $BuildDir --config $Configuration --parallel

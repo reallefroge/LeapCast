@@ -27,5 +27,5 @@ private:
     QNetworkAccessManager network_;
     QNetworkReply* activeDownload_{};
     QTimer downloadTimeout_;
-    bool userInitiated_{};
+    bool checkInProgress_{};
 };
