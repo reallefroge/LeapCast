@@ -204,19 +204,22 @@ TikTokLiveService::TikTokLiveService(QObject*p):QObject(p){
         if(type=="snapshot"){
             // One line that answers "is this even a live page?" before any
             // question about selectors is worth asking.
-            emit diagnostic(QStringLiteral("PAGE: rows:%1 nameNodes:%2 textNodes:%3 video:%4 iframes:%5 liveRoom:%6 LIVEbadge:%7 offlineText:%8 loginWall:%9 chars:%10\n  title: %11\n  body: %12")
-                                .arg(o["items"].toInt()).arg(o["users"].toInt()).arg(o["bodies"].toInt())
-                                .arg(o["videos"].toInt()).arg(o["iframes"].toInt())
-                                .arg(o["room"].toBool()?QStringLiteral("yes"):QStringLiteral("NO"),
-                                     o["liveBadge"].toBool()?QStringLiteral("yes"):QStringLiteral("no"),
-                                     o["offline"].toBool()?QStringLiteral("YES"):QStringLiteral("no"),
-                                     o["loginWall"].toBool()?QStringLiteral("YES"):QStringLiteral("no"))
-                                .arg(o["bodyChars"].toInt())
-                                .arg(o["title"].toString(),o["bodySample"].toString()));
+            emit diagnostic(QStringLiteral("PAGE: onProfile:%1 liveRoom:%2 rows:%3 nameNodes:%4 viewers:%5 offlineText:%6 loginWall:%7\n  url: %8\n  body: %9")
+                                .arg(o["onProfile"].toBool()?QStringLiteral("yes"):QStringLiteral("NO"),
+                                     o["room"].toBool()?QStringLiteral("yes"):QStringLiteral("NO"))
+                                .arg(o["items"].toInt()).arg(o["users"].toInt()).arg(o["viewers"].toInt())
+                                .arg(o["offline"].toBool()?QStringLiteral("YES"):QStringLiteral("no"),
+                                     o["loginWall"].toBool()?QStringLiteral("YES"):QStringLiteral("no"),
+                                     o["url"].toString(),o["bodySample"].toString()));
+            // Connection is verified, not assumed: the page has to be the
+            // linked creator's own LIVE and carry a live room element.
             if(o["loginWall"].toBool())emit statusChanged("warn","TikTok is asking to log in — open the TikTok collector and sign in");
-            else if(o["offline"].toBool())emit statusChanged("warn","TikTok says this stream is not live right now");
+            else if(!o["onProfile"].toBool())emit statusChanged("error",QStringLiteral("Collector is not on @%1's page").arg(username_));
+            else if(o["offline"].toBool())emit statusChanged("warn",QStringLiteral("@%1 is not live right now").arg(username_));
+            else if(!o["room"].toBool())emit statusChanged("warn",QStringLiteral("On @%1's page but no LIVE room is open").arg(username_));
             else if(o["bodyChars"].toInt()<200)emit statusChanged("warn","TikTok returned a nearly empty page — open the collector to see it");
-            else if(o["items"].toInt()==0&&o["users"].toInt()==0)emit statusChanged("warn","TikTok page loaded but no chat rows found");
+            else if(o["items"].toInt()==0&&o["users"].toInt()==0)emit statusChanged("warn",QStringLiteral("Connected to @%1's LIVE — waiting for chat").arg(username_));
+            else emit statusChanged("ok",QStringLiteral("Connected to @%1's LIVE (%2 viewers)").arg(username_).arg(o["viewers"].toInt()));
             return;
         }
         if(type=="viewers"){emit diagnostic(QStringLiteral("viewers=%1 (from %2)").arg(o["count"].toInt()).arg(o["source"].toString()));emit viewerCountChanged(o["count"].toInt());return;}
@@ -284,8 +287,9 @@ void TikTokLiveService::installBridge(){
     //     is where the random numbers came from. It now only reads a counter
     //     inside the live room element, or the current room's own serialized
     //     stats as a one-time seed.
-    page_->runJavaScript(QStringLiteral(R"JS((()=>{
-if(window.__leapcastTikTokBridgeV8)return;window.__leapcastTikTokBridgeV8=true;
+    QString bridge=QStringLiteral(R"JS((()=>{
+if(window.__leapcastTikTokBridgeV9)return;window.__leapcastTikTokBridgeV9=true;
+const EXPECTED='__LEAPCAST_TIKTOK_USER__';
 let seq=0,activityReady=false,lastViewer=-1,seedUsed=false,debugTick=0,discovered=null,discoveredLabel='';
 const send=o=>console.log('LEFROGE_CHAT:'+JSON.stringify(o));
 const text=n=>(n?.innerText||n?.textContent||'').trim();
@@ -297,16 +301,15 @@ const userSel='[data-e2e="message-owner-name"],[data-e2e="chat-message-user"],[d
 const bodySel='[data-e2e="message-text"],[data-e2e="chat-message-comment"],[data-e2e="comment-level-1"],[data-e2e*="message-text"],[data-e2e*="comment-text"],[class*="DivComment"],[class*="CommentText"],[class*="MessageText"],[class*="message-text"],[class*="DivChatContent"],[class*="ChatContent"]';
 const itemSel='[data-e2e="chat-message"],[data-e2e="chat-room-message"],[data-e2e="live-chat-message"],[data-e2e*="chat-message"],[data-e2e*="comment-item"],[class*="DivChatMessage"],[class*="ChatMessage"],[class*="chat-message"],[class*="CommentItem"],[class*="comment-item"],[class*="DivChatItem"],[class*="ChatItem"]';
 const activitySel='[data-e2e*="join"],[class*="JoinMessage"],[class*="DivSocialMessage"],[class*="SocialMessage"],[class*="GiftMessage"],[class*="DivGift"]';
-// A TikTok display name is full of astral emoji. An UNPAIRED surrogate is what
-// turns into U+FFFD by the time it reaches the app, so drop only those and
-// leave every properly paired emoji intact.
+// TikTok's own page furniture. A container holding any of this is the site
+// chrome or the recommendation rail, never the chat feed. Scraping it is what
+// produced whole-page "messages".
+const CHROME=/(discover|creator tools|get coins|suggested\s+live|terms\s*&|policies|company\b|program\b|©|log in|sign up|download the app|about\s+newsroom|contact|careers|advertise)/i;
+// A TikTok comment is short. Anything longer is a panel, not a message.
+const MAX_ROW=200;
 const surrogateSafe=s=>String(s||'')
   .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g,'')
   .replace(/(^|[^\uD800-\uDBFF])([\uDC00-\uDFFF])/g,'$1');
-// Rank and level chips ("No. 1", "TOP 3", "Lv 18") are separate elements that
-// come and go as TikTok re-renders. Trim them off the ends of the strings for
-// display, and ignore them entirely when building the de-duplication key, so a
-// chip appearing does not make an old message look new.
 const chipRun='(?:no\\.?\\s*\\d+|top\\s*\\d+|lv\\.?\\s*\\d+|level\\s*\\d+|#\\d+)';
 const trimChips=s=>String(s||'')
   .replace(new RegExp('^(?:\\s*'+chipRun+'\\b)+\\s*','i'),'')
@@ -316,14 +319,8 @@ const clean=s=>trimChips(surrogateSafe(s));
 const normalize=s=>surrogateSafe(s).toLowerCase()
   .replace(new RegExp(chipRun,'gi'),' ')
   .replace(/[^\p{L}\p{N}]+/gu,' ').trim();
-// An emoji-only message normalises to nothing, so fall back to the cleaned
-// text itself rather than collapsing every such message onto one key.
 const keyPart=s=>normalize(s)||trimChips(surrogateSafe(s));
 const keyFor=(a,b)=>{const k=keyPart(a)+'|'+keyPart(b);let h=0;for(let i=0;i<k.length;i++){h=(h*31+k.charCodeAt(i))|0}return 'k'+(h>>>0)};
-// Two layers: the row remembers the content it was last posted with (TikTok
-// recycles rows, so a plain "seen" flag was wrong), and a short global window
-// catches the same content arriving through two different elements in one
-// burst. Short on purpose, so a genuine repeat still shows.
 const recent=new Map();
 const burstFresh=key=>{const now=Date.now();
   if(recent.size>800){for(const [k,t] of recent)if(now-t>15000)recent.delete(k)}
@@ -333,7 +330,16 @@ const claim=(row,key)=>{
   if(!burstFresh(key))return false;
   if(row&&row.dataset)row.dataset.leapcastKey=key;
   return true};
-// Activity rows carry no comment body, just a sentence about what happened.
+// Everything a row must satisfy before any of its text is treated as chat.
+const plausibleRow=(row,whole)=>{
+  if(!row||row.nodeType!==1)return false;
+  if(!whole||whole.length>MAX_ROW)return false;
+  if(CHROME.test(whole))return false;
+  if((whole.match(/\n/g)||[]).length>2)return false;
+  let count=0;try{count=row.querySelectorAll('*').length}catch(e){return false}
+  if(count>40)return false;                       // a message is a small subtree
+  if(row.querySelector&&(row.querySelector('nav')||row.querySelector('header')||row.querySelector('footer')))return false;
+  return true};
 const activityKind=(lower,structure)=>{
   if(/\bjoined\b/.test(lower)||/join/.test(structure))return 'join';
   if(/\bliked\b|\bsent\s+likes?\b|\blikes?\s+the\s+live\b/.test(lower))return 'like';
@@ -342,11 +348,11 @@ const activityKind=(lower,structure)=>{
   if(/\bshared\b.*\blive\b/.test(lower))return 'share';
   return ''};
 const activityUser=(row,raw)=>{
-  const node=row.querySelector?.(userSel);
-  const name=clean(text(node));
+  const name=clean(text(row.querySelector?.(userSel)));
   if(name)return name;
   return clean(raw.split(/\s+(?:joined|liked|followed|sent|shared|started)\b/i)[0])||'Someone'};
 const emitActivity=(row,kind,user,raw)=>{
+  if(!user||user.length>40)return false;
   const key=keyFor(kind+'|'+user,raw);
   if(!claim(row,key))return false;
   if(!activityReady)return true;
@@ -354,7 +360,9 @@ const emitActivity=(row,kind,user,raw)=>{
   return true};
 const emitComment=(row,user,message,userNode,source)=>{
   user=clean(user);message=clean(message);
-  if(!user||!message||message===user||message.length>600)return false;
+  if(!user||user.length>40)return false;
+  if(!message||message===user||message.length>MAX_ROW)return false;
+  if(CHROME.test(message)||CHROME.test(user))return false;
   if(/^(?:0|[0-9,.]+[kmb]?)\s+likes?$/i.test(message)||/^follow(?:ing)?$/i.test(message))return false;
   const key=keyFor(user,message);
   if(!claim(row,key))return false;
@@ -362,13 +370,10 @@ const emitComment=(row,user,message,userNode,source)=>{
   const unique=(href.match(/\/@([^/?]+)/)||[])[1]||userNode?.getAttribute?.('data-unique-id')||'';
   send({type:'comment',id:key,user,text:message,userId:userNode?.getAttribute?.('data-user-id')||'',roomId:location.pathname,uniqueId:unique,source});
   return true};
-// Read from the LIVE node. An earlier version read from a detached clone to
-// strip badges, but innerText on a detached node collapses to textContent and
-// lost the separation between the name and the message, which stopped chat
-// working entirely. Badge trimming is done on the strings instead.
 const process=(n,source)=>{
   if(!n||n.nodeType!==1)return false;
-  const raw=text(n);if(!raw||raw.length>1200)return false;
+  const raw=text(n);
+  if(!plausibleRow(n,raw))return false;
   const structure=sig(n),lower=raw.toLowerCase();
   const bodyNode=n.querySelector?.(bodySel);
   const userNode=n.querySelector?.(userSel);
@@ -379,12 +384,20 @@ const process=(n,source)=>{
   let user=text(userNode);
   let message=text(bodyNode);
   if(!message&&user){message=raw.startsWith(user)?raw.slice(user.length).replace(/^\s*[:：·-]?\s*/,'').trim():raw.replace(user,'').trim()}
-  if(!user||!message)return false;
+  // A row with no identifiable author is page furniture, not a message. This is
+  // the guard that stops the site's own text arriving as one giant "message".
+  if(!userNode||!user||!message)return false;
   return emitComment(n,user,message,userNode,source||'selector')};
-const profileFallback=root=>{all(root,'a[href*="/@"]').forEach(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){if(/chat|comment|message/.test(sig(n))&&text(n).length<1200){process(n,'profile');break}}})};
+const roomRoot=()=>document.querySelector('[data-e2e="live-room"],[class*="DivLiveRoomContainer"],[class*="LiveRoomContainer"],[class*="live-room"]');
+const searchRoot=()=>roomRoot()||document.querySelector('main')||document.body;
+const profileFallback=root=>{all(root,'a[href*="/@"]').forEach(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){if(/chat|comment|message/.test(sig(n))&&text(n).length<=MAX_ROW){process(n,'profile');break}}})};
 const churn=new Map();
 const noteChurn=target=>{if(!target||target.nodeType!==1)return;const s=sig(target);
-  if(/video|player|progress|seek|caption|toolbar/.test(s))return;
+  if(/video|player|progress|seek|caption|toolbar|nav|header|footer|recommend|sidebar/.test(s))return;
+  const room=roomRoot();
+  // Only containers inside the live room are candidates. Without this the
+  // recommendation rail wins on sheer churn.
+  if(room&&!room.contains(target))return;
   churn.set(target,(churn.get(target)||0)+1)};
 const pickDiscovered=()=>{
   let best=null,bestScore=0;
@@ -393,7 +406,11 @@ const pickDiscovered=()=>{
     const kids=node.children?node.children.length:0;
     if(kids<3||score<3)continue;
     const sample=text(node);
-    if(!sample||sample.length<10||sample.length>20000)continue;
+    if(!sample||sample.length<10||CHROME.test(sample))continue;
+    // Its children have to look like messages, not like a page section.
+    let plausible=0;
+    for(const child of Array.from(node.children).slice(0,8))if(plausibleRow(child,text(child)))plausible++;
+    if(plausible<2)continue;
     if(score>bestScore){bestScore=score;best=node}}
   return best};
 const scanDiscovered=()=>{
@@ -405,23 +422,24 @@ const scanDiscovered=()=>{
   for(const row of Array.from(discovered.children)){
     if(process(row,'discovered')){handled++;continue}
     const raw=text(row);
-    if(!raw||raw.length>600)continue;
+    if(!plausibleRow(row,raw))continue;
     const kind=activityKind(raw.toLowerCase(),sig(row));
     if(kind){if(emitActivity(row,kind,activityUser(row,raw),raw))handled++;continue}
-    let user='',message='';
     const colon=raw.match(/^([^\n:：]{1,40})[:：]\s*(.+)$/s);
-    if(colon){user=colon[1].trim();message=colon[2].trim()}
-    else if(row.children&&row.children.length>=2){user=text(row.children[0]);message=raw.startsWith(user)?raw.slice(user.length).trim():text(row.children[1])}
-    if(user&&message&&emitComment(row,user,message,null,'discovered'))handled++;
+    if(colon&&emitComment(row,colon[1].trim(),colon[2].trim(),row.querySelector?.(userSel),'discovered'))handled++;
   }
   return handled};
 const sendViewer=(count,source)=>{if(Number.isFinite(count)&&count>=0&&count!==lastViewer){lastViewer=count;send({type:'viewers',count,source})}};
-const roomRoot=()=>document.querySelector('[data-e2e="live-room"],[class*="DivLiveRoomContainer"],[class*="LiveRoomContainer"],[class*="live-room"]')||document.querySelector('main')||null;
 const scanViewers=()=>{
-  const root=roomRoot();
-  if(root){
-    for(const n of root.querySelectorAll('[data-e2e="live-room-viewer-count"],[data-e2e="live-viewer-count"],[data-e2e*="viewer-count"],[class*="ViewerCount"],[class*="viewer-count"],[class*="DivWatchingCount"]')){
-      const c=compact(text(n));if(Number.isFinite(c)){sendViewer(c,'dom');return 'dom'}}}
+  const room=roomRoot();
+  if(room){
+    for(const n of room.querySelectorAll('[data-e2e="live-room-viewer-count"],[data-e2e="live-viewer-count"],[data-e2e*="viewer-count"],[class*="ViewerCount"],[class*="viewer-count"],[class*="DivWatchingCount"]')){
+      const label=text(n);
+      if(CHROME.test(label))continue;
+      const c=compact(label);
+      if(Number.isFinite(c)){sendViewer(c,'dom');return 'dom'}}}
+  // The serialized page state is a snapshot taken at load, so it is only ever
+  // used once, to have a number before the first DOM reading lands.
   if(!seedUsed){
     try{
       for(const id of ['SIGI_STATE','__UNIVERSAL_DATA_FOR_REHYDRATION__']){
@@ -437,32 +455,47 @@ const scanViewers=()=>{
   return 'none'};
 const offlineWords=/(went offline|is offline|live has ended|ended the live|not live|LIVE has ended)/i;
 const loginWall=()=>!!document.querySelector('[data-e2e="login-modal"],[id*="login-modal"],[class*="LoginModal"],[class*="login-modal"],[class*="Captcha"],[id*="captcha"],[class*="verify-bar"]');
+// Are we actually on the linked creator's LIVE page, with a live room present?
+const connection=()=>{
+  const path=decodeURIComponent(location.pathname||'').toLowerCase();
+  const wanted=String(EXPECTED||'').toLowerCase();
+  const onProfile=!wanted||path.includes('/@'+wanted);
+  const live=path.endsWith('/live')||!!roomRoot();
+  return {onProfile,live,room:!!roomRoot()}};
 const snapshot=()=>{
   const body=document.body?document.body.innerText||'':'';
+  const c=connection();
   return {type:'snapshot',url:location.href,title:document.title,ready:document.readyState,
+    expected:EXPECTED,onProfile:c.onProfile,live:c.live,room:c.room,
     videos:document.querySelectorAll('video').length,
-    iframes:document.querySelectorAll('iframe').length,
     items:document.querySelectorAll(itemSel).length,
     users:document.querySelectorAll(userSel).length,
     bodies:document.querySelectorAll(bodySel).length,
-    room:!!roomRoot(),liveBadge:/\bLIVE\b/.test(body),offline:offlineWords.test(body),
+    liveBadge:/\bLIVE\b/.test(body),offline:offlineWords.test(body),
     loginWall:loginWall(),discovered:discoveredLabel.trim().slice(0,200),
-    bodyChars:body.length,bodySample:body.replace(/\s+/g,' ').slice(0,400)}};
+    viewers:lastViewer,bodyChars:body.length,
+    bodySample:body.replace(/\s+/g,' ').slice(0,300)}};
 let lastViewerSource='none';
-const scan=(root,allowActivity=true)=>{
+const scan=(root)=>{
   all(root,'video').forEach(guard);
-  all(root,itemSel).forEach(n=>process(n));
-  all(root,activitySel).forEach(n=>process(n));
-  profileFallback(root);
-  scanDiscovered();
+  const room=searchRoot();
+  // Never scan outside the live room: that is where the page furniture lives.
+  const scope=(root&&room&&room.contains(root))?root:room;
+  all(scope,itemSel).forEach(n=>process(n));
+  all(scope,activitySel).forEach(n=>process(n));
+  if(document.querySelectorAll(itemSel).length===0){profileFallback(scope);scanDiscovered()}
   lastViewerSource=scanViewers()};
-scan(document,false);activityReady=true;
+scan(document);activityReady=true;
 new MutationObserver(ms=>ms.forEach(m=>{
   if(m.addedNodes&&m.addedNodes.length){noteChurn(m.target);m.addedNodes.forEach(n=>{if(n.nodeType===1)scan(n)})}
 })).observe(document.documentElement,{childList:true,subtree:true});
-setInterval(()=>{scan(document);if(++debugTick%10===0)send(snapshot())},2000);
+// One second keeps the viewer count close to TikTok's own updates without
+// making the collector expensive.
+setInterval(()=>{scan(document);if(++debugTick%20===0)send(snapshot())},1000);
 send(snapshot());
-})())JS"));
+})())JS");
+    bridge.replace(QStringLiteral("__LEAPCAST_TIKTOK_USER__"),username_);
+    page_->runJavaScript(bridge);
 }
 
 KickLiveService::KickLiveService(QObject*p):QObject(p),page_(this){

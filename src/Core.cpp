@@ -72,6 +72,16 @@ QString chatNameHtml(const ChatMessage& message) {
     return html+QStringLiteral("</b>");
 }
 
+bool isChannelPointRedemption(const ChatMessage& message) {
+    return message.metadata.value(QStringLiteral("channel_point_redemption")).toBool();
+}
+
+QString redemptionRewardHtml(const ChatMessage& message) {
+    QString reward=message.metadata.value(QStringLiteral("reward_name")).toString().trimmed();
+    if(reward.isEmpty())reward=QStringLiteral("a Channel Point reward");
+    return reward.toHtmlEscaped();
+}
+
 QString chatMessageBodyHtml(const ChatMessage& message) {
     // "runs" carries Twitch and third-party emotes; "youtube_runs" is the older
     // YouTube-only shape. Either is a list of {text} and {url,alt} pieces.
@@ -352,7 +362,10 @@ bool AutoMod::blockedMatch(const QString&t)const{
     return false;
 }
 bool AutoMod::promotionSpam(const QString&t){const QString n=normalize(t);const bool target=QRegularExpression("\\b(followers?|views?|viewers?|subs?|subscribers?|likes?|viewbot|followbot)\\b").match(n).hasMatch();const bool pitch=QRegularExpression("\\b(free|cheap|instant|buy|boost|grow|promote|service|provider|selling|offer|dm|contact|click|discord|telegram)\\b").match(n).hasMatch();return target&&pitch;}
-bool AutoMod::check(const ChatMessage&m,QString*reason){auto cfg=settings_->moderation();if(!cfg.value("enabled").toBool(true))return false;if(cfg.value("ignore_mods").toBool(true)&&(m.badges.contains("MOD")||m.badges.contains("HOST")))return false;auto fail=[&](const QString&r){if(reason)*reason=r;return true;};if(cfg.value("blocked_words_enabled").toBool(true)&&blockedMatch(m.text))return fail("blocked word / bypass");if(cfg.value("spam_enabled").toBool(true)&&promotionSpam(m.text))return fail("follower/viewer promotion spam");const qint64 now=QDateTime::currentMSecsSinceEpoch();QMutexLocker lock(&mutex_);auto&bucket=recentByUser_[m.user.toLower()];const QString n=normalize(m.text);bucket.enqueue({now,n});while(!bucket.isEmpty()&&now-bucket.head().first>10000)bucket.dequeue();if(cfg.value("spam_enabled").toBool(true)){if(bucket.size()>cfg.value("max_messages_10s").toInt(6))return fail("message flood");int same=0;for(const auto&item:bucket)if(item.second==n&&now-item.first<=cfg.value("duplicate_window_s").toDouble(12)*1000)++same;if(!n.isEmpty()&&same>=cfg.value("duplicate_count").toInt(3))return fail("repeated message");}int letters=0,caps=0;for(const auto c:m.text)if(c.isLetter()){++letters;if(c.isUpper())++caps;}if(cfg.value("spam_enabled").toBool(true)&&letters>=cfg.value("min_caps_chars").toInt(8)&&double(caps)/qMax(letters,1)>=cfg.value("max_caps_ratio").toDouble(.82))return fail("excessive caps");if(cfg.value("block_links").toBool(false)&&QRegularExpression("https?://|www\\.|discord\\.gg/|t\\.me/",QRegularExpression::CaseInsensitiveOption).match(m.text).hasMatch())return fail("link");return false;}
+// Every rule below is independently switchable from the Moderation page.
+// Flood, repeat and caps limits punish ordinary excitement on a small
+// channel, so they can be turned off without giving up blocked words.
+bool AutoMod::check(const ChatMessage&m,QString*reason){auto cfg=settings_->moderation();if(!cfg.value("enabled").toBool(true))return false;if(cfg.value("ignore_mods").toBool(true)&&(m.badges.contains("MOD")||m.badges.contains("HOST")))return false;auto fail=[&](const QString&r){if(reason)*reason=r;return true;};if(cfg.value("blocked_words_enabled").toBool(true)&&blockedMatch(m.text))return fail("blocked word / bypass");if(cfg.value("promo_spam_enabled").toBool(true)&&promotionSpam(m.text))return fail("follower/viewer promotion spam");const qint64 now=QDateTime::currentMSecsSinceEpoch();QMutexLocker lock(&mutex_);auto&bucket=recentByUser_[m.user.toLower()];const QString n=normalize(m.text);bucket.enqueue({now,n});while(!bucket.isEmpty()&&now-bucket.head().first>10000)bucket.dequeue();if(cfg.value("spam_enabled").toBool(true)){if(bucket.size()>cfg.value("max_messages_10s").toInt(6))return fail("message flood");int same=0;for(const auto&item:bucket)if(item.second==n&&now-item.first<=cfg.value("duplicate_window_s").toDouble(12)*1000)++same;if(!n.isEmpty()&&same>=cfg.value("duplicate_count").toInt(3))return fail("repeated message");}int letters=0,caps=0;for(const auto c:m.text)if(c.isLetter()){++letters;if(c.isUpper())++caps;}if(cfg.value("caps_enabled").toBool(true)&&letters>=cfg.value("min_caps_chars").toInt(8)&&double(caps)/qMax(letters,1)>=cfg.value("max_caps_ratio").toDouble(.82))return fail("excessive caps");if(cfg.value("block_links").toBool(false)&&QRegularExpression("https?://|www\\.|discord\\.gg/|t\\.me/",QRegularExpression::CaseInsensitiveOption).match(m.text).hasMatch())return fail("link");return false;}
 
 AuditStore::AuditStore(SettingsStore*s,QObject*p):QObject(p){messagesPath_=s->dataDirectory()+"/chat_history.jsonl";eventsPath_=s->dataDirectory()+"/stream_events.json";}
 void AuditStore::appendMessage(const ChatMessage&m){QMutexLocker l(&mutex_);QFile f(messagesPath_);if(f.open(QIODevice::Append|QIODevice::Text)){f.write(QJsonDocument(m.toJson()).toJson(QJsonDocument::Compact));f.write("\n");}}

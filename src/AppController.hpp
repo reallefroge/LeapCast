@@ -24,6 +24,9 @@ public:
     void loadTwitchUserCard(const QString& userId);
     void setTwitchUserBlocked(const QString& userId, bool blocked);
     QString twitchBroadcasterId() const { return const_cast<AppController*>(this)->settings_.secret(QStringLiteral("twitch_broadcaster_id")); }
+    // Twitch's viewer-card popout is addressed by channel LOGIN, not by the
+    // numeric broadcaster id.
+    QString twitchChannel() const { return const_cast<AppController*>(this)->twitch_.channel(); }
     void setPinnedMessagesEnabled(bool enabled);
     void testDiscordLiveNotification();
     // Walks the three Discord endpoints that can each produce an HTTP 403 on

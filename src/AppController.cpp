@@ -98,6 +98,10 @@ AppController::AppController(QObject*p):QObject(p){
             if(!pendingTwitchRedemptions_.contains(key))return;
             ChatMessage fallback=pendingTwitchRedemptions_.take(key);fallback.badges<<QStringLiteral("MONEY");
             fallback.metadata[QStringLiteral("channel_point_redemption")]=true;fallback.metadata[QStringLiteral("event_kind")]=QStringLiteral("twitch_redemption");
+            // EventSub never arrived, so the reward's name is unknown here; the
+            // chatter's own text is kept separate either way.
+            fallback.metadata[QStringLiteral("reward_input")]=fallback.text;
+            fallback.metadata[QStringLiteral("reward_name")]=QStringLiteral("a Channel Point reward");
             fallback.text=QStringLiteral("redeemed a Channel Point reward")+(fallback.text.isEmpty()?QString():QStringLiteral(": ")+fallback.text);
             receive(fallback);
         });
@@ -131,7 +135,7 @@ AppController::AppController(QObject*p):QObject(p){
     connect(&tiktok_,&TikTokLiveService::collectorVisibilityChanged,this,&AppController::tiktokCollectorVisibilityChanged);
     connect(&rumble_,&RumbleLiveService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
     connect(&streamlabs_,&StreamlabsService::eventReceived,this,[this](const StreamEvent&e){audit_.appendEvent(e);emit eventReady(e);});
-    connect(&twitchEvents_,&TwitchEventSubService::eventReceived,this,[this](const StreamEvent&e){const QString key=twitchRedemptionKey(e.raw.value(QStringLiteral("reward")).toObject().value(QStringLiteral("id")).toString(),e.user,e.message);pendingTwitchRedemptions_.remove(key);recentTwitchRedemptions_.insert(key);QTimer::singleShot(10000,this,[this,key]{recentTwitchRedemptions_.remove(key);});audit_.appendEvent(e);ChatMessage message;message.platform=QStringLiteral("twitch");message.user=e.user;message.text=QStringLiteral("redeemed %1").arg(e.amount.isEmpty()?QStringLiteral("a Channel Point reward"):e.amount);if(!e.message.isEmpty())message.text+=QStringLiteral(": ")+e.message;message.messageId=e.eventId;message.badges<<QStringLiteral("MONEY");message.metadata={{QStringLiteral("event_kind"),e.kind},{QStringLiteral("channel_point_redemption"),true}};receive(message);emit eventReady(e);});
+    connect(&twitchEvents_,&TwitchEventSubService::eventReceived,this,[this](const StreamEvent&e){const QString key=twitchRedemptionKey(e.raw.value(QStringLiteral("reward")).toObject().value(QStringLiteral("id")).toString(),e.user,e.message);pendingTwitchRedemptions_.remove(key);recentTwitchRedemptions_.insert(key);QTimer::singleShot(10000,this,[this,key]{recentTwitchRedemptions_.remove(key);});audit_.appendEvent(e);ChatMessage message;message.platform=QStringLiteral("twitch");message.user=e.user;message.text=QStringLiteral("redeemed %1").arg(e.amount.isEmpty()?QStringLiteral("a Channel Point reward"):e.amount);if(!e.message.isEmpty())message.text+=QStringLiteral(": ")+e.message;message.messageId=e.eventId;message.badges<<QStringLiteral("MONEY");message.metadata={{QStringLiteral("event_kind"),e.kind},{QStringLiteral("channel_point_redemption"),true},{QStringLiteral("reward_name"),e.amount.isEmpty()?QStringLiteral("a Channel Point reward"):e.amount},{QStringLiteral("reward_input"),e.message}};receive(message);emit eventReady(e);});
     connect(&twitchEvents_,&TwitchEventSubService::statusChanged,this,[this](const QString&state,const QString&detail){emit sourceStatus(QStringLiteral("twitch"),state,detail);});
     connect(&streamlabs_,&StreamlabsService::statusChanged,this,[this](const QString&s,const QString&d){emit sourceStatus("streamlabs",s,d);});
     const QString twitchClientId=configuredTwitchClientId(settings_);

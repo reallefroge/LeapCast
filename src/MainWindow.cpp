@@ -135,13 +135,23 @@ constexpr int kMessageIdProperty = QTextFormat::UserProperty + 1;
 // with the property set, and a click just reads the property back.
 constexpr int kUserCardProperty = QTextFormat::UserProperty + 2;
 void appendChatMessage(QTextBrowser* view, const QString& leadingHtml,
-                       const QString& nameHtml, const QString& bodyHtml, qint64 id) {
+                       const QString& nameHtml, const QString& bodyHtml, qint64 id,
+                       bool redemption = false) {
     if (!view) return;
     auto* doc = view->document();
     QTextCursor cursor(doc);
     cursor.movePosition(QTextCursor::End);
     QTextBlockFormat format;
     format.setProperty(kMessageIdProperty, id);
+    if (redemption) {
+        // A tinted block with an accent edge. A chatter can type any words they
+        // like, but they cannot give their own line a background, so this is
+        // what makes a real redemption impossible to imitate.
+        format.setBackground(QColor(QString::fromLatin1(kRedemptionBackground)));
+        format.setLeftMargin(6);
+        format.setTopMargin(2);
+        format.setBottomMargin(2);
+    }
     if (!doc->isEmpty()) cursor.insertBlock(format);
     else cursor.setBlockFormat(format);
     QTextCharFormat messageFormat=cursor.charFormat();
@@ -170,6 +180,35 @@ void appendChatMessage(QTextBrowser* view, const QString& leadingHtml,
     cursor.insertHtml(bodyHtml);
     view->moveCursor(QTextCursor::End);
     trimBlocks(doc);
+}
+
+// Painted rather than taken from a font: the moderation buttons must read the
+// same on every machine, and a missing glyph would leave them blank.
+QIcon moderationIcon(bool ban) {
+    // Backed by a 2x pixmap for sharp edges. QPainter already works in logical
+    // coordinates on a pixmap that carries a device pixel ratio, so scaling the
+    // painter as well would draw at 4x and show only a corner of the shape.
+    const qreal scale=2.0;
+    QPixmap pixmap(qRound(18*scale),qRound(18*scale));
+    pixmap.setDevicePixelRatio(scale);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const QColor colour=ban?QColor(QStringLiteral("#ffd9e0")):QColor(QStringLiteral("#c9f7e4"));
+    painter.setPen(QPen(colour,2.1,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+    if(ban){
+        painter.drawLine(QPointF(4.5,4.5),QPointF(13.5,13.5));
+        painter.drawLine(QPointF(13.5,4.5),QPointF(4.5,13.5));
+    } else {
+        // A back arrow: the shaft, then a solid head on the left.
+        painter.drawLine(QPointF(15.0,9.0),QPointF(7.0,9.0));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(colour);
+        QPolygonF head;
+        head<<QPointF(3.4,9.0)<<QPointF(8.6,5.4)<<QPointF(8.6,12.6);
+        painter.drawPolygon(head);
+    }
+    return QIcon(pixmap);
 }
 
 // Reads the user-card id under a viewport position, or 0 when the point is not
@@ -375,13 +414,24 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         // either view can be traced back to this message for moderation, and
         // so a left-click on the name alone opens that chatter's card.
         const qint64 id = ++nextChatSeq_;
-        const QString leading = icon + (badges.isEmpty() ? QString() : badges + QStringLiteral(" "));
+        const bool redemption = isChannelPointRedemption(m);
+        QString leading = icon + (badges.isEmpty() ? QString() : badges + QStringLiteral(" "));
         const QString name = chatNameHtml(m);
-        const QString body = chatMessageBodyHtml(m);
+        QString body = chatMessageBodyHtml(m);
+        if (redemption) {
+            // The reward is drawn as chrome; only the redeemer's own words are
+            // rendered as their text.
+            leading += QStringLiteral("<span style='color:%1;font-weight:800;letter-spacing:1px'>CHANNEL POINTS</span> ")
+                           .arg(QString::fromLatin1(kRedemptionAccent));
+            const QString input = m.metadata.value(QStringLiteral("reward_input")).toString();
+            body = QStringLiteral("<span style='color:%1'>redeemed %2</span>")
+                       .arg(QString::fromLatin1(kRedemptionAccent), redemptionRewardHtml(m))
+                 + (input.isEmpty() ? QString() : QStringLiteral(" — ") + input.toHtmlEscaped());
+        }
         chatHistoryById_.insert(id, m);
         chatHistoryById_.remove(id - 400);
-        appendChatMessage(chatViews_.value(QStringLiteral("combined")), leading, name, body, id);
-        appendChatMessage(chatViews_.value(m.platform), leading, name, body, id);
+        appendChatMessage(chatViews_.value(QStringLiteral("combined")), leading, name, body, id, redemption);
+        appendChatMessage(chatViews_.value(m.platform), leading, name, body, id, redemption);
         overlay_->ingest(m);
         if(popout_) popout_->appendMessage(m);
     });
@@ -510,6 +560,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(controller_, &AppController::moderationResult, this,
             [this](const QString& platform, bool success, const QString& detail) {
         if (success) { lastModerationWarning_.remove(platform); return; }
+        // The block list needs a scope that older connections never asked for,
+        // so say what to do instead of showing Twitch's raw JSON.
+        if(platform==QStringLiteral("twitch")&&
+           (detail.contains(QStringLiteral("blocked_users"),Qt::CaseInsensitive)||
+            detail.contains(QStringLiteral("user_blocks_edit"),Qt::CaseInsensitive))){
+            lastModerationWarning_.remove(platform);
+            const auto answer=QMessageBox::question(this,QStringLiteral("Twitch permission needed"),
+                QStringLiteral("Blocking an account needs a Twitch permission this connection was never granted.\n\nReconnect Twitch once to add it. Your channel and local settings stay saved.\n\nReconnect Twitch now?"),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::Yes);
+            if(answer==QMessageBox::Yes)authorizeTwitch();
+            return;
+        }
         const bool appealScopeMissing=platform==QStringLiteral("twitch")&&
             (detail==QStringLiteral("TWITCH_SCOPE_UPGRADE_REQUIRED")||
              detail.contains(QStringLiteral("moderator:manage:unban_requests"),Qt::CaseInsensitive));
@@ -715,8 +777,8 @@ void MainWindow::showFirstLaunchUpdateLog(){
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's New in Leapcast %1").arg(version));dialog.resize(560,430);dialog.setMinimumSize(440,330);
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(22,20,22,20);layout->setSpacing(12);
     auto* title=label(QStringLiteral("✨ WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("A test build: automatic updates are off, TikTok chat collection is fixed, and Discord now tells you why a 403 happened."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **\U0001F6D1 Automatic updates are OFF**  \n  This is a test build. It will not contact GitHub at startup and will not replace itself with the published release. Check now is disabled too.\n\n- **\U0001F50E Discord \u2018Diagnose 403\u2019**  \n  Settings \u2192 Discord now checks your token, then the channel, then server membership, and names the step that fails. Administrator does not fix every 403, and this says which one you have.\n\n- **\U0001F4AC TikTok chat actually shows up**  \n  The hidden collector page had no viewport, so TikTok rendered zero chat rows. It now runs in a real off-screen window you can open, and sign in to, from Settings.\n\n- **\U0001F465 Sane TikTok viewer counts**  \n  The count no longer picks up numbers from recommended streams in the sidebar."));layout->addWidget(notes,1);
+    auto* summary=label(QStringLiteral("Per-rule AutoMod switches, a full chatter card, real Twitch emotes, and a TikTok collector that finally reports what it is connected to."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **\U0001F6E1 AutoMod, rule by rule**  \n  Blocked words, spam and flooding, CAPS, promotion spam and links each have their own switch on the Moderation page. The flood and CAPS rules assume a busy channel \u2014 on a smaller one they cost you regulars, so you can turn just those off.\n\n- **\U0001F464 Click a name in chat**  \n  Account age, follower count, whether they follow you and since when, subscription tier and months, notes that save themselves, the full timeout ladder, and their recent messages updating live.\n\n- **\U0001F60A Real emotes**  \n  Twitch, BetterTTV, FrankerFaceZ and 7TV emotes render as pictures in the program chat, the pop-out and the OBS overlay.\n\n- **\U0001F4AC TikTok that tells you the truth**  \n  Chat from the linked LIVE only \u2014 never the site\u2019s own menus or the recommended-stream rail \u2014 with an accurate viewer count and a status line saying exactly what it is connected to.\n\n- **\U0001F48E Redemptions cannot be faked**  \n  Channel Point redemptions get their own tinted block that no amount of typing can imitate."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
@@ -728,8 +790,11 @@ void MainWindow::showUserCard(const ChatMessage& message){
     auto* dialog=new QDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(message.user);
-    dialog->resize(430,660);
-    dialog->setMinimumSize(380,520);
+    // Wide enough for the whole moderation ladder on one row without squeezing
+    // the labels, and tall enough that the chat history is worth reading. The
+    // ladder measures ~600px with the compact timeout padding below.
+    dialog->resize(640,780);
+    dialog->setMinimumSize(620,560);
     // Same surfaces and accents as the main window, so the card reads as part
     // of the program rather than as a stock dialog.
     dialog->setStyleSheet(QStringLiteral(
@@ -741,6 +806,9 @@ void MainWindow::showUserCard(const ChatMessage& message){
         "QCheckBox{color:#eef2ff;}"
         "QLineEdit,QPlainTextEdit,QTextBrowser{background:#0b0d15;color:#eef2ff;border:1px solid #283149;border-radius:8px;padding:5px;}"
         "QPushButton{background:#20283a;color:#eef2ff;border:0;border-radius:7px;padding:5px 9px;font-weight:700;}"
+        // Timeout buttons carry only two or three characters; the default
+        // padding is what pushed the ladder wider than the card.
+        "QPushButton[compact='true']{padding:5px 4px;}"
         "QPushButton:hover{background:#2b3550;}"
         "QPushButton:disabled{background:#161c2b;color:#5b6480;}"
         "QPushButton[danger='true']{background:#5d1f2c;color:#ffd9e0;}"
@@ -807,7 +875,7 @@ void MainWindow::showUserCard(const ChatMessage& message){
     auto* linkRow=new QHBoxLayout;
     auto* usercard=new QPushButton(QStringLiteral("Twitch usercard"));
     auto* channel=new QPushButton(QStringLiteral("Open channel"));
-    usercard->setEnabled(isTwitch&&!broadcasterId.isEmpty());
+    usercard->setEnabled(isTwitch);
     channel->setEnabled(isTwitch);
     linkRow->addWidget(usercard);linkRow->addWidget(channel);linkRow->addStretch();
     toggleLayout->addLayout(linkRow);
@@ -817,22 +885,33 @@ void MainWindow::showUserCard(const ChatMessage& message){
     auto* moderationLayout=new QVBoxLayout(moderation);
     moderationLayout->addWidget(label(QStringLiteral("MODERATION"),"cardTitle"));
     auto* actionRow=new QHBoxLayout;actionRow->setSpacing(4);
-    auto* unban=new QPushButton(QStringLiteral("Unban"));unban->setProperty("good",true);
+    auto* unban=new QPushButton(moderationIcon(false),QStringLiteral("Unban"));unban->setProperty("good",true);
+    unban->setToolTip(QStringLiteral("Lift a ban or timeout on %1").arg(message.user));
     actionRow->addWidget(unban);
-    // The same ladder Twitch's own moderator card offers.
+    // The same ladder Twitch's own moderator card offers. Each button is sized
+    // from the actual text metrics so no label is ever clipped or elided,
+    // however narrow the card is dragged.
     const QList<QPair<QString,int>> timeouts{{QStringLiteral("1s"),1},{QStringLiteral("30s"),30},
         {QStringLiteral("1m"),60},{QStringLiteral("5m"),300},{QStringLiteral("30m"),1800},
         {QStringLiteral("1h"),3600},{QStringLiteral("1d"),86400},{QStringLiteral("1w"),604800}};
+    const QFontMetrics metrics(font());
+    int widest=0;
+    for(const auto& entry:timeouts)widest=qMax(widest,metrics.horizontalAdvance(entry.first));
+    const int timeoutWidth=widest+16;
     QList<QPushButton*> actionButtons{unban};
     for(const auto& entry:timeouts){
         auto* button=new QPushButton(entry.first);
+        button->setProperty("compact",true);
         button->setToolTip(QStringLiteral("Time out %1 for %2").arg(message.user,entry.first));
+        button->setMinimumWidth(timeoutWidth);
+        button->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
         connect(button,&QPushButton::clicked,dialog,[this,message,entry]{
             controller_->moderateMessage(message,entry.second,QStringLiteral("Timeout from user card"));
         });
         actionRow->addWidget(button);actionButtons<<button;
     }
-    auto* ban=new QPushButton(QStringLiteral("Ban"));ban->setProperty("danger",true);
+    auto* ban=new QPushButton(moderationIcon(true),QStringLiteral("Ban"));ban->setProperty("danger",true);
+    ban->setToolTip(QStringLiteral("Permanently ban %1").arg(message.user));
     actionRow->addWidget(ban);actionButtons<<ban;
     moderationLayout->addLayout(actionRow);
     auto* moderationStatus=new QLabel;moderationStatus->setProperty("role","muted");moderationStatus->setWordWrap(true);
@@ -846,11 +925,16 @@ void MainWindow::showUserCard(const ChatMessage& message){
 
     auto* logCard=new QFrame;logCard->setProperty("card",true);
     auto* logLayout=new QVBoxLayout(logCard);
-    logLayout->addWidget(label(QStringLiteral("RECENT MESSAGES"),"cardTitle"));
+    logLayout->addWidget(label(QStringLiteral("CHAT HISTORY"),"cardTitle"));
     auto* log=new QTextBrowser;log->setOpenExternalLinks(false);
     log->setPlaceholderText(QStringLiteral("No messages recorded for this chatter yet."));
+    // Bigger than the surrounding card text and given the lion's share of the
+    // height: this is the part a moderator actually reads before deciding.
+    log->setStyleSheet(QStringLiteral("background:#0b0d15;color:#eef2ff;border:1px solid #283149;"
+                                      "border-radius:8px;padding:6px;font-size:11pt;"));
+    log->setMinimumHeight(220);
     logLayout->addWidget(log,1);
-    layout->addWidget(logCard,1);
+    layout->addWidget(logCard,3);
 
     auto* close=new QPushButton(QStringLiteral("Close"));
     connect(close,&QPushButton::clicked,dialog,&QDialog::accept);
@@ -881,9 +965,17 @@ void MainWindow::showUserCard(const ChatMessage& message){
         controller_->settings()->setPreference(noteKey,all);
         noteLabel->setText(QStringLiteral("Notes (saved)"));
     });
-    connect(usercard,&QPushButton::clicked,dialog,[message,broadcasterId]{
-        QDesktopServices::openUrl(QUrl(QStringLiteral("https://www.twitch.tv/popout/moderator/%1/viewercard/%2")
-                                           .arg(broadcasterId,message.user.toLower())));
+    connect(usercard,&QPushButton::clicked,dialog,[this,message]{
+        // The viewer-card popout is addressed by channel LOGIN. Using the
+        // numeric broadcaster id gives "content is unavailable".
+        const QString channelLogin=controller_->twitchChannel();
+        if(channelLogin.isEmpty()){
+            QMessageBox::information(this,QStringLiteral("Twitch usercard"),
+                QStringLiteral("Connect a Twitch channel on the Sources page first — the viewer card opens inside your own channel."));
+            return;
+        }
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://www.twitch.tv/popout/%1/viewercard/%2")
+                                           .arg(channelLogin.toLower(),message.user.toLower())));
     });
     connect(channel,&QPushButton::clicked,dialog,[message]{
         QDesktopServices::openUrl(QUrl(QStringLiteral("https://www.twitch.tv/%1").arg(message.user.toLower())));
@@ -900,8 +992,21 @@ void MainWindow::showUserCard(const ChatMessage& message){
             moderationStatus->setText(QStringLiteral("Unban requested."));
         } else moderationStatus->setText(QStringLiteral("Unban is only wired up for Twitch."));
     });
-    connect(controller_,&AppController::moderationResult,dialog,[moderationStatus](const QString&,bool ok,const QString& detail){
-        moderationStatus->setText(ok?QStringLiteral("Done."):QStringLiteral("Failed: %1").arg(detail));
+    connect(controller_,&AppController::moderationResult,dialog,[this,moderationStatus,blockBox,identityKey,blockKey](const QString&,bool ok,const QString& detail){
+        if(ok){moderationStatus->setText(QStringLiteral("Done."));return;}
+        // A refused block must not leave the box ticked, nor the user recorded
+        // locally as blocked when Twitch never accepted it.
+        if(detail.contains(QStringLiteral("blocked_users"),Qt::CaseInsensitive)||
+           detail.contains(QStringLiteral("user_blocks_edit"),Qt::CaseInsensitive)){
+            const QSignalBlocker blocker(blockBox);
+            blockBox->setChecked(false);
+            QStringList current=controller_->settings()->preference(blockKey,QStringList{}).toStringList();
+            current.removeAll(identityKey);
+            controller_->settings()->setPreference(blockKey,current);
+            moderationStatus->setText(QStringLiteral("Blocking needs Twitch reconnecting once — see the prompt behind this card."));
+            return;
+        }
+        moderationStatus->setText(QStringLiteral("Failed: %1").arg(detail));
     });
 
     // Account details arrive asynchronously and any of them may be refused, so
@@ -941,18 +1046,34 @@ void MainWindow::showUserCard(const ChatMessage& message){
                                               :QStringLiteral("★ %1 — subscribed for %2 months").arg(tierName,months));
         }
     });
-    connect(controller_,&AppController::userChatHistoryReady,dialog,[log,userId](const QString& id,const QJsonArray& messages){
+    const auto logLine=[](const QString& time,const QString& text){
+        return QStringLiteral("<div style='margin:3px 0;line-height:1.35'>"
+                              "<span style='color:#7f8ba5'>%1</span>&nbsp; %2</div>")
+                   .arg(time,text.toHtmlEscaped());
+    };
+    connect(controller_,&AppController::userChatHistoryReady,dialog,[log,userId,logLine](const QString& id,const QJsonArray& messages){
         if(id!=userId)return;
         QString html;
         for(const auto& value:messages){
             const QJsonObject entry=value.toObject();
             const QDateTime when=QDateTime::fromString(entry.value(QStringLiteral("time")).toString(),Qt::ISODateWithMs);
-            html+=QStringLiteral("<div style='margin:2px 0'><span style='color:#7f8ba5'>%1</span> %2</div>")
-                      .arg(when.isValid()?when.toLocalTime().toString(QStringLiteral("HH:mm")):QString(),
-                           entry.value(QStringLiteral("text")).toString().toHtmlEscaped());
+            html+=logLine(when.isValid()?when.toLocalTime().toString(QStringLiteral("HH:mm")):QString(),
+                          entry.value(QStringLiteral("text")).toString());
         }
         log->setHtml(html);
         log->moveCursor(QTextCursor::End);
+    });
+    // Keep the history live while the card is open, so a chatter who carries on
+    // talking while you decide what to do appears without reopening the card.
+    connect(controller_,&AppController::messageReady,dialog,[log,userId,message,logLine](const ChatMessage& incoming){
+        const bool sameUser=!userId.isEmpty()&&incoming.userId==userId;
+        const bool sameName=userId.isEmpty()&&incoming.platform==message.platform&&
+                            incoming.user.compare(message.user,Qt::CaseInsensitive)==0;
+        if(!sameUser&&!sameName)return;
+        log->moveCursor(QTextCursor::End);
+        log->insertHtml(logLine(incoming.timestamp.toLocalTime().toString(QStringLiteral("HH:mm")),incoming.text));
+        log->moveCursor(QTextCursor::End);
+        log->ensureCursorVisible();
     });
 
     if(isTwitch&&!userId.isEmpty())controller_->loadTwitchUserCard(userId);
@@ -1045,7 +1166,7 @@ QWidget* MainWindow::buildDashboard() {
     // in the corner says so directly rather than needing a separate badge.
     const QString versionText = leapcast::AutoUpdate
         ? QStringLiteral("v%1").arg(QString::fromLatin1(leapcast::Version))
-        : QStringLiteral("Test V%1").arg(QString::fromLatin1(leapcast::Version));
+        : QStringLiteral("Test v%1").arg(QString::fromLatin1(leapcast::Version));
     auto* version = label(versionText, leapcast::AutoUpdate ? "version" : "testBuild");
     version->setAlignment(Qt::AlignCenter);
     version->setMinimumHeight(24);
@@ -1685,6 +1806,37 @@ QWidget* MainWindow::buildModerationPage() {
         });
         twitchLadderNote->setWordWrap(true);
         automodLayout->addWidget(twitchLadderNote);
+
+        // Each AutoMod rule can be switched off on its own. The flood, repeat
+        // and caps rules assume a busy channel; on a smaller one they punish
+        // regulars for ordinary enthusiasm, so they must not be all-or-nothing.
+        automodLayout->addWidget(label(QStringLiteral("AUTOMOD RULES"),"cardTitle"));
+        const auto ruleBox=[this,automodLayout](const QString& text,const QString& key,
+                                                bool defaultOn,const QString& tip){
+            auto* box=new QCheckBox(text);
+            box->setToolTip(tip);
+            box->setChecked(controller_->settings()->moderation().value(key).toBool(defaultOn));
+            connect(box,&QCheckBox::toggled,this,[this,key](bool on){
+                QJsonObject moderation=controller_->settings()->moderation();
+                moderation[key]=on;
+                controller_->settings()->setModeration(moderation);
+            });
+            automodLayout->addWidget(box);
+            return box;
+        };
+        ruleBox(QStringLiteral("Blocked words"),QStringLiteral("blocked_words_enabled"),true,
+                QStringLiteral("Acts on your blocked-words list, including simple letter-swap bypasses."));
+        ruleBox(QStringLiteral("Spam and flooding (repeats, rapid messages)"),QStringLiteral("spam_enabled"),true,
+                QStringLiteral("More than six messages in ten seconds, or the same line three times in twelve seconds."));
+        ruleBox(QStringLiteral("Excessive CAPS"),QStringLiteral("caps_enabled"),true,
+                QStringLiteral("At least eight letters and more than 82% of them capitals."));
+        ruleBox(QStringLiteral("Follower and viewer promotion spam"),QStringLiteral("promo_spam_enabled"),true,
+                QStringLiteral("\"Buy cheap followers\" style advertising. Worth leaving on for any channel size."));
+        ruleBox(QStringLiteral("Links"),QStringLiteral("block_links"),false,
+                QStringLiteral("Removes any message containing a link. Off by default."));
+        auto* ruleNote=label(QStringLiteral("Turning a rule off leaves the others running. On a smaller channel the spam and CAPS rules are the ones worth switching off first — they cost you regulars long before they catch a spammer."),"muted");
+        ruleNote->setWordWrap(true);
+        automodLayout->addWidget(ruleNote);
 
         auto* wordTabs=new QTabWidget;wordTabs->setObjectName(QStringLiteral("wordManager"));
         const auto buildWordTab=[this,wordTabs](bool whitelist){

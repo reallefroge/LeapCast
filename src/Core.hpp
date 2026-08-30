@@ -43,6 +43,17 @@ Q_DECLARE_METATYPE(ChatMessage)
 // this uses plain-text glyphs instead.
 QString badgeGlyphs(const QStringList& badges);
 QString chatBadgeHtml(const ChatMessage& message);
+// True when this line came from Twitch's redemption feed rather than from
+// somebody typing. Anyone can type "redeemed a reward", so the chat views draw
+// these with chrome a typed message can never produce - a tinted block and a
+// label - instead of relying on wording alone.
+bool isChannelPointRedemption(const ChatMessage& message);
+// The reward label for such a line, already escaped, without the redeemer's
+// own free text.
+QString redemptionRewardHtml(const ChatMessage& message);
+// Colours shared by every view that draws a redemption.
+inline constexpr auto kRedemptionAccent = "#c9a6ff";
+inline constexpr auto kRedemptionBackground = "#2a1f42";
 // Formats a chat name using the message's selected single, gradient, or
 // repeating palette while keeping the original plain username intact for
 // moderation and platform API calls.
