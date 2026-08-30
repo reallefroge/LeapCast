@@ -1,0 +1,139 @@
+#pragma once
+#include "Core.hpp"
+#include <QNetworkAccessManager>
+#include <QSet>
+#include <QTimer>
+#include <QWebEnginePage>
+#include <QUrlQuery>
+
+class QNetworkReply;
+class QWebEngineProfile;
+class QWebEngineView;
+
+class YouTubeChatService final : public QObject {
+    Q_OBJECT
+public:
+    explicit YouTubeChatService(QString platform, bool verticalOnly, QObject* parent=nullptr);
+    void connectTarget(const QString& target);
+    void disconnectService();
+    QString videoId() const{return videoId_;}
+    QString liveChatId() const{return liveChatId_;}
+signals:
+    void messageReceived(const ChatMessage& message);
+    void pinnedMessageChanged(const ChatMessage& message, bool active);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+private:
+    void resolveTarget(); void bootstrap(const QString& videoId); void poll(); void pollViewers();
+    void resolveViaLiveRedirect(const QString& base); void resolveViaStreamsScrape(const QString& base);
+    static QStringList liveIds(const QByteArray& html);
+    static QString runsText(const QJsonObject& message);
+    static QJsonArray runsMetadata(const QJsonObject& message);
+    QNetworkAccessManager network_; QTimer retry_,pollTimer_,viewerTimer_;
+    QString platform_,target_,videoId_,liveChatId_,apiKey_,clientVersion_,continuation_,pinnedMessageId_;
+    bool verticalOnly_{}; bool explicitVideo_{}; QSet<QString> seen_; QHash<QString,ChatMessage> recentMessages_;
+};
+
+class YouTubeModerationService final : public QObject {
+    Q_OBJECT
+public:
+    explicit YouTubeModerationService(QObject* parent=nullptr);
+    void setAccessToken(QString token){token_=std::move(token);autoModDenied_.clear();}
+    void deleteMessage(const QString& messageId);
+    void ban(const QString& liveChatId,const QString& channelId,int seconds,const QString& user);
+    void removeBan(const QString& banId);
+signals:
+    void actionFinished(const QString& action,bool success,const QString& detail);
+    // permanent distinguishes a "Hide from channel" ban from a timed timeout,
+    // so callers can record/display which one actually happened.
+    void banCreated(const QString& id,const QString& user,bool permanent);
+private:
+    QNetworkRequest request(const QUrl& url)const; void watch(QNetworkReply*,const QString&);
+    QNetworkAccessManager network_; QString token_;
+    // Live chats we've already been told (via HTTP 401/403) we can't moderate —
+    // see TwitchModerationService::autoModDenied_ for why this matters.
+    QSet<QString> autoModDenied_;
+};
+
+class TikTokPage final : public QWebEnginePage {
+    Q_OBJECT
+public: using QWebEnginePage::QWebEnginePage;
+signals: void bridgeMessage(const QJsonObject& message);
+protected: void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel,const QString&,int,const QString&) override;
+};
+
+class TikTokLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit TikTokLiveService(QObject* parent=nullptr);
+    ~TikTokLiveService() override;
+    void connectUser(const QString& username); void disconnectService();
+    QWebEnginePage* page(){return page_;}
+    // The collector page lives in a real (but off-screen) QWebEngineView. A
+    // page with no view has a 0x0 viewport, and TikTok's chat list is
+    // virtualised off the viewport height, so it renders zero rows and the
+    // scraper sees an empty document. Showing the view is also how the user
+    // signs in to TikTok, since a signed-out LIVE page hides most of chat.
+    void setCollectorVisible(bool visible);
+    bool collectorVisible() const;
+    void reloadCollector();
+    QString currentUser() const { return username_; }
+signals:
+    void messageReceived(const ChatMessage& message);
+    void activityReceived(const StreamEvent& event);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+    // Human-readable trace of what the in-page bridge is finding, for the
+    // TikTok collector debug window.
+    void diagnostic(const QString& line);
+    void collectorVisibilityChanged(bool visible);
+protected:
+    bool eventFilter(QObject* watched,QEvent* event) override;
+private:
+    void installBridge();
+    QWebEngineProfile* profile_{};
+    TikTokPage* page_{};
+    QWebEngineView* view_{};
+    QString username_; QSet<QString> seen_,activitySeen_;
+};
+
+class KickLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit KickLiveService(QObject* parent=nullptr);
+    void connectChannel(const QString& channel); void disconnectService();
+signals:
+    void messageReceived(const ChatMessage& message);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+private:
+    void installBridge(); TikTokPage page_; QString channel_; QSet<QString> seen_;
+};
+
+class RumbleLiveService final : public QObject {
+    Q_OBJECT
+public:
+    explicit RumbleLiveService(QObject* parent=nullptr);
+    void connectApi(const QUrl& apiUrl); void disconnectService();
+signals:
+    void messageReceived(const ChatMessage& message);
+    void eventReceived(const StreamEvent& event);
+    void statusChanged(const QString& state,const QString& detail);
+    void viewerCountChanged(int viewers);
+private:
+    void poll(); QNetworkAccessManager network_; QTimer timer_; QUrl apiUrl_; QSet<QString> seen_,eventSeen_; bool eventsBaselined_{};
+};
+
+class TikTokModerationService final : public QObject {
+    Q_OBJECT
+public:
+    explicit TikTokModerationService(QObject* parent=nullptr);
+    void setToken(QString token){token_=std::move(token);}
+    void mute(const QString& room,const QString& user,int seconds,const QString& comment={});
+    void unmute(const QString& room,const QString& user);
+    void ban(const QString& room,const QString& user,const QString& comment={});
+    void unban(const QString& room,const QString& user);
+signals:void actionFinished(const QString& action,bool success,const QString& detail);
+private:void send(const QString&method,const QString&path,const QUrlQuery&query,const QString&action);
+    QNetworkAccessManager network_;QString token_;
+};

@@ -1,40 +1,46 @@
 # Leapcast Studio Changelog
 
-## Leapcast Studio 3.0.9.3
-
-- **Automatic updates are switched off in this build.** The splash screen no longer contacts GitHub at startup, the background check is gone, and Check now is disabled, so a locally built test binary can never be replaced by the published release. Rebuild with `-DLEAPCAST_AUTO_UPDATE=ON` to turn updating back on.
-- Added a Diagnose 403 button to the Discord card. It checks the bot token, then whether the bot can see the channel, then whether the bot is a member of that server, and names the step that fails instead of returning a bare HTTP 403.
-- Discord failures now explain the likely cause in plain English for every 403 code, including the ones Administrator does not fix: Missing Access (50001), AutoMod blocking the bot (200000), member timeouts, and network-level Cloudflare blocks.
-- A pasted channel link is now accepted anywhere a Channel ID is expected.
-- Added a shared diagnostics log window with the raw Discord and TikTok responses, and a Copy log button for reporting problems.
-- Fixed TikTok chat not appearing. The collector page had no browser view, so it had a zero-size viewport and TikTok's virtualised chat list rendered no rows at all; it now runs in a real off-screen 1280x900 view.
-- Fixed TikTok chat stopping after the first screenful. Messages are now de-duplicated by sender and text rather than by a flag on the chat row, which TikTok recycles for later messages.
-- Fixed wildly wrong TikTok viewer counts. The count no longer falls back to a whole-page text search or to the last `user_count` found anywhere in the page scripts, both of which matched recommended streams in the sidebar; it now reads only a counter inside the live room.
-- TikTok viewer counts written as `1.234` or `1,234` are no longer read as 1.
-- Added a TikTok collector card in Settings: show the hidden page, reload it, and sign in to TikTok once, with the sign-in remembered between launches.
-- The TikTok source status now says when the page is showing a login wall or a captcha instead of silently collecting nothing.
-- CI test builds no longer fail when the repository has no bundled Twitch application ID. Keys then shows a Twitch Application Client ID box so Twitch Connect can be pointed at your own Twitch app; releases still require the bundled ID.
-- Removed the duplicate Windows build workflow that ran a second, outdated build on every push.
-- Fixed TikTok chat posting every message twice. Rank and level chips ("No. 1", "Lv 18") are separate elements that appear and disappear as TikTok re-renders, so the same message kept producing two different texts; they are now ignored when matching a message against what was already shown.
-- Fixed TikTok chat stopping altogether, caused by reading rows from a detached copy of the page where the name and the message ran together.
-- TikTok likes, follows, gifts and shares now appear in the pop-out alongside joins.
-- Emoji in TikTok display names now survive and render, instead of arriving as replacement boxes.
-- Twitch emotes now render as images in the program chat, the pop-out and the OBS overlay, including BetterTTV, FrankerFaceZ and 7TV emotes for the connected channel.
-- YouTube custom emoji now actually load in the program and pop-out chat; they previously resolved to nothing because Qt will not fetch a remote image on its own.
-- The Discord bot now comes online automatically when a token is saved, instead of waiting for Run Bot to be pressed.
-- Live notifications now wait a full minute into the broadcast before posting, rather than five seconds, so a false start never announces a stream.
-- Left-clicking a name in the program chat opens a chatter card: account id, account age, follower count, whether they follow the channel and since when, subscription tier and months, and their Twitch badges.
-- The card carries Block, Ignore highlights, auto-saving private notes, links to the Twitch usercard and channel, the full timeout ladder (1s to 1w) with Unban and Ban, and that chatter's recent messages.
-- Twitch reconnection is required once for the new card: the app now also asks for the follower, subscription and block-list scopes.
-- Fixed the chatter card not opening. Inserting HTML rebuilds the character formatting from the markup and discards whatever was set beforehand, so neither a link around the name nor a marker set ahead of it survived. The name is now tagged after it is inserted, by merging the marker over the range it occupies, which keeps the per-character name colours intact. The pointer turns into a hand over a name, and a click that ends a text selection is ignored.
-- Fixed emotes showing as their names. Every emote was rendered as text the first time it appeared, because the picture was only emitted once the image had finished downloading — and the chat view already downloads images itself.
-- Added an Emotes line to the diagnostics log showing what Twitch tagged on each message and how many emote pictures came out of it.
-
 ## Leapcast Studio 3.0.9.1
 
-- Fixed Discord bot notifications being rejected before posting by adding Discord's required bot User-Agent.
-- Discord failures now show the exact API error code and message instead of a generic HTTP 403 notice.
-- Added support for four-part minor-fix versions such as `3.0.9.1` across builds, installers, releases, and automatic update comparisons.
+### Moderation
+
+- Left-clicking a name in the program chat opens a chatter card: account id, account age, follower count, whether they follow the channel and since when, subscription tier and months, and their Twitch badges.
+- The card carries Block, Ignore highlights, auto-saving private notes, links to the Twitch usercard and channel, the full timeout ladder (1s to 1w) with Unban and Ban, and that chatter's recent messages, updating live while they keep talking.
+- Every AutoMod rule can now be switched on or off on its own from the Moderation page: blocked words, spam and flooding, excessive CAPS, follower promotion spam, and links. The flood and CAPS rules assume a busy channel and cost a smaller one its regulars, so they no longer have to be accepted as a package.
+- Channel Point redemptions are drawn as a tinted, accented block with a CHANNEL POINTS label in the program chat, the pop-out and the OBS overlay. A chatter can type the words but cannot give their own line a background, so a redemption cannot be faked.
+- Blocking a user explains when Twitch needs reconnecting once, instead of showing raw JSON, and no longer leaves the box ticked when Twitch refused.
+- Ban and Unban carry drawn icons, and timeout buttons are sized from their own text so no label is clipped.
+- Twitch needs reconnecting once for the chatter card: the app now also asks for the follower, subscription and block-list permissions.
+
+### Emotes
+
+- Twitch emotes render as images in the program chat, the pop-out and the OBS overlay, including BetterTTV, FrankerFaceZ and 7TV emotes for the connected channel.
+- YouTube custom emoji now actually load in the program and pop-out chat; they previously resolved to nothing because Qt will not fetch a remote image on its own.
+- Emote ranges are decoded by code point, so a message containing an emoji no longer shifts every emote after it.
+
+### TikTok
+
+- Fixed TikTok chat not appearing at all. The collector page had no browser view, so it had a zero-size viewport and TikTok's virtualised chat list rendered no rows; it now runs in a real off-screen view with its own saved sign-in.
+- Fixed TikTok chat posting every message twice. Rank and level chips ("No. 1", "Lv 18") come and go as TikTok re-renders, which made the same message look new; they are now ignored when matching against what was already shown.
+- The collector will no longer treat TikTok's own navigation, footer or recommended-stream rail as chat. A row has to sit inside the live room, carry an identifiable author, and be short enough to be a message.
+- The TikTok source now reports what it is actually connected to — whether the page is the linked creator's LIVE, whether a live room is open, and the current viewer count — instead of silently collecting nothing.
+- Fixed wildly wrong TikTok viewer counts. The count is read only from a counter inside the live room, never from a whole-page text search or from another stream in the sidebar, and it refreshes every second.
+- TikTok viewer counts written as `1.234` or `1,234` are no longer read as 1.
+- TikTok likes, follows, gifts and shares now appear in the pop-out alongside joins.
+- Emoji in TikTok display names survive and render, instead of arriving as replacement boxes.
+
+### Discord
+
+- The Discord bot comes online automatically when a token is saved, instead of waiting for Run Bot to be pressed.
+- Live notifications wait a full minute into the broadcast before posting, rather than five seconds, so a false start never announces a stream.
+- Added a Diagnose button that checks the bot token, then whether the bot can see the channel, then whether the bot is a member of that server, then resolves its effective channel permissions — and names the step that fails instead of returning a bare HTTP 403.
+- Failures explain the likely cause in plain English, including the ones Administrator does not fix: Missing Access, AutoMod blocking the bot, member timeouts, and network-level blocks.
+- A pasted channel link is accepted anywhere a Channel ID is expected.
+
+### Elsewhere
+
+- Added a diagnostics log window carrying the raw Discord, TikTok and emote responses, with a Copy log button for reporting problems.
+- Keys shows a Twitch Application Client ID box when a build carries no bundled ID, so Twitch Connect can be pointed at your own Twitch application.
 
 ## Leapcast Studio 3.0.9
 

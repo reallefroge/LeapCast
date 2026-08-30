@@ -5,8 +5,8 @@ string(STRIP "${LEAPCAST_VERSION}" LEAPCAST_VERSION)
 if(DEFINED LEAPCAST_VERSION_OVERRIDE)
     set(LEAPCAST_VERSION "${LEAPCAST_VERSION_OVERRIDE}")
 endif()
-if(NOT LEAPCAST_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-    message(FATAL_ERROR "VERSION must contain a semantic version such as 2.0.3")
+if(NOT LEAPCAST_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$")
+    message(FATAL_ERROR "VERSION must contain three or four numeric parts, such as 3.0.9 or 3.0.9.1")
 endif()
 
 project(LeapcastStudio VERSION ${LEAPCAST_VERSION} LANGUAGES CXX)
@@ -19,6 +19,15 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(qrcodegen)
+
+option(LEAPCAST_AUTO_UPDATE
+    "Check for and install updates automatically at startup and in the background" ON)
+if(LEAPCAST_AUTO_UPDATE)
+    set(LEAPCAST_AUTO_UPDATE_BOOL "true")
+else()
+    set(LEAPCAST_AUTO_UPDATE_BOOL "false")
+    message(WARNING "Leapcast: automatic updates are DISABLED in this build")
+endif()
 
 set(LEAPCAST_TWITCH_CLIENT_ID "" CACHE STRING
     "Public Twitch application Client ID used by the built-in device authorization flow")
