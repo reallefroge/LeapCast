@@ -17,6 +17,7 @@ class QListWidget;
 class QPushButton;
 class QCheckBox;
 class QSlider;
+class QSpinBox;
 class QFrame;
 class QCloseEvent;
 class QShowEvent;
@@ -59,6 +60,17 @@ private:
                               const QString& credentialAction = {},
                               const QUrl& credentialUrl = {});
     void applyTheme();
+    // Chat text size is deliberately separate from the program font: the chat
+    // views are what gets read from across the room (or on a phone used as a
+    // second screen), and they need to go far larger than the rest of the UI
+    // can without the layout falling apart.
+    int chatFontSize() const;
+    void setChatFontSize(int points);
+    void adjustChatFontSize(int delta);
+    // Pushes the current size onto every chat view, including the lines that
+    // are already on screen. Qt's stylesheet re-polish resets a widget font,
+    // so applyTheme calls this after every sheet change.
+    void applyChatFont();
     void applyPlatformVisibility();
     void moveNavigationButton(const QString& key, int direction);
     void authorizeTwitch();
@@ -92,6 +104,11 @@ private:
     QHash<QString,QTextBrowser*> chatViews_;
     QHash<QString,ChatMessage> pinnedMessages_;
     QLabel* pinnedBanner_{};
+    // Live readout beside the A-/A+ buttons over the chat tabs, and the
+    // settings-page controls, kept in step whichever one is used.
+    QLabel* chatFontBadge_{};
+    QSlider* chatFontSlider_{};
+    QSpinBox* chatFontSpin_{};
     QHash<QString,QWidget*> sourceCards_;
     QHash<QString,QWidget*> platformChatWidgets_;
     QHash<QString,QPushButton*> navigationButtons_;

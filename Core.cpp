@@ -29,7 +29,15 @@ QString badgeGlyphs(const QStringList& badges) {
     return out;
 }
 
-QString chatBadgeHtml(const ChatMessage& message) {
+namespace {
+// Keeps a scaled picture inside sane bounds: never smaller than legible, never
+// so tall it pushes the lines apart on its own.
+int scaledChatPixels(int basePixels,int scalePercent){
+    return qBound(basePixels,basePixels*qBound(100,scalePercent,400)/100,basePixels*4);
+}
+}
+
+QString chatBadgeHtml(const ChatMessage& message, int imageScalePercent) {
     const QJsonArray custom=message.metadata.value(QStringLiteral("custom_chatter_icons")).toArray();
     if(custom.isEmpty())return badgeGlyphs(message.badges);
     QStringList retained;
@@ -39,7 +47,9 @@ QString chatBadgeHtml(const ChatMessage& message) {
     for(const auto&value:custom){
         const QString data=value.toString();
         if(++count>3||!data.startsWith(QStringLiteral("data:image/png;base64,")))continue;
-        html+=QStringLiteral("<img src='%1' width='20' height='20' style='vertical-align:-5px;margin:0 2px'>").arg(data.toHtmlEscaped());
+        const int badgePixels=scaledChatPixels(20,imageScalePercent);
+        html+=QStringLiteral("<img src='%1' width='%2' height='%2' style='vertical-align:-5px;margin:0 2px'>")
+                  .arg(data.toHtmlEscaped()).arg(badgePixels);
     }
     return html;
 }
@@ -82,7 +92,7 @@ QString redemptionRewardHtml(const ChatMessage& message) {
     return reward.toHtmlEscaped();
 }
 
-QString chatMessageBodyHtml(const ChatMessage& message) {
+QString chatMessageBodyHtml(const ChatMessage& message, int imageScalePercent) {
     // "runs" carries Twitch and third-party emotes; "youtube_runs" is the older
     // YouTube-only shape. Either is a list of {text} and {url,alt} pieces.
     QJsonArray runs=message.metadata.value(QStringLiteral("runs")).toArray();
@@ -105,8 +115,9 @@ QString chatMessageBodyHtml(const ChatMessage& message) {
                 // every emote fall back to its name — which is every emote, the
                 // first time you use it.
                 EmoteImageCache::instance().ensure(url);
-                html+=QStringLiteral("<img src='%1' alt='%2' title='%2' width='24' height='24' style='vertical-align:-6px;margin:0 1px'>")
-                    .arg(url.toString(QUrl::FullyEncoded).toHtmlEscaped(),fallback.toHtmlEscaped());
+                const int emotePixels=scaledChatPixels(24,imageScalePercent);
+                html+=QStringLiteral("<img src='%1' alt='%2' title='%2' width='%3' height='%3' style='vertical-align:-6px;margin:0 1px'>")
+                    .arg(url.toString(QUrl::FullyEncoded).toHtmlEscaped(),fallback.toHtmlEscaped()).arg(emotePixels);
             } else html+=fallback.toHtmlEscaped();
         }
         if(!html.isEmpty()) return html;

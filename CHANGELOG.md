@@ -1,5 +1,19 @@
 # Leapcast Studio Changelog
 
+## Leapcast Studio 3.0.9.2
+
+### Readability
+
+- Chat text has its own size now, set independently of the program font, from 8pt up to 48pt. Settings → Appearance → Chat text size. The program font could never go far enough on its own: past about 20pt it starts pulling the rest of the layout apart, while chat is the one panel that has to stay readable at a distance or on a small window.
+- **A− / A+** buttons sit directly above the chat tabs, with the current size beside them and a reset button. Reaching them does not mean finding the Settings page first, which is the part that is genuinely hard to do when the window is already too small to read.
+- Ctrl + mouse wheel over the chat resizes it, as do Ctrl+= and Ctrl+- from anywhere in the window, and Ctrl+0 returns it to 11pt. This replaces Qt's built-in Ctrl+wheel zoom, which was forgotten the moment the program closed — the new size is saved and comes back on the next launch.
+- Chatter badges and emote pictures scale with the chat text instead of staying at their original 20px and 24px next to it.
+- The program font now goes up to 32pt (it stopped at 20pt), for running Leapcast in a small window or on a phone used as a second screen.
+
+### Fixed
+
+- Fixed the build: `cmake/BuildInfo.hpp.in` never defined `leapcast::AutoUpdate`, which `main.cpp` and `MainWindow.cpp` both read, so `LEAPCAST_AUTO_UPDATE` was computed by CMake and then dropped on the floor. It is now written into the generated header as the option intends.
+
 ## Leapcast Studio 3.0.9.1
 
 ### Moderation

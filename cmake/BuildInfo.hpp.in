@@ -3,4 +3,8 @@
 namespace leapcast {
 inline constexpr auto Version = "@PROJECT_VERSION@";
 inline constexpr auto TwitchClientId = "@LEAPCAST_TWITCH_CLIENT_ID@";
+// Mirrors the LEAPCAST_AUTO_UPDATE CMake option. Release installers ship with
+// it on; -NoAutoUpdate (build-installer.ps1) turns it off for local test
+// builds, which is also what makes the version badge read as a test build.
+inline constexpr bool AutoUpdate = @LEAPCAST_AUTO_UPDATE_BOOL@;
 }

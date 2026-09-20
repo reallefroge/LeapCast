@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include <QAction>
 #include <QAbstractItemView>
@@ -54,6 +55,9 @@
 #include <QRegularExpression>
 #include <QScreen>
 #include <QShowEvent>
+#include <QShortcut>
+#include <QToolButton>
+#include <QWheelEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -76,6 +80,15 @@
 #include <QVector>
 
 namespace {
+// The program font tops out where the surrounding layout still holds together.
+// Chat goes much further, because on a phone being used as a second screen the
+// chat panel is the only thing that has to stay readable.
+constexpr int kChatFontMin = 8;
+constexpr int kChatFontMax = 48;
+constexpr int kChatFontDefault = 11;
+constexpr int kProgramFontMin = 8;
+constexpr int kProgramFontMax = 32;
+
 QPixmap phoneQrCode(const QUrl& url,int pixels=236){
     if(!url.isValid())return {};
     const auto qr=qrcodegen::QrCode::encodeText(url.toString(QUrl::FullyEncoded).toUtf8().constData(),qrcodegen::QrCode::Ecc::MEDIUM);
@@ -408,7 +421,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     splitter->setSizes({850, 430});
     setCentralWidget(splitter);
     connect(controller_, &AppController::messageReady, this, [this](const ChatMessage& m) {
-        const QString badges = chatBadgeHtml(m);
+        // Pictures are emitted at the size the chat text is currently set to,
+        // so an enlarged chat does not end up with postage-stamp emotes.
+        const int imageScale = chatFontSize() * 100 / kChatFontDefault;
+        const QString badges = chatBadgeHtml(m, imageScale);
         const QString icon=controller_->settings()->preference(QStringLiteral("program_popout_show_platform_icons"),true).toBool()?platformIconHtml(m.platform):QString();
         // Stamped with an id (see appendChatMessage) so a right-click on
         // either view can be traced back to this message for moderation, and
@@ -417,7 +433,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const bool redemption = isChannelPointRedemption(m);
         QString leading = icon + (badges.isEmpty() ? QString() : badges + QStringLiteral(" "));
         const QString name = chatNameHtml(m);
-        QString body = chatMessageBodyHtml(m);
+        QString body = chatMessageBodyHtml(m, imageScale);
         if (redemption) {
             // The reward is drawn as chrome; only the redeemer's own words are
             // rendered as their text.
@@ -732,6 +748,19 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* e) {
     // Installed on each chat view's viewport (see buildChatDock). Turns the
     // pointer into a hand over a username and opens that chatter's card on a
     // plain left-click, while leaving every other click to QTextBrowser.
+    // Ctrl + wheel is taken first: QTextEdit has its own Ctrl+wheel zoom, but
+    // that one is forgotten on the next restart and does not move the setting,
+    // so it is intercepted here and turned into a real size change.
+    if(e->type()==QEvent::Wheel){
+        auto* wheel=static_cast<QWheelEvent*>(e);
+        if(!(wheel->modifiers()&Qt::ControlModifier))return QMainWindow::eventFilter(watched,e);
+        auto* viewport=qobject_cast<QWidget*>(watched);
+        if(!viewport||!qobject_cast<QTextBrowser*>(viewport->parentWidget()))
+            return QMainWindow::eventFilter(watched,e);
+        const int steps=wheel->angleDelta().y();
+        if(steps!=0)adjustChatFontSize(steps>0?1:-1);
+        return true;
+    }
     if(e->type()!=QEvent::MouseButtonRelease&&e->type()!=QEvent::MouseMove)
         return QMainWindow::eventFilter(watched,e);
     auto* viewport=qobject_cast<QWidget*>(watched);
@@ -777,8 +806,8 @@ void MainWindow::showFirstLaunchUpdateLog(){
     QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("What's New in Leapcast %1").arg(version));dialog.resize(560,430);dialog.setMinimumSize(440,330);
     auto* layout=new QVBoxLayout(&dialog);layout->setContentsMargins(22,20,22,20);layout->setSpacing(12);
     auto* title=label(QStringLiteral("✨ WHAT'S NEW • %1").arg(version),"heroTitle");layout->addWidget(title);
-    auto* summary=label(QStringLiteral("Per-rule AutoMod switches, a full chatter card, real Twitch emotes, and a TikTok collector that finally reports what it is connected to."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
-    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **\U0001F6E1 AutoMod, rule by rule**  \n  Blocked words, spam and flooding, CAPS, promotion spam and links each have their own switch on the Moderation page. The flood and CAPS rules assume a busy channel \u2014 on a smaller one they cost you regulars, so you can turn just those off.\n\n- **\U0001F464 Click a name in chat**  \n  Account age, follower count, whether they follow you and since when, subscription tier and months, notes that save themselves, the full timeout ladder, and their recent messages updating live.\n\n- **\U0001F60A Real emotes**  \n  Twitch, BetterTTV, FrankerFaceZ and 7TV emotes render as pictures in the program chat, the pop-out and the OBS overlay.\n\n- **\U0001F4AC TikTok that tells you the truth**  \n  Chat from the linked LIVE only \u2014 never the site\u2019s own menus or the recommended-stream rail \u2014 with an accurate viewer count and a status line saying exactly what it is connected to.\n\n- **\U0001F48E Redemptions cannot be faked**  \n  Channel Point redemptions get their own tinted block that no amount of typing can imitate."));layout->addWidget(notes,1);
+    auto* summary=label(QStringLiteral("Chat text now has a size of its own, up to 48pt, so the chat panel stays readable on a small or mirrored window."),"muted");summary->setWordWrap(true);layout->addWidget(summary);
+    auto* notes=new QTextBrowser;notes->setOpenExternalLinks(true);notes->setFrameShape(QFrame::NoFrame);notes->document()->setDefaultStyleSheet(QStringLiteral("body{line-height:1.5;color:#eef2ff} h3{color:#53cdf3;margin:5px 0 10px} li{margin:0 0 12px 0} strong{color:#ffffff}"));notes->setMarkdown(QStringLiteral("### Highlights\n\n- **\U0001F524 Chat text size, on its own dial**  \n  The chat panel now has its own size, separate from the program font, and it goes up to 48pt. Settings \u2192 Appearance \u2192 Chat text size, or the **A\u2212 / A+** buttons sitting right above the chat.\n\n- **\U0001F5B1 Ctrl + scroll wheel**  \n  Hold Ctrl and scroll over the chat to resize it. Ctrl+= and Ctrl+- do the same from the keyboard, and Ctrl+0 puts it back. Unlike the old built-in zoom, the size sticks across restarts.\n\n- **\U0001F642 Badges and emotes keep up**  \n  Emote pictures and chatter badges scale with the chat text instead of staying postage-stamp sized next to it.\n\n- **\U0001F5A5 A bigger program font**  \n  The program font now goes to 32pt (it stopped at 20), for running Leapcast on a small window or a phone used as a second screen."));layout->addWidget(notes,1);
     auto* close=new QPushButton(QStringLiteral("Let's go!"));close->setProperty("primary",true);connect(close,&QPushButton::clicked,&dialog,&QDialog::accept);layout->addWidget(close,0,Qt::AlignRight);dialog.exec();
 }
 
@@ -1420,10 +1449,19 @@ QWidget* MainWindow::buildSettingsPage(){
     appearanceLayout->addWidget(label(QStringLiteral("APPEARANCE"),"cardTitle"));
     auto* fontRow=new QHBoxLayout;fontRow->addWidget(label(QStringLiteral("Program font")));
     auto* fonts=new QFontComboBox;fonts->setCurrentFont(QFont(controller_->settings()->preference("ui_font_family","Segoe UI").toString()));fontRow->addWidget(fonts,1);
-    auto* fontSize=new QSpinBox;fontSize->setRange(8,20);fontSize->setSuffix(QStringLiteral(" pt"));fontSize->setValue(controller_->settings()->preference("ui_font_size",10).toInt());fontRow->addWidget(fontSize);appearanceLayout->addLayout(fontRow);
+    auto* fontSize=new QSpinBox;fontSize->setRange(kProgramFontMin,kProgramFontMax);fontSize->setSuffix(QStringLiteral(" pt"));fontSize->setValue(controller_->settings()->preference("ui_font_size",10).toInt());fontRow->addWidget(fontSize);appearanceLayout->addLayout(fontRow);
     auto* scaleRow=new QHBoxLayout;scaleRow->addWidget(label(QStringLiteral("Button and control size")));
     auto* controlScale=new QSlider(Qt::Horizontal);controlScale->setRange(80,160);controlScale->setValue(controller_->settings()->preference("ui_control_scale",92).toInt());scaleRow->addWidget(controlScale,1);
     auto* scaleValue=label(QString::number(controlScale->value())+QStringLiteral("%"));scaleRow->addWidget(scaleValue);appearanceLayout->addLayout(scaleRow);
+    // Separate from the program font on purpose: chat can go to 48pt while the
+    // rest of the UI stays where the layout still works.
+    auto* chatSizeRow=new QHBoxLayout;chatSizeRow->addWidget(label(QStringLiteral("Chat text size")));
+    chatFontSlider_=new QSlider(Qt::Horizontal);chatFontSlider_->setRange(kChatFontMin,kChatFontMax);chatFontSlider_->setValue(chatFontSize());chatSizeRow->addWidget(chatFontSlider_,1);
+    chatFontSpin_=new QSpinBox;chatFontSpin_->setRange(kChatFontMin,kChatFontMax);chatFontSpin_->setSuffix(QStringLiteral(" pt"));chatFontSpin_->setValue(chatFontSize());chatSizeRow->addWidget(chatFontSpin_);
+    appearanceLayout->addLayout(chatSizeRow);
+    auto* chatSizeHelp=label(QStringLiteral("Applies to the chat panel only, so chat stays readable when the window is small — on a phone used as a second screen, for example. The A− / A+ buttons above the chat, Ctrl + mouse wheel over the chat, and Ctrl+= / Ctrl+- / Ctrl+0 do the same thing. Badges and emotes grow with the text."),"muted");chatSizeHelp->setWordWrap(true);appearanceLayout->addWidget(chatSizeHelp);
+    connect(chatFontSlider_,&QSlider::valueChanged,this,[this](int value){setChatFontSize(value);});
+    connect(chatFontSpin_,qOverload<int>(&QSpinBox::valueChanged),this,[this](int value){setChatFontSize(value);});
     auto* compactLayout=new QCheckBox(QStringLiteral("Compact layout (less spacing, same features)"));compactLayout->setChecked(controller_->settings()->preference(QStringLiteral("ui_compact_layout"),true).toBool());appearanceLayout->addWidget(compactLayout);
     connect(fonts,&QFontComboBox::currentFontChanged,this,[this](const QFont&font){controller_->settings()->setPreference("ui_font_family",font.family());applyTheme();});
     connect(fontSize,qOverload<int>(&QSpinBox::valueChanged),this,[this](int value){controller_->settings()->setPreference("ui_font_size",value);applyTheme();});
@@ -1968,7 +2006,43 @@ void MainWindow::refreshPinnedBanner(){
 QWidget* MainWindow::buildChatDock() {
     auto* dock = new QFrame; dock->setObjectName(QStringLiteral("chatDock"));
     auto* layout = new QVBoxLayout(dock);
-    layout->addWidget(label(QStringLiteral("CHAT PREVIEW"), "pageTitle"));
+    // Title row doubles as the text-size control. Sitting right over the chat
+    // matters more than tidiness here: when the window is small - mirrored onto
+    // a phone used as a second screen, say - digging through Settings to find
+    // the size control is exactly the thing that is hard to do.
+    auto* header = new QHBoxLayout;
+    header->setContentsMargins(0,0,0,0);
+    header->setSpacing(4);
+    header->addWidget(label(QStringLiteral("CHAT PREVIEW"), "pageTitle"));
+    header->addStretch(1);
+    // Not the "signal" role: that one is pinned at 8pt, and a readout of the
+    // text size is the last thing that should stay small here.
+    chatFontBadge_ = label(QStringLiteral("%1 pt").arg(chatFontSize()));
+    chatFontBadge_->setStyleSheet(QStringLiteral("color:#68e9d5;font-weight:800;"));
+    chatFontBadge_->setToolTip(QStringLiteral("Chat text size. Ctrl + mouse wheel over the chat, or Ctrl+= and Ctrl+- , does the same."));
+    header->addWidget(chatFontBadge_);
+    const auto sizeButton=[this](const QString& text,const QString& tip,int delta){
+        auto* button=new QToolButton;
+        button->setText(text);
+        button->setToolTip(tip);
+        button->setAutoRaise(false);
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setStyleSheet(QStringLiteral(
+            "QToolButton{background:#202a40;border:1px solid #2e3a56;border-radius:7px;"
+            "padding:2px 9px;font-weight:800;color:#eef2ff;}"
+            "QToolButton:hover{background:#2c3957;border-color:#4a608a;}"));
+        connect(button,&QToolButton::clicked,this,[this,delta]{
+            // 0 is the reset, so a size that has been pushed too far to read
+            // the buttons themselves can always be brought back.
+            if(delta==0)setChatFontSize(kChatFontDefault);
+            else adjustChatFontSize(delta);
+        });
+        return button;
+    };
+    header->addWidget(sizeButton(QStringLiteral("A\u2212"),QStringLiteral("Smaller chat text (Ctrl+-)"),-1));
+    header->addWidget(sizeButton(QStringLiteral("A+"),QStringLiteral("Bigger chat text (Ctrl+=)"),1));
+    header->addWidget(sizeButton(QStringLiteral("\u21BA"),QStringLiteral("Reset chat text size (Ctrl+0)"),0));
+    layout->addLayout(header);
     pinnedBanner_=new QLabel;pinnedBanner_->setWordWrap(true);pinnedBanner_->setTextFormat(Qt::RichText);pinnedBanner_->setTextInteractionFlags(Qt::TextSelectableByMouse);pinnedBanner_->setStyleSheet(QStringLiteral("background:#211d12;border:1px solid #8a6f2b;border-radius:9px;padding:8px;color:#f7f1d1;"));pinnedBanner_->hide();layout->addWidget(pinnedBanner_);
     chatTabs_ = new QTabWidget;
     chatTabs_->setIconSize(QSize(44, 26));
@@ -1983,6 +2057,9 @@ QWidget* MainWindow::buildChatDock() {
     for (qsizetype index=0; index<tabs.size(); ++index) {
         const auto& tab=tabs.at(index);
         auto* chat = new ChatBrowser;
+        // Matched by the QTextBrowser#chatView rule in applyTheme, which is
+        // what keeps the chat size independent of the program font.
+        chat->setObjectName(QStringLiteral("chatView"));
         chat->setPlaceholderText(QStringLiteral("Connected messages appear here."));
         // Emote pictures download in the background; binding each tab's
         // document lets them appear as soon as they land.
@@ -2018,6 +2095,26 @@ QWidget* MainWindow::buildChatDock() {
     layout->addWidget(chatTabs_, 1);
     connect(chatTabs_,&QTabWidget::currentChanged,this,[this]{refreshPinnedBanner();});
     applyPlatformVisibility();
+    // Window-wide so they work wherever the focus happens to be, which on a
+    // small mirrored window is rarely the chat view itself. Registered through
+    // a seen-set because QKeySequence::ZoomIn IS Ctrl++ on Windows, and two
+    // shortcuts on one sequence make Qt call neither of them.
+    QList<QKeySequence> registered;
+    const auto bindZoom=[this,&registered](const QKeySequence& sequence,int delta){
+        if(sequence.isEmpty()||registered.contains(sequence))return;
+        registered.append(sequence);
+        connect(new QShortcut(sequence,this),&QShortcut::activated,this,[this,delta]{
+            if(delta==0)setChatFontSize(kChatFontDefault);
+            else adjustChatFontSize(delta);
+        });
+    };
+    bindZoom(QKeySequence(QStringLiteral("Ctrl+=")),1);
+    bindZoom(QKeySequence(QStringLiteral("Ctrl++")),1);
+    bindZoom(QKeySequence(QKeySequence::ZoomIn),1);
+    bindZoom(QKeySequence(QStringLiteral("Ctrl+-")),-1);
+    bindZoom(QKeySequence(QKeySequence::ZoomOut),-1);
+    bindZoom(QKeySequence(QStringLiteral("Ctrl+0")),0);
+    applyChatFont();
 
     const auto ensurePopout = [this] {
         if (popout_) return popout_;
@@ -2090,6 +2187,55 @@ QWidget* MainWindow::buildChatDock() {
     return dock;
 }
 
+int MainWindow::chatFontSize() const {
+    if(!controller_)return kChatFontDefault;
+    return qBound(kChatFontMin,
+                  controller_->settings()->preference(QStringLiteral("chat_font_size"),kChatFontDefault).toInt(),
+                  kChatFontMax);
+}
+
+void MainWindow::setChatFontSize(int points) {
+    const int next=qBound(kChatFontMin,points,kChatFontMax);
+    if(controller_)controller_->settings()->setPreference(QStringLiteral("chat_font_size"),next);
+    // Both the header buttons and the settings card can drive this, so each
+    // one is put back in step without re-entering this slot.
+    if(chatFontSlider_&&chatFontSlider_->value()!=next){QSignalBlocker block(chatFontSlider_);chatFontSlider_->setValue(next);}
+    if(chatFontSpin_&&chatFontSpin_->value()!=next){QSignalBlocker block(chatFontSpin_);chatFontSpin_->setValue(next);}
+    if(chatFontBadge_)chatFontBadge_->setText(QStringLiteral("%1 pt").arg(next));
+    applyChatFont();
+}
+
+void MainWindow::adjustChatFontSize(int delta) { setChatFontSize(chatFontSize()+delta); }
+
+void MainWindow::applyChatFont() {
+    if(chatViews_.isEmpty())return;
+    const int points=chatFontSize();
+    const QString family=controller_
+        ?controller_->settings()->preference(QStringLiteral("ui_font_family"),QStringLiteral("Segoe UI")).toString()
+        :QStringLiteral("Segoe UI");
+    // setFamilies (not setFamily) keeps per-glyph fallback, so an emoji in a
+    // display name still renders from the emoji font instead of as a box.
+    const QStringList families{family,QStringLiteral("Segoe UI Emoji"),QStringLiteral("Noto Color Emoji")};
+    QFont font(family);
+    font.setFamilies(families);
+    font.setPointSize(points);
+    for(auto* view:std::as_const(chatViews_)){
+        if(!view)continue;
+        view->setFont(font);
+        view->document()->setDefaultFont(font);
+        // The default font alone does not re-size text that is already in the
+        // document — its character formats carry the size they were inserted
+        // with — so the existing lines are re-formatted explicitly.
+        QTextCursor cursor(view->document());
+        cursor.select(QTextCursor::Document);
+        QTextCharFormat format;
+        format.setFontFamilies(families);
+        format.setFontPointSize(points);
+        cursor.mergeCharFormat(format);
+        view->viewport()->update();
+    }
+}
+
 void MainWindow::applyTheme() {
     const QString family=controller_?controller_->settings()->preference("ui_font_family","Segoe UI").toString():QStringLiteral("Segoe UI");
     const int fontSize=controller_?controller_->settings()->preference("ui_font_size",10).toInt():10;
@@ -2125,6 +2271,7 @@ void MainWindow::applyTheme() {
         QTabBar::tab:selected { background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #765df2,stop:1 #526cdd); }
         QTabBar::tab:disabled { color:#565f78; }
         QTextBrowser { background:#090b11; border:0; padding:10px; }
+        QTextBrowser#chatView { font-size:__CHATSIZE__pt; }
         QTabWidget#moderationTabs::pane { background:#101522; border:1px solid #283149; border-radius:10px; }
         QListWidget#restrictionList { background:transparent; border:0; outline:0; padding:2px; }
         QListWidget#restrictionList::item { background:#171d2b; border:1px solid #273149; border-radius:9px; }
@@ -2142,9 +2289,13 @@ void MainWindow::applyTheme() {
         QTabWidget#wordManager::pane { border:1px solid #293651; border-radius:8px; background:#101624; }
     )");
     family.contains(QLatin1Char('\''))?sheet.replace("__FONT__",QStringLiteral("Segoe UI")):sheet.replace("__FONT__",family);
-    sheet.replace("__SIZE__",QString::number(qBound(8,fontSize,20)));
+    sheet.replace("__SIZE__",QString::number(qBound(kProgramFontMin,fontSize,kProgramFontMax)));
+    sheet.replace("__CHATSIZE__",QString::number(chatFontSize()));
     sheet.replace("__VPAD__",QString::number(qMax(5,10*scale/100)));
     sheet.replace("__HPAD__",QString::number(qMax(6,12*scale/100)));
     sheet.replace("__NAVPAD__",QString::number(compact?6:9));
     qApp->setStyleSheet(sheet);
+    // A stylesheet change re-polishes every widget and resets the font set on
+    // the chat views above, so the chat size is pushed back on afterwards.
+    applyChatFont();
 }

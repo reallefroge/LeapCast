@@ -42,7 +42,10 @@ Q_DECLARE_METATYPE(ChatMessage)
 // requires an authenticated API call and bundled images per badge set, so
 // this uses plain-text glyphs instead.
 QString badgeGlyphs(const QStringList& badges);
-QString chatBadgeHtml(const ChatMessage& message);
+// imageScalePercent scales the inline badge/emote pictures so they keep pace
+// with a chat view whose text has been enlarged (see MainWindow's chat text
+// size). 100 keeps the original 20px badge / 24px emote artwork.
+QString chatBadgeHtml(const ChatMessage& message, int imageScalePercent = 100);
 // True when this line came from Twitch's redemption feed rather than from
 // somebody typing. Anyone can type "redeemed a reward", so the chat views draw
 // these with chrome a typed message can never produce - a tinted block and a
@@ -62,7 +65,7 @@ QString chatNameHtml(const ChatMessage& message);
 // YouTube custom emoji via "youtube_runs", Twitch and third-party emotes via
 // "runs". The plain ChatMessage::text stays intact for moderation, copying,
 // logs, and accessibility fallbacks.
-QString chatMessageBodyHtml(const ChatMessage& message);
+QString chatMessageBodyHtml(const ChatMessage& message, int imageScalePercent = 100);
 
 // QTextBrowser will not fetch an https image on its own, so emote pictures have
 // to be downloaded once and handed to each chat document as a resource. Bind a
